@@ -17,7 +17,7 @@ jobs:
           channel: stable
 
       - name: Generate platform folders (android/ etc.) if missing
-        run: flutter create --platforms=android --org com.ayatstudio .
+        run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
 
       - name: Install dependencies
         run: flutter pub get
