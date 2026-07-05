@@ -19,7 +19,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _videoPath;
   AyahMatch? _lastMatch;
   bool _busy = false;
-  double? _downloadProgress; // null when not downloading
 
   @override
   void initState() {
@@ -48,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_videoPath == null || _matcher == null) return;
     setState(() {
       _busy = true;
-      _downloadProgress = null;
       _status = 'جارٍ استخراج الصوت…';
     });
     try {
@@ -56,21 +54,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final text = await WhisperService.transcribeWav(
         wav,
         onStatus: (s) => setState(() => _status = s),
-        onProgress: (f) => setState(() => _downloadProgress = f),
       );
       final match = _matcher!.match(text);
       setState(() {
         _lastMatch = match;
-        _downloadProgress = null;
         _status = match != null
             ? 'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num} (${(match.confidence * 100).round()}٪)'
             : 'لم يتم العثور على آية مطابقة بثقة كافية';
       });
     } catch (e) {
-      setState(() {
-        _downloadProgress = null;
-        _status = 'خطأ: $e';
-      });
+      setState(() => _status = 'خطأ: $e');
     } finally {
       setState(() => _busy = false);
     }
@@ -105,12 +98,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         fontSize: 13,
                       ),
                     ),
-                    if (_downloadProgress != null) ...[
+                    if (_busy) ...[
                       const SizedBox(height: 12),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(999),
                         child: LinearProgressIndicator(
-                          value: _downloadProgress,
                           minHeight: 6,
                           backgroundColor: AyatColors.surface3,
                           valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
