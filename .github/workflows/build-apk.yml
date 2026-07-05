@@ -36,7 +36,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build release APK
+      - name: Build release APK (first pass — lets ffmpeg_kit_flutter_new download its native AAR; expected to fail on a clean checkout)
+        run: flutter build apk --release || true
+
+      - name: Build release APK (retry — AAR is now cached, this pass should succeed)
         run: flutter build apk --release
 
       - name: Upload APK artifact
