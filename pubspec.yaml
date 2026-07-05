@@ -1,0 +1,34 @@
+name: ayat_studio_app
+description: Ayat Studio — Quran video editing and ayah detection, native APK.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  file_picker: ^8.0.0
+  video_player: ^2.9.1
+  path_provider: ^2.1.3
+  permission_handler: ^11.3.1
+  ffmpeg_kit_flutter_new: ^1.6.0
+  whisper_ggml: ^1.3.1
+  http: ^1.2.1
+  share_plus: ^9.0.0
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/quran/
+  # NOTE: assets/models/ is intentionally NOT bundled — ggml-base.bin is
+  # ~141MB and GitHub rejects any pushed file over 100MB. WhisperService
+  # downloads and caches it on first run instead (see whisper_service.dart).
