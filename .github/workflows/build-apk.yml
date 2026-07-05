@@ -20,7 +20,15 @@ jobs:
         run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
 
       - name: Pin NDK version required by whisper_ggml
-        run: sed -i 's/ndkVersion flutter.ndkVersion/ndkVersion "29.0.13113456"/' android/app/build.gradle
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/ndkVersion = flutter.ndkVersion/ndkVersion = "29.0.13113456"/' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i 's/ndkVersion flutter.ndkVersion/ndkVersion "29.0.13113456"/' android/app/build.gradle
+          else
+            echo "Neither build.gradle.kts nor build.gradle found under android/app/" >&2
+            exit 1
+          fi
 
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
