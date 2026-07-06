@@ -19,6 +19,17 @@ jobs:
       - name: Generate platform folders (android/ etc.) if missing
         run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
 
+      - name: Dedupe ffmpeg-kit-full-gpl / ffmpeg-kit-min native libs (both bundle the same .so files, e.g. libavcodec.so, which Gradle's native-lib merge refuses to pick between on its own)
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i '/^android {/a\    packaging { jniLibs { pickFirsts += "**/*.so" } }' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i "/^android {/a\\    packagingOptions { jniLibs { pickFirsts += ['**/*.so'] } }" android/app/build.gradle
+          else
+            echo "Neither build.gradle.kts nor build.gradle found under android/app/" >&2
+            exit 1
+          fi
+
       - name: Pin NDK version required by whisper_ggml, minSdk required by ffmpeg_kit_flutter_new v4.x
         run: |
           if [ -f android/app/build.gradle.kts ]; then
