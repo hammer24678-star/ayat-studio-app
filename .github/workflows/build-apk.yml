@@ -63,22 +63,27 @@ jobs:
           if ! grep -q 'FORCE_COMPILESDK_36' android/build.gradle.kts; then
             {
               echo ''
-              echo '// FORCE_COMPILESDK_36 -- override compileSdk for every Android plugin subproject,'
-              echo '// since flutter.compileSdkVersion resolves to android-34 in this Flutter SDK'
-              echo '// version but flutter_plugin_android_lifecycle (pulled in transitively by'
-              echo '// file_picker, permission_handler, etc.) requires >=36. App-level compileSdk'
-              echo '// in android/app/build.gradle.kts only affects :app, not plugin subprojects.'
+              echo '// FORCE_COMPILESDK_36 -- override compileSdk for every Android plugin subproject.'
+              echo '// Guarded on state.executed because the templates existing'
+              echo '// "subprojects { project.evaluationDependsOn(\":app\") }" block forces :app to'
+              echo '// evaluate early, so by the time this runs for :app, afterEvaluate would throw'
+              echo '// "Cannot run Project.afterEvaluate(Action) when the project is already evaluated."'
               echo 'subprojects {'
-              echo '    afterEvaluate {'
-              echo '        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { ext ->'
+              echo '    val applyCompileSdk: (org.gradle.api.Project) -> Unit = { p ->'
+              echo '        p.extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { ext ->'
               echo '            ext.compileSdkVersion(36)'
               echo '        }'
+              echo '    }'
+              echo '    if (project.state.executed) {'
+              echo '        applyCompileSdk(project)'
+              echo '    } else {'
+              echo '        afterEvaluate { applyCompileSdk(project) }'
               echo '    }'
               echo '}'
             } >> android/build.gradle.kts
           fi
           echo "-- tail of android/build.gradle.kts:"
-          tail -20 android/build.gradle.kts
+          tail -25 android/build.gradle.kts
 
       - name: Pin NDK version required by whisper_ggml, minSdk required by ffmpeg_kit_flutter_new v4.x, compileSdk 36 required by flutter_plugin_android_lifecycle
         run: |
