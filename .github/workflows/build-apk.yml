@@ -30,6 +30,17 @@ jobs:
             exit 1
           fi
 
+      - name: Exclude ffmpeg-kit-min transitive dependency (whisper_ggml pulls in ffmpeg_kit_flutter_new_min, which bundles the same com.antonkarpenko.ffmpegkit.* classes as our direct ffmpeg_kit_flutter_new full-gpl dependency — full-gpl is a superset, so it's safe to drop min)
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i '/^android {/i\configurations.all { exclude(group = "com.antonkarpenko", module = "ffmpeg-kit-min") }' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i "/^android {/i\\configurations.all { exclude group: 'com.antonkarpenko', module: 'ffmpeg-kit-min' }" android/app/build.gradle
+          else
+            echo "Neither build.gradle.kts nor build.gradle found under android/app/" >&2
+            exit 1
+          fi
+
       - name: Pin NDK version required by whisper_ggml, minSdk required by ffmpeg_kit_flutter_new v4.x
         run: |
           if [ -f android/app/build.gradle.kts ]; then
