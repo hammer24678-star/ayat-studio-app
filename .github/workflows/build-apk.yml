@@ -19,6 +19,23 @@ jobs:
       - name: Generate platform folders (android/ etc.) if missing
         run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
 
+      - name: Diagnose root-level Android Gradle files (app-level compileSdk=36 doesn't propagate to plugin subprojects like file_picker — need to see the actual generated root build.gradle(.kts)/settings.gradle(.kts) before writing the subprojects-wide fix)
+        run: |
+          echo "=== android/ directory listing ==="
+          ls -la android/
+          echo
+          echo "=== android/build.gradle.kts (if present) ==="
+          cat android/build.gradle.kts 2>/dev/null || echo "NOT FOUND"
+          echo
+          echo "=== android/build.gradle (if present) ==="
+          cat android/build.gradle 2>/dev/null || echo "NOT FOUND"
+          echo
+          echo "=== android/settings.gradle.kts (if present) ==="
+          cat android/settings.gradle.kts 2>/dev/null || echo "NOT FOUND"
+          echo
+          echo "=== android/settings.gradle (if present) ==="
+          cat android/settings.gradle 2>/dev/null || echo "NOT FOUND"
+
       - name: Dedupe ffmpeg-kit-full-gpl / ffmpeg-kit-min native libs (both bundle the same .so files, e.g. libavcodec.so, which Gradle's native-lib merge refuses to pick between on its own)
         run: |
           if [ -f android/app/build.gradle.kts ]; then
