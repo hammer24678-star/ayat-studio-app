@@ -58,24 +58,24 @@ jobs:
             exit 1
           fi
 
-      - name: Force compileSdk 36 across all Android plugin subprojects (flutter.compileSdkVersion resolves to android-34 in this Flutter SDK, but flutter_plugin_android_lifecycle requires >=36; app-level compileSdk only affects :app, not plugin subprojects like file_picker)
+      - name: Force compileSdk 36 across all Android plugin subprojects (flutter.compileSdkVersion resolves to android-34 in this Flutter SDK version but flutter_plugin_android_lifecycle requires >=36; app-level compileSdk only affects :app, not plugin subprojects like file_picker)
         run: |
           if ! grep -q 'FORCE_COMPILESDK_36' android/build.gradle.kts; then
-            cat >> android/build.gradle.kts << 'KOTLIN_EOF'
-
-// FORCE_COMPILESDK_36 — override every Android plugin subproject's compileSdk,
-// since flutter.compileSdkVersion resolves to android-34 in this Flutter SDK
-// version but flutter_plugin_android_lifecycle (pulled in transitively by
-// file_picker, permission_handler, etc.) requires >=36. App-level compileSdk
-// in android/app/build.gradle.kts only affects :app, not plugin subprojects.
-subprojects {
-    afterEvaluate {
-        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { ext ->
-            ext.compileSdkVersion(36)
-        }
-    }
-}
-KOTLIN_EOF
+            {
+              echo ''
+              echo '// FORCE_COMPILESDK_36 -- override compileSdk for every Android plugin subproject,'
+              echo '// since flutter.compileSdkVersion resolves to android-34 in this Flutter SDK'
+              echo '// version but flutter_plugin_android_lifecycle (pulled in transitively by'
+              echo '// file_picker, permission_handler, etc.) requires >=36. App-level compileSdk'
+              echo '// in android/app/build.gradle.kts only affects :app, not plugin subprojects.'
+              echo 'subprojects {'
+              echo '    afterEvaluate {'
+              echo '        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { ext ->'
+              echo '            ext.compileSdkVersion(36)'
+              echo '        }'
+              echo '    }'
+              echo '}'
+            } >> android/build.gradle.kts
           fi
           echo "-- tail of android/build.gradle.kts:"
           tail -20 android/build.gradle.kts
