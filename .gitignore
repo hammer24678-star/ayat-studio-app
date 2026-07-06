@@ -1,0 +1,9 @@
+# Flutter/Dart build artifacts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+.packages
+# generated platform folders are created in CI by `flutter create`
+android/
+ios/

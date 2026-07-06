@@ -2,14 +2,37 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'claude/**'
   workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Ensure ASR model is published to a GitHub Release (fetched once from the official whisper.cpp/HF source on the runner — which has unrestricted network access — and re-hosted here so the app on-device downloads from github.com instead of reaching huggingface.co directly, which is unreachable on at least one tester's network)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG=models
+          ASSET=ggml-base.bin
+          URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$ASSET"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "ASR model assets" \
+              --notes "Whisper GGML models re-hosted here so the on-device app fetches from github.com instead of huggingface.co. Source: https://huggingface.co/ggerganov/whisper.cpp"
+          fi
+          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ASSET"; then
+            echo "$ASSET already attached to release $TAG — skipping re-upload"
+          else
+            curl -fL -o "$ASSET" "$URL"
+            gh release upload "$TAG" "$ASSET"
+          fi
 
       - uses: subosito/flutter-action@v2
         with:
@@ -104,6 +127,67 @@ jobs:
             exit 1
           fi
 
+      - name: Add required permissions + Arabic app label to the generated AndroidManifest (flutter create's release manifest has NO permissions at all — INTERNET is needed for the one-time Whisper model download and google_fonts, RECORD_AUDIO + the RecognitionService query for live-mic ayah detection via speech_to_text)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application|' "$MANIFEST"
+          sed -i 's|android:label="ayat_studio_app"|android:label="استوديو الآيات"|' "$MANIFEST"
+          echo "-- resulting manifest:"; cat "$MANIFEST"
+
+      - name: Decode release keystore from secrets (build silently stays on the debug key if secrets aren't set yet, so this doesn't block anyone before the one-time keystore setup is done)
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > android/app/release-keystore.jks
+            cat > android/key.properties << PROPS
+          storeFile=release-keystore.jks
+          storePassword=$RELEASE_KEYSTORE_PASSWORD
+          keyAlias=$RELEASE_KEY_ALIAS
+          keyPassword=$RELEASE_KEY_PASSWORD
+          PROPS
+            echo "Release keystore decoded — build will be stably signed."
+          else
+            echo "RELEASE_KEYSTORE_BASE64 secret not set yet — falling back to the debug key for this build (Play Protect warning + no in-place updates until the one-time keystore secrets are added)."
+          fi
+
+      - name: Configure stable release signing (append-only — avoids depending on the exact default template text, which varies by Flutter version)
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            if [ -f android/key.properties ]; then
+              cat >> android/app/build.gradle.kts << 'GRADLE'
+
+          // PATCH_S20_RELEASE_SIGNING -- stable keystore so every CI build
+          // carries the same signing identity (see patch_s20 for why).
+          run {
+              val keyPropsFile = rootProject.file("key.properties")
+              if (keyPropsFile.exists()) {
+                  val keyProps = java.util.Properties()
+                  keyProps.load(java.io.FileInputStream(keyPropsFile))
+                  android.signingConfigs.create("release") {
+                      storeFile = file(keyProps.getProperty("storeFile"))
+                      storePassword = keyProps.getProperty("storePassword")
+                      keyAlias = keyProps.getProperty("keyAlias")
+                      keyPassword = keyProps.getProperty("keyPassword")
+                  }
+                  android.buildTypes.getByName("release") {
+                      signingConfig = android.signingConfigs.getByName("release")
+                  }
+              }
+          }
+          GRADLE
+              echo "Release signingConfig appended."
+            else
+              echo "No android/key.properties (keystore secrets not set) — release build type keeps whatever signingConfig the default template gave it (the debug key)."
+            fi
+          else
+            echo "This step only supports the Kotlin DSL (build.gradle.kts) — Groovy build.gradle not handled, signing stays on the debug key." >&2
+          fi
+
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
@@ -114,7 +198,9 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --dart-define=MODEL_RELEASE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/models
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

@@ -1,0 +1,3038 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>استوديو الآيات — نموذج أولي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Amiri+Quran&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #050F0D;
+    --surface: #0D1C18;
+    --surface-2: #13271F;
+    --surface-3: #1A3128;
+    --hairline: rgba(201,162,75,0.16);
+    --gold: #C9A24B;
+    --gold-bright: #ECC875;
+    --gold-dim: #8A7130;
+    --parchment: #ECE2CB;
+    --parchment-dim: #9C9280;
+    --emerald: #1E4B3F;
+    --lapis: #1B3A63;
+    --burgundy: #5C2430;
+    --aubergine: #3B2140;
+    --radius-lg: 22px;
+    --radius-md: 14px;
+    --radius-sm: 9px;
+  }
+  *{box-sizing:border-box;}
+  button, [role="switch"], [role="button"], .tab-btn, .drawer-item, .list-item, .tmpl, .dot, .swatch, .ratio-btn, .chroma-preset-btn, .chroma-swatch-trigger{
+    -webkit-tap-highlight-color: transparent;
+  }
+  html,body{margin:0;padding:0;}
+  :focus-visible{outline:2px solid var(--gold-bright); outline-offset:2px; border-radius:4px;}
+  body{
+    background: var(--ink);
+    color: var(--parchment);
+    font-family:'Tajawal', sans-serif;
+    min-height:100vh;
+    position:relative;
+    overflow-x:hidden;
+  }
+
+  /* ---------- ambient tessellation (tazhib motif, very subtle) ---------- */
+  .ambient-bg{
+    position:fixed; inset:0; z-index:0; opacity:.045; pointer-events:none;
+  }
+  .ambient-glow{
+    position:fixed; inset:-5%; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(30,75,63,.5), transparent 60%),
+      radial-gradient(700px 500px at 5% 110%, rgba(92,36,48,.25), transparent 60%);
+  }
+
+  .app{position:relative; z-index:1;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:20px 26px 18px;
+    position:relative;
+  }
+  header::after{
+    content:''; position:absolute; left:26px; right:26px; bottom:0; height:1px;
+    background:linear-gradient(90deg, transparent, var(--hairline) 20%, var(--hairline) 80%, transparent);
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brandmark{width:32px; height:32px; object-fit:cover; border-radius:8px; box-shadow:0 0 0 1px var(--hairline);}
+  .brand h1{
+    font-family:'Aref Ruqaa', serif; font-weight:700; font-size:26px; margin:0;
+    letter-spacing:.5px;
+    background:linear-gradient(100deg, var(--parchment) 30%, var(--gold-bright) 45%, var(--parchment) 60%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 18px rgba(201,162,75,.25);
+  }
+  .eyebrow{
+    font-size:10.5px; letter-spacing:1.5px; color:var(--gold-dim); text-transform:uppercase;
+    display:block; margin-bottom:2px; font-family:'Tajawal';
+  }
+  .badge{
+    font-size:11px; padding:6px 14px; border:1px solid var(--hairline); border-radius:999px;
+    color:var(--gold); background:rgba(201,162,75,.05); white-space:nowrap;
+  }
+
+  /* ---------- layout ---------- */
+  .workspace{
+    display:grid;
+    grid-template-columns: 86px 300px 1fr;
+    gap:16px; padding:18px 26px; align-items:start;
+  }
+
+  /* ---------- tabs rail ---------- */
+  .tabs{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-lg);
+    display:flex; flex-direction:column; padding:10px 6px; gap:4px;
+  }
+  .tab-btn{
+    background:transparent; border:none; color:var(--parchment-dim);
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    padding:12px 4px; border-radius:var(--radius-sm); cursor:pointer; font-family:'Tajawal';
+    font-size:10.5px; transition:.18s; position:relative;
+  }
+  .tab-btn .ic{width:19px; height:19px; transition:transform .3s cubic-bezier(.34,1.56,.64,1);}
+  .tab-btn:hover{background:var(--surface-2); color:var(--parchment); transform:translateY(-2px);}
+  .tab-btn:hover .ic{transform:scale(1.12);}
+  .tab-btn:active{transform:translateY(0) scale(.96);}
+  .tab-btn.active{background:var(--surface-3); color:var(--gold-bright); animation:tabPop .35s cubic-bezier(.34,1.56,.64,1);}
+  .tab-btn.active .ic{transform:scale(1.08); filter:drop-shadow(0 0 6px rgba(236,200,117,.5));}
+  .tab-btn.active::before{
+    content:''; position:absolute; right:-6px; top:50%; transform:translateY(-50%);
+    width:3px; height:22px; border-radius:3px; background:var(--gold);
+    box-shadow:0 0 10px 1px rgba(201,162,75,.6);
+  }
+  @keyframes tabPop{0%{transform:scale(.9);} 60%{transform:scale(1.04);} 100%{transform:scale(1);}}
+
+  /* ---------- panel ---------- */
+  .panel{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-lg);
+    padding:20px; min-height:540px; position:relative;
+  }
+  .panel h2{font-family:'Aref Ruqaa'; font-weight:700; font-size:19px; margin:2px 0 6px; color:var(--parchment);}
+  .panel .hint{font-size:12px; color:var(--parchment-dim); margin:0 0 16px; line-height:1.75;}
+  .pane{display:none;}
+  .pane.active{display:block; animation:paneIn .4s cubic-bezier(.22,.9,.32,1);}
+  /* Outgoing pane: positioned absolute (aligns to the panel's padding box
+     automatically) so it can fade out in place while the incoming pane
+     fades in below it, instead of just vanishing on tab switch. */
+  .pane.leaving{display:block; position:absolute; top:0; left:0; right:0; pointer-events:none; animation:paneOut .18s ease forwards;}
+  @keyframes paneOut{from{opacity:1; transform:translateY(0);} to{opacity:0; transform:translateY(-6px);}}
+  @keyframes paneIn{from{opacity:0; transform:translateY(8px) scale(.99);} to{opacity:1; transform:translateY(0) scale(1);}}
+  .pane.active > *{ animation:childIn .4s cubic-bezier(.22,.9,.32,1) both; }
+  .pane.active > *:nth-child(1){animation-delay:.02s;}
+  .pane.active > *:nth-child(2){animation-delay:.06s;}
+  .pane.active > *:nth-child(3){animation-delay:.1s;}
+  .pane.active > *:nth-child(4){animation-delay:.14s;}
+  .pane.active > *:nth-child(5){animation-delay:.18s;}
+  .pane.active > *:nth-child(n+6){animation-delay:.2s;}
+  @keyframes childIn{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+
+  .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:11px;}
+  .swatch{
+    aspect-ratio:9/13; border-radius:11px; cursor:pointer; position:relative;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+    overflow:hidden; transition:transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
+  }
+  .swatch:hover{transform:translateY(-4px) scale(1.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 10px 20px rgba(0,0,0,.35);}
+  .swatch:active{transform:translateY(-1px) scale(.99);}
+  .swatch.selected{box-shadow: inset 0 0 0 2px var(--gold-bright), 0 6px 18px rgba(201,162,75,.2); animation:selectPop .3s cubic-bezier(.34,1.56,.64,1);}
+  @keyframes selectPop{0%{transform:scale(.94);} 60%{transform:scale(1.04);} 100%{transform:scale(1);}}
+  .swatch::before{
+    content:''; position:absolute; top:8px; left:8px; width:12px; height:12px;
+    border-top:1.5px solid var(--gold); border-right:1.5px solid var(--gold); opacity:.55;
+  }
+  .swatch span{
+    position:absolute; bottom:7px; right:9px; font-size:10px; color:rgba(255,255,255,.85);
+    text-shadow:0 1px 4px rgba(0,0,0,.7);
+  }
+  .bg1{background:linear-gradient(160deg,#0f2b26,#1E4B3F 60%,#173a30);}
+  .bg2{background:linear-gradient(160deg,#241407,#5C2430 55%,#3a1a20);}
+  .bg3{background:linear-gradient(160deg,#0b1424,#1B3A63 60%,#152d4d);}
+  .bg4{background:linear-gradient(160deg,#180f1c,#3B2140 60%,#2a1830);}
+  .bg5{background:linear-gradient(160deg,#161005,#4a3a10 55%,#332809);}
+  .bg6{background:radial-gradient(circle at 30% 20%,#233a34,#050F0D 70%);}
+  .bg7{background:linear-gradient(160deg,#1c1c1c,#050505 60%,#111);}
+  .bg8{background:linear-gradient(160deg,#0e1e1a,#1E4B3F 40%,#1B3A63 100%);}
+
+  .toggle-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    background:var(--surface-2); border:1px solid var(--hairline); border-radius:var(--radius-md);
+    padding:13px 15px; margin-bottom:13px; font-size:13px;
+  }
+  .switch{
+    width:42px; height:24px; border-radius:999px; background:#2a2a2a; position:relative; cursor:pointer; flex:none;
+    transition:background .25s, box-shadow .25s; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+  .switch.on{background:var(--gold-dim); box-shadow:inset 0 0 0 1px var(--gold), 0 0 10px rgba(201,162,75,.25);}
+  .switch::after{
+    content:''; position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%;
+    background:var(--parchment); transition:transform .3s cubic-bezier(.34,1.56,.64,1), background .25s;
+  }
+  .switch.on::after{transform:translateX(-18px); background:var(--gold-bright);}
+  .switch:active::after{width:21px;}
+
+  .list-item{
+    display:flex; align-items:center; gap:11px; padding:11px; border-radius:var(--radius-md);
+    border:1px solid var(--hairline); margin-bottom:8px; cursor:pointer; background:var(--surface-2);
+    transition:background .2s, transform .2s cubic-bezier(.3,.9,.4,1), box-shadow .2s;
+  }
+  .list-item:hover{background:var(--surface-3); transform:translateX(-4px);}
+  .list-item:active{background:var(--surface-3); transform:translateX(-2px) scale(.99);}
+  .list-item.selected{box-shadow: inset 0 0 0 1.5px var(--gold); animation:selectPop .3s cubic-bezier(.34,1.56,.64,1);}
+  .avatar{
+    width:32px; height:32px; border-radius:50%; flex:none;
+    background:conic-gradient(from 0deg, var(--emerald), var(--gold-dim));
+  }
+  .list-item .name{font-size:13px;}
+  .list-item .wave{margin-right:auto; display:flex; gap:2.5px; align-items:flex-end; height:16px;}
+  .list-item .wave i{width:2px; background:var(--gold); border-radius:2px; opacity:.4; transform-origin:bottom; display:block;}
+  .list-item.selected .wave i{opacity:1; background:var(--gold-bright);}
+  .list-item.previewing .wave i{opacity:1; background:var(--gold-bright); animation: wave .6s ease-in-out infinite alternate;}
+  .play-btn{
+    flex:none; width:26px; height:26px; border-radius:50%; border:1px solid var(--hairline);
+    background:var(--surface-3); color:var(--gold); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:.15s; margin-left:4px;
+  }
+  .play-btn:hover{background:var(--gold-dim); color:var(--ink);}
+  .play-btn:active{background:var(--gold); color:var(--ink); transform:scale(.92);}
+  .play-btn svg{width:11px; height:11px;}
+  .list-item.previewing .play-btn{background:var(--gold); color:var(--ink);}
+
+  .tmpl{
+    border:1px solid var(--hairline); border-radius:var(--radius-md); padding:11px; margin-bottom:9px; cursor:pointer;
+    display:flex; align-items:center; gap:11px; background:var(--surface-2);
+    transition:background .2s, transform .2s cubic-bezier(.3,.9,.4,1);
+  }
+  .tmpl:hover{background:var(--surface-3); transform:translateX(-4px);}
+  .tmpl:active{background:var(--surface-3); transform:translateX(-2px) scale(.99);}
+  .tmpl.selected{box-shadow: inset 0 0 0 1.5px var(--gold); animation:selectPop .3s cubic-bezier(.34,1.56,.64,1);}
+  .tmpl .mini{width:32px; height:50px; border-radius:6px; background:linear-gradient(160deg,#0f2b26,#1E4B3F); flex:none; position:relative;}
+  .tmpl .mini .l{position:absolute; right:4px; left:4px; height:3px; border-radius:2px;}
+  .tmpl .name{font-size:13px;}
+  .tmpl .desc{font-size:11px; color:var(--parchment-dim); margin-top:2px;}
+
+  select, input[type=range]{width:100%; margin-bottom:15px;}
+  select{accent-color:var(--gold);}
+
+  /* ---------- custom range sliders (filled gold groove + glowing thumb) ---------- */
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; direction:ltr;
+    height:22px; background:transparent; cursor:pointer; margin-top:4px;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:5px; border-radius:999px;
+    background:linear-gradient(to right, var(--gold-dim) 0%, var(--gold) var(--fill,50%), var(--surface-3) var(--fill,50%), var(--surface-3) 100%);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+  input[type=range]::-moz-range-track{ height:5px; border-radius:999px; background:var(--surface-3); box-shadow:inset 0 0 0 1px rgba(255,255,255,.04); }
+  input[type=range]::-moz-range-progress{ height:5px; border-radius:999px; background:linear-gradient(to right, var(--gold-dim), var(--gold)); }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%; margin-top:-6.5px;
+    background:radial-gradient(circle at 34% 30%, var(--gold-bright), var(--gold) 62%, var(--gold-dim));
+    box-shadow:0 2px 6px rgba(0,0,0,.45), 0 0 0 3px var(--ink);
+    cursor:pointer; transition:transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; border:none;
+    background:radial-gradient(circle at 34% 30%, var(--gold-bright), var(--gold) 62%, var(--gold-dim));
+    box-shadow:0 2px 6px rgba(0,0,0,.45), 0 0 0 3px var(--ink);
+    cursor:pointer; transition:transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  input[type=range]:hover::-webkit-slider-thumb, input[type=range]:hover::-moz-range-thumb{transform:scale(1.1);}
+  input[type=range]:active::-webkit-slider-thumb, input[type=range]:active::-moz-range-thumb{
+    transform:scale(1.25); box-shadow:0 2px 10px rgba(201,162,75,.55), 0 0 0 3px var(--ink);
+  }
+  input[type=range]:focus-visible::-webkit-slider-thumb, input[type=range]:focus-visible::-moz-range-thumb{
+    box-shadow:0 0 0 3px var(--ink), 0 0 0 6px var(--gold-bright);
+  }
+  select, textarea, input[type=text]{
+    background:var(--surface-2); color:var(--parchment); border:1px solid var(--hairline); border-radius:var(--radius-sm);
+    padding:9px; font-family:'Tajawal'; font-size:13px;
+  }
+  select{
+    appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor:pointer;
+    padding-left:32px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23C9A24B' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:left 12px center; background-size:11px;
+    transition:border-color .18s, box-shadow .18s;
+  }
+  select:hover{border-color:var(--gold-dim);}
+  select:focus-visible{border-color:var(--gold); box-shadow:0 0 0 2px rgba(201,162,75,.2);}
+  select option{background:var(--surface-2); color:var(--parchment);}
+  textarea, input[type=text]{width:100%; margin-bottom:11px; resize:vertical;}
+  textarea::placeholder, input[type=text]::placeholder{color:var(--parchment-dim);}
+  .apply-btn{
+    width:100%; background:var(--surface-3); color:var(--gold-bright); border:1px solid var(--gold-dim);
+    border-radius:var(--radius-sm); padding:10px; font-family:'Tajawal'; font-weight:700; font-size:12.5px;
+    cursor:pointer; transition:background .18s, color .18s, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .apply-btn:hover{background:var(--gold-dim); color:var(--ink); transform:translateY(-1px);}
+  .apply-btn:active{transform:translateY(0) scale(.98);}
+  label.field-label{font-size:11.5px; color:var(--parchment-dim); display:block; margin-bottom:7px; letter-spacing:.3px;}
+  .colors{display:flex; gap:9px; margin-bottom:15px; flex-wrap:wrap;}
+  .dot{width:27px; height:27px; border-radius:50%; cursor:pointer; box-shadow:inset 0 0 0 1px rgba(255,255,255,.15); transition:transform .2s cubic-bezier(.34,1.56,.64,1);}
+  .dot:hover{transform:scale(1.18) translateY(-2px);}
+  .dot:active{transform:scale(1.05) translateY(-1px);}
+  .dot.selected{box-shadow:0 0 0 2px var(--ink), 0 0 0 3.5px var(--gold-bright); animation:selectPop .3s cubic-bezier(.34,1.56,.64,1);}
+
+  /* ---------- chroma screen-color picker ---------- */
+  .chroma-color-row{display:flex; align-items:center; gap:11px; margin-bottom:16px; flex-wrap:wrap;}
+  .color-input-hidden{
+    position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+    clip:rect(0,0,0,0); white-space:nowrap; border:0;
+  }
+  .chroma-swatch-trigger{
+    width:38px; height:38px; border-radius:50%; flex:none; cursor:pointer; position:relative;
+    border:2px solid var(--ink); box-shadow:inset 0 0 0 1px rgba(255,255,255,.18), 0 4px 12px rgba(0,0,0,.4);
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  .chroma-swatch-trigger::after{
+    content:""; position:absolute; inset:-5px; border-radius:50%; border:1px dashed var(--gold-dim);
+    opacity:0; transition:opacity .2s;
+  }
+  .chroma-swatch-trigger:hover{transform:scale(1.08) translateY(-2px); box-shadow:inset 0 0 0 1px rgba(255,255,255,.25), 0 6px 16px rgba(0,0,0,.45);}
+  .chroma-swatch-trigger:hover::after{opacity:1;}
+  .chroma-swatch-trigger:active{transform:scale(.94);}
+  .chroma-preset-btn{
+    width:26px; height:26px; border-radius:50%; flex:none; cursor:pointer;
+    border:2px solid var(--hairline); box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s;
+  }
+  .chroma-preset-btn:hover{transform:scale(1.15) translateY(-2px);}
+  .chroma-preset-btn:active{transform:scale(1.02);}
+  .chroma-preset-btn.selected{box-shadow:0 0 0 2px var(--ink), 0 0 0 3.5px var(--gold-bright); animation:selectPop .3s cubic-bezier(.34,1.56,.64,1);}
+
+  /* ---------- stage / phone ---------- */
+  .stage-wrap{display:flex; flex-direction:column; align-items:center; gap:14px;}
+  .ratio-toggle{display:flex; gap:4px; background:var(--surface); border:1px solid var(--hairline); border-radius:999px; padding:4px;}
+  .ratio-btn{
+    background:transparent; border:none; color:var(--parchment-dim); font-family:'Tajawal'; font-size:11.5px;
+    padding:7px 15px; border-radius:999px; cursor:pointer; transition:.15s;
+  }
+  .ratio-btn:hover{color:var(--parchment);}
+  .ratio-btn:active{color:var(--gold-bright); transform:scale(.95);}
+  .ratio-btn.active{background:var(--surface-3); color:var(--gold-bright);}
+  .phone-frame{
+    width:270px; aspect-ratio:9/16; border-radius:36px; padding:10px 9px; position:relative;
+    background: linear-gradient(155deg,#232323 0%, #050505 55%, #1c1c1c 100%);
+    border:1px solid rgba(201,162,75,.3);
+    box-shadow: 0 28px 70px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03);
+    transition:aspect-ratio .3s ease;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .phone-frame{ animation: phoneSettle .7s cubic-bezier(.22,.9,.32,1) both; }
+  }
+  @keyframes phoneSettle{from{transform:translate3d(0,14px,0); opacity:0;} to{transform:translate3d(0,0,0); opacity:1;}}
+  .phone-frame::before{
+    content:''; position:absolute; top:16px; left:50%; transform:translateX(-50%);
+    width:44px; height:5px; border-radius:3px; background:rgba(0,0,0,.65); z-index:5;
+  }
+  .stage{
+    position:relative; width:100%; height:100%; border-radius:28px; overflow:hidden;
+    background:linear-gradient(160deg,#0f2b26,#1E4B3F 60%,#173a30);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .stage::after{
+    content:''; position:absolute; inset:0; pointer-events:none; mix-blend-mode:overlay;
+    background:linear-gradient(115deg, rgba(255,255,255,.10) 0%, transparent 28%);
+  }
+  .stage video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+  .stage.chroma-on .chroma-tint{
+    content:''; position:absolute; inset:0; background:rgba(30,120,80,.3); mix-blend-mode:overlay; z-index:1;
+  }
+
+  .ayah-frame{position:absolute; left:14px; right:14px; z-index:2; transition:.35s;}
+  .ayah-frame.pos-top{top:12%;}
+  .ayah-frame.pos-center{top:50%; transform:translateY(-50%);}
+  .ayah-frame.pos-bottom{bottom:20%;}
+  .ayah-frame::before{
+    content:''; position:absolute; inset:-14%; border-radius:20px; pointer-events:none; opacity:0;
+    background:radial-gradient(circle, rgba(236,200,117,.4), transparent 70%);
+  }
+  .ayah-frame.revealed::before{ animation:flash 1.1s ease forwards; }
+  @keyframes flash{0%{opacity:0;} 30%{opacity:1;} 100%{opacity:0;}}
+
+  .corner{position:absolute; width:24px; height:24px; opacity:0; transition:opacity .4s;}
+  .corner svg{width:100%; height:100%; overflow:visible;}
+  .corner path{fill:none; stroke:var(--gold-bright); stroke-width:1.6; stroke-linecap:round;
+    stroke-dasharray:70; stroke-dashoffset:70; transition:stroke-dashoffset 1s ease;}
+  .corner circle{fill:var(--gold-bright); opacity:0; transition:opacity .3s .6s;}
+  .corner.tl{top:-10px; right:-6px; transform:scaleX(-1);}
+  .corner.tr{top:-10px; left:-6px;}
+  .corner.bl{bottom:-10px; right:-6px; transform:scale(-1,-1);}
+  .corner.br{bottom:-10px; left:-6px; transform:scaleY(-1);}
+  .ayah-frame.revealed .corner{opacity:1;}
+  .ayah-frame.revealed .corner path{stroke-dashoffset:0;}
+  .ayah-frame.revealed .corner circle{opacity:1;}
+
+  .overlay-text{text-align:center; padding:6px 4px; transition:.3s;}
+  .ayah.placeholder{opacity:.6; font-weight:400;}
+  .ayah-frame.boxed .overlay-text{
+    background:rgba(5,15,13,.42); backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+    border-radius:16px; padding:16px 20px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+  }
+  .ayah-frame.framed .overlay-text{
+    border:1.5px solid var(--gold); border-radius:14px; padding:18px 22px;
+    box-shadow:0 0 24px rgba(201,162,75,.15), inset 0 0 14px rgba(201,162,75,.08);
+  }
+  .ayah{font-family:'Amiri Quran','Amiri', serif; line-height:1.8; text-shadow:0 2px 12px rgba(0,0,0,.65);}
+  .translation{margin-top:11px; font-family:'Tajawal'; opacity:.88; text-shadow:0 2px 8px rgba(0,0,0,.6);}
+  .fade-in{animation:fadeIn .7s cubic-bezier(.22,.9,.32,1);}
+  @keyframes fadeIn{from{opacity:0; transform:translateY(8px) scale(.97); filter:blur(3px);} to{opacity:1; transform:translateY(0) scale(1); filter:blur(0);}}
+
+  .detect-btn{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:3;
+    background:linear-gradient(100deg, var(--gold) 0%, var(--gold-bright) 50%, var(--gold) 100%);
+    color:#1a1206; border:none; border-radius:999px;
+    padding:10px 18px; font-family:'Tajawal'; font-weight:700; font-size:11.5px; cursor:pointer;
+    box-shadow:0 8px 22px rgba(201,162,75,.35);
+    display:flex; align-items:center; gap:7px;
+    transition:transform .2s cubic-bezier(.34,1.56,.64,1);
+  }
+  .detect-btn:active{transform:translateX(-50%) scale(.97);}
+  .detect-btn .spark{width:14px; height:14px; flex:none;}
+  .detect-btn:hover{transform:translateX(-50%) translateY(-2px);}
+
+  .scan-overlay{
+    position:absolute; inset:0; z-index:4; display:none; align-items:center; justify-content:center;
+    background:rgba(5,15,13,.8); flex-direction:column; gap:10px; animation:fadeIn .25s ease;
+  }
+  .scan-overlay.active{display:flex;}
+  .scan-rings{position:relative; width:70px; height:70px; display:flex; align-items:center; justify-content:center;}
+  .scan-ring{
+    position:absolute; inset:0; border-radius:50%; border:1.5px solid var(--gold-bright); opacity:0;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .scan-ring{ animation: ringPulse 1.8s ease-out infinite; }
+    .scan-ring.r2{ animation-delay:.6s; }
+    .scan-ring.r3{ animation-delay:1.2s; }
+  }
+  @keyframes ringPulse{
+    0%{transform:scale(.5); opacity:.7;}
+    100%{transform:scale(1.4); opacity:0;}
+  }
+  .scan-star{width:38px; height:38px; color:var(--gold-bright); opacity:.95; position:relative; z-index:1;}
+  @media (prefers-reduced-motion: no-preference){
+    .scan-star{ animation:spin 1.4s linear infinite; }
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .scan-overlay p{font-size:11.5px; color:var(--parchment-dim); margin:0;}
+  @media (prefers-reduced-motion: no-preference){
+    .scan-overlay p{ animation: textPulse 1.6s ease-in-out infinite; }
+  }
+  @keyframes textPulse{0%,100%{opacity:.65;} 50%{opacity:1;}}
+  @keyframes wave{from{transform:scaleY(.2);} to{transform:scaleY(1);}}
+
+  .upload-row{
+    display:flex; align-items:center; gap:9px; font-size:12px; color:var(--parchment-dim);
+    background:var(--surface); border:1px solid var(--hairline); border-radius:999px; padding:8px 16px;
+    flex-wrap:wrap;
+  }
+  .upload-row svg{width:15px; height:15px; color:var(--gold); flex:none;}
+  .upload-row span{flex:none;}
+  .upload-row input[type="file"]{
+    font-family:'Tajawal'; font-size:11px; color:var(--parchment-dim); max-width:170px;
+  }
+  /* Themed file-picker button — replaces the raw OS grey button with the
+     app's own gold/surface language, so it doesn't read as an unstyled
+     browser default sitting inside an otherwise designed screen. */
+  .upload-row input[type="file"]::file-selector-button,
+  .upload-row input[type="file"]::-webkit-file-upload-button{
+    font-family:'Tajawal'; font-size:11px; font-weight:700; color:var(--gold-bright);
+    background:var(--surface-3); border:1px solid var(--gold-dim); border-radius:999px;
+    padding:6px 14px; margin-inline-end:10px; cursor:pointer;
+    transition:background .18s, color .18s, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .upload-row input[type="file"]:hover::file-selector-button,
+  .upload-row input[type="file"]:hover::-webkit-file-upload-button{
+    background:var(--gold-dim); color:var(--ink);
+  }
+  .upload-row input[type="file"]:focus-visible::file-selector-button,
+  .upload-row input[type="file"]:focus-visible::-webkit-file-upload-button{
+    outline:2px solid var(--gold-bright); outline-offset:2px;
+  }
+  .detected-label{font-size:11.5px; color:var(--gold-bright); min-height:16px; letter-spacing:.2px; line-height:1.6;}
+
+  /* ---------- inline section dividers within a pane or block (e.g.
+     bismillah/outro, custom background/font, ayah trim range) — separates
+     an added block from the primary control above it without a full pane
+     switch ---------- */
+  .subsection{
+    margin-top:22px; padding-top:18px; position:relative;
+  }
+  .subsection::before{
+    content:''; position:absolute; top:0; left:0; right:0; height:1px;
+    background:linear-gradient(90deg, transparent, var(--hairline) 15%, var(--hairline) 85%, transparent);
+  }
+  .subsection h2, .subsection .field-label:first-child{margin-top:0;}
+
+  /* ---------- footer ---------- */
+  footer{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:18px 26px 26px; flex-wrap:wrap; position:relative;
+  }
+  footer::before{
+    content:''; position:absolute; left:26px; right:26px; top:0; height:1px;
+    background:linear-gradient(90deg, transparent, var(--hairline) 20%, var(--hairline) 80%, transparent);
+  }
+  footer p{font-size:11.5px; color:var(--parchment-dim); margin:0; max-width:640px; line-height:1.8;}
+  .export-btn{
+    background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:#1a1206; border:none;
+    padding:11px 26px; border-radius:var(--radius-sm); font-weight:700; cursor:pointer; font-family:'Tajawal';
+    flex:none; transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s; font-size:13px;
+  }
+  .export-btn:hover{transform:translateY(-2px) scale(1.02); box-shadow:0 10px 24px rgba(201,162,75,.35);}
+  .export-btn:active{transform:translateY(0) scale(.97);}
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px) scale(.92); opacity:0;
+    background:var(--surface-2); border:1px solid var(--gold); color:var(--parchment);
+    padding:11px 20px; border-radius:var(--radius-sm); font-size:13px;
+    transition:opacity .3s, transform .35s cubic-bezier(.34,1.56,.64,1);
+    pointer-events:none; z-index:50;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0) scale(1);}
+
+  /* ---------- export modal ---------- */
+  .export-modal{
+    position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center;
+    background:rgba(5,15,13,.72); backdrop-filter:blur(6px); opacity:0; pointer-events:none; transition:.25s;
+  }
+  .export-modal.show{opacity:1; pointer-events:auto;}
+  .export-card{
+    width:min(360px, 86vw); background:var(--surface-2); border:1px solid var(--hairline);
+    border-radius:var(--radius-lg); padding:30px 26px 26px; text-align:center;
+    box-shadow:0 30px 80px rgba(0,0,0,.5); transform:translateY(14px) scale(.96);
+    transition:transform .4s cubic-bezier(.22,1.2,.36,1), opacity .3s;
+    max-height:min(560px, 84vh); overflow-y:auto; -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+  }
+  /* thin themed scrollbar for the card itself (Firefox + WebKit) so a long
+     card like "عن استوديو الآيات" reads as scrollable, not just cut off */
+  .export-card{ scrollbar-width:thin; scrollbar-color:var(--gold-dim) transparent; }
+  .export-card::-webkit-scrollbar{width:5px;}
+  .export-card::-webkit-scrollbar-track{background:transparent;}
+  .export-card::-webkit-scrollbar-thumb{background:var(--gold-dim); border-radius:999px;}
+  .export-modal.show .export-card{transform:translateY(0) scale(1);}
+  .export-icon{
+    width:46px; height:46px; margin:0 auto 14px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle, rgba(201,162,75,.18), transparent 70%);
+    color:var(--gold-bright); font-size:22px;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .export-modal.rendering .export-icon{ animation:spin 1.6s linear infinite; }
+  }
+  .export-card h3{font-family:'Aref Ruqaa'; font-weight:700; font-size:18px; margin:0 0 14px; color:var(--parchment);}
+  .progress-track{
+    height:6px; border-radius:999px; background:var(--surface-3); overflow:hidden; margin-bottom:16px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+  .progress-fill{
+    height:100%; width:0%; border-radius:999px;
+    background:linear-gradient(90deg, var(--gold-dim), var(--gold-bright));
+    transition:width 2.1s cubic-bezier(.2,.7,.3,1);
+  }
+  .export-card .hint{margin:0 0 18px;}
+  .export-card .export-btn{width:100%;}
+
+  .header-actions{display:flex; align-items:center; gap:8px;}
+  .icon-btn{
+    width:34px; height:34px; border-radius:50%; flex:none;
+    border:1px solid var(--hairline); background:rgba(201,162,75,.05); color:var(--gold);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    transition:background .18s, color .18s, transform .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  .icon-btn:hover{background:var(--surface-2); color:var(--gold-bright); transform:scale(1.1) rotate(8deg);}
+  .icon-btn:active{transform:scale(.94);}
+  .icon-btn svg{width:17px; height:17px;}
+  .menu-btn{display:none;}
+
+  /* ---------- drawer menu (mobile app navigation) ---------- */
+  .drawer-overlay{
+    position:fixed; inset:0; z-index:70; background:rgba(5,15,13,.6); backdrop-filter:blur(4px);
+    opacity:0; pointer-events:none; transition:.25s;
+  }
+  .drawer-overlay.show{opacity:1; pointer-events:auto;}
+  .drawer{
+    position:fixed; top:0; right:0; height:100%; width:min(280px, 78vw); z-index:71;
+    background:var(--surface-2); border-left:1px solid var(--hairline);
+    padding:18px 14px; overflow-y:auto; transform:translateX(100%); transition:transform .3s ease;
+    box-shadow:-14px 0 40px rgba(0,0,0,.4);
+  }
+  .drawer.show{transform:translateX(0);}
+  .drawer-head{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;
+    padding-bottom:12px; border-bottom:1px solid var(--hairline);
+  }
+  .drawer-head h3{font-family:'Aref Ruqaa'; font-weight:700; font-size:17px; margin:0; color:var(--parchment);}
+  .drawer-item{
+    width:100%; display:flex; align-items:center; gap:11px; background:transparent; border:none;
+    color:var(--parchment-dim); padding:12px 10px; border-radius:var(--radius-sm); cursor:pointer;
+    font-family:'Tajawal'; font-size:13.5px; text-align:right; transition:background .18s, color .18s, transform .18s;
+  }
+  .drawer-item:hover{background:var(--surface-3); color:var(--parchment); transform:translateX(-3px);}
+  .drawer-item:active{background:var(--surface-3); color:var(--gold-bright); transform:translateX(-1px) scale(.98);}
+  .drawer-item.active{background:var(--surface-3); color:var(--gold-bright);}
+  .drawer-item svg{width:18px; height:18px; flex:none;}
+  .drawer-foot{margin-top:8px; padding-top:10px; border-top:1px solid var(--hairline);}
+
+  .info-list{margin:12px 0 16px; padding-right:19px; font-size:12.5px; line-height:1.9; color:var(--parchment-dim); text-align:right;}
+  .info-list li{margin-bottom:6px;}
+  .export-card.info-card{text-align:right;}
+  .export-card.info-card h3{text-align:center;}
+  .export-card.info-card .hint{text-align:center;}
+
+  @media (max-width:900px){
+    .workspace{grid-template-columns:1fr;}
+    .tabs{display:none;}
+    .menu-btn{display:flex;}
+    .stage-wrap{order:-1;}
+    header, .workspace, footer{padding-left:16px; padding-right:16px;}
+  }
+  /* ---------- welcome screen ---------- */
+  .welcome-screen{
+    position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    background:var(--ink); padding:32px 24px; transition:opacity .5s ease, visibility .5s;
+  }
+  .welcome-screen::before{
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(30,75,63,.55), transparent 60%),
+      radial-gradient(700px 500px at 5% 110%, rgba(92,36,48,.3), transparent 60%);
+  }
+  .welcome-screen.hidden{opacity:0; visibility:hidden; pointer-events:none;}
+  .welcome-content{
+    position:relative; z-index:1; max-width:380px; text-align:center;
+    max-height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    scrollbar-width:thin; scrollbar-color:var(--gold-dim) transparent;
+  }
+  .welcome-content::-webkit-scrollbar{width:5px;}
+  .welcome-content::-webkit-scrollbar-track{background:transparent;}
+  .welcome-content::-webkit-scrollbar-thumb{background:var(--gold-dim); border-radius:999px;}
+  .welcome-mark{width:72px; height:72px; object-fit:cover; border-radius:16px; margin:0 auto 18px; display:block; box-shadow:0 0 0 1px var(--hairline), 0 8px 24px rgba(0,0,0,.35);}
+  .welcome-content .eyebrow{display:block; text-align:center; margin-bottom:6px;}
+  .welcome-content h1{
+    font-family:'Aref Ruqaa', serif; font-weight:700; font-size:34px; margin:0 0 14px; color:var(--parchment);
+    text-shadow:0 0 24px rgba(201,162,75,.3);
+  }
+  .welcome-sub{font-size:13.5px; line-height:1.9; color:var(--parchment-dim); margin:0 0 26px;}
+  .welcome-features{display:flex; flex-direction:column; gap:11px; margin-bottom:30px; text-align:right;}
+  .wf-item{
+    display:flex; align-items:center; gap:11px; background:var(--surface); border:1px solid var(--hairline);
+    border-radius:var(--radius-md); padding:12px 14px; font-size:12.5px; color:var(--parchment);
+    transition:transform .2s, border-color .2s;
+  }
+  .wf-item:hover{transform:translateX(-3px); border-color:var(--gold-dim);}
+  .wf-item svg{width:18px; height:18px; flex:none; color:var(--gold-bright); transition:transform .3s cubic-bezier(.34,1.56,.64,1);}
+  .wf-item:hover svg{transform:scale(1.15) rotate(-6deg);}
+  .welcome-cta{
+    width:100%; background:linear-gradient(180deg, var(--gold-bright), var(--gold)); color:#1a1206; border:none;
+    padding:14px; border-radius:var(--radius-sm); font-weight:700; font-size:14.5px; cursor:pointer;
+    font-family:'Tajawal'; transition:transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s; margin-bottom:12px;
+  }
+  .welcome-cta:hover{transform:translateY(-2px) scale(1.015); box-shadow:0 12px 28px rgba(201,162,75,.35);}
+  .welcome-cta:active{transform:translateY(0) scale(.98);}
+  .welcome-link{
+    background:transparent; border:none; color:var(--gold-dim); font-family:'Tajawal'; font-size:12px;
+    cursor:pointer; text-decoration:underline; text-underline-offset:3px;
+  }
+  .welcome-link:hover{color:var(--gold-bright);}
+  @media (prefers-reduced-motion: no-preference){
+    .welcome-content > *{ animation: welcomeUp .6s ease both; }
+    .welcome-mark{ animation: welcomeUp .6s ease both; }
+    .welcome-content .eyebrow{animation-delay:.05s;}
+    .welcome-content h1{animation-delay:.1s;}
+    .welcome-sub{animation-delay:.16s;}
+    .welcome-features{animation-delay:.22s;}
+    .welcome-cta{animation-delay:.3s;}
+    .welcome-link{animation-delay:.36s;}
+  }
+  @keyframes welcomeUp{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);}}
+</style>
+</head>
+<body>
+
+<div class="welcome-screen" id="welcomeScreen">
+  <div class="welcome-content">
+    <img class="welcome-mark" src="data:image/jpeg;base64,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" alt="شعار استوديو الآيات">
+    <span class="eyebrow">تصميم مقاطع قرآنية</span>
+    <h1>استوديو الآيات</h1>
+    <p class="welcome-sub">حوّل أي فيديو إلى تصميم قرآني احترافي: الآية، ترجمة المعاني، والقارئ — كلها في مكان واحد.</p>
+    <div class="welcome-features">
+      <div class="wf-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.3 2.3L15.8 9.5"/></svg>
+        <span>تعرّف تلقائي بالذكاء الاصطناعي على الآية وترجمتها</span>
+      </div>
+      <div class="wf-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+        <span>خلفيات، كروم، وقوالب نصية جاهزة</span>
+      </div>
+      <div class="wf-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 12v0M8 7v10M12 4v16M16 7v10M20 12v0"/></svg>
+        <span>تلاوات قرّاء جاهزة مع معاينة صوتية</span>
+      </div>
+    </div>
+    <button class="welcome-cta" id="startBtn">ابدأ التصميم</button>
+    <button class="welcome-link" id="welcomeInfoBtn">معرفة المزيد عن التطبيق</button>
+  </div>
+</div>
+
+<svg class="ambient-bg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <pattern id="starTile" width="72" height="72" patternUnits="userSpaceOnUse">
+      <rect x="16" y="16" width="40" height="40" fill="none" stroke="#C9A24B" stroke-width="1"/>
+      <rect x="16" y="16" width="40" height="40" fill="none" stroke="#C9A24B" stroke-width="1" transform="rotate(45 36 36)"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#starTile)"/>
+</svg>
+<div class="ambient-glow"></div>
+
+<div class="app">
+
+<header>
+  <div class="brand">
+    <img class="brandmark" src="data:image/jpeg;base64,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" alt="شعار استوديو الآيات">
+    <div>
+      <span class="eyebrow">تصميم مقاطع قرآنية</span>
+      <h1>استوديو الآيات</h1>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="icon-btn" id="infoBtn" aria-label="معلومات عن التطبيق">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r=".9" fill="currentColor" stroke="none"/></svg>
+    </button>
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="ayah" aria-label="الآية">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h12a1 1 0 0 1 1 1v14.5"/><path d="M6 21a2 2 0 0 1-2-2V6.5"/><path d="M8 7h8M8 10.5h8"/></svg>
+      <span>الآية</span>
+    </button>
+    <button class="tab-btn" data-tab="bg" aria-label="خلفيات">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 3a7 7 0 1 0 4 12.7A8 8 0 0 1 15 3z"/></svg>
+      <span>خلفيات</span>
+    </button>
+    <button class="tab-btn" data-tab="chroma" aria-label="كروم">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 15l4.5-4.5L12 14l3-3 5 5"/></svg>
+      <span>كروم</span>
+    </button>
+    <button class="tab-btn" data-tab="reciters" aria-label="قرّاء">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 12v0M8 7v10M12 4v16M16 7v10M20 12v0"/></svg>
+      <span>قرّاء</span>
+    </button>
+    <button class="tab-btn" data-tab="templates" aria-label="قوالب">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+      <span>قوالب</span>
+    </button>
+    <button class="tab-btn" data-tab="text" aria-label="النص">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h9"/></svg>
+      <span>النص</span>
+    </button>
+  </div>
+
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-head">
+      <h3>أقسام التصميم</h3>
+      <button class="icon-btn" id="closeDrawerBtn" aria-label="إغلاق القائمة">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <button class="drawer-item active" data-tab="ayah">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h12a1 1 0 0 1 1 1v14.5"/><path d="M6 21a2 2 0 0 1-2-2V6.5"/><path d="M8 7h8M8 10.5h8"/></svg>
+      <span>الآية</span>
+    </button>
+    <button class="drawer-item" data-tab="bg">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 3a7 7 0 1 0 4 12.7A8 8 0 0 1 15 3z"/></svg>
+      <span>خلفيات</span>
+    </button>
+    <button class="drawer-item" data-tab="chroma">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 15l4.5-4.5L12 14l3-3 5 5"/></svg>
+      <span>كروم</span>
+    </button>
+    <button class="drawer-item" data-tab="reciters">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 12v0M8 7v10M12 4v16M16 7v10M20 12v0"/></svg>
+      <span>قرّاء</span>
+    </button>
+    <button class="drawer-item" data-tab="templates">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+      <span>قوالب</span>
+    </button>
+    <button class="drawer-item" data-tab="text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h9"/></svg>
+      <span>النص</span>
+    </button>
+    <div class="drawer-foot">
+      <button class="drawer-item" id="drawerInfoBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r=".9" fill="currentColor" stroke="none"/></svg>
+        <span>معلومات عن التطبيق</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- panel -->
+  <div class="panel">
+
+    <div class="pane active" id="pane-ayah">
+      <h2>اختيار الآية</h2>
+      <p class="hint">اختر السورة ثم الآية، أو استخدم زر التعرّف بالذكاء الاصطناعي في المعاينة، أو اكتب نصًا مخصصًا.</p>
+      <div class="detected-label" id="corpusStatus" style="margin-bottom:8px;">جارٍ تحميل القرآن الكريم كاملاً…</div>
+      <label class="field-label">السورة</label>
+      <select id="surahSelect"></select>
+      <label class="field-label">الآية</label>
+      <select id="ayahNumSelect"></select>
+
+      <label class="field-label" style="margin-top:4px;">أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)</label>
+      <textarea id="customAyahAr" rows="2" placeholder="اكتب ولو جزءًا من الآية بالعربية…"></textarea>
+      <input type="text" id="customAyahEn" placeholder="ترجمة المعاني (اختياري)">
+      <button class="apply-btn" id="applyCustomBtn">تطبيق النص المخصص</button>
+
+      <div class="subsection">
+        <h2>بطاقات افتتاحية وختامية</h2>
+        <div class="toggle-row">
+          <span>بسملة في مقدمة المقطع</span>
+          <div class="switch" id="introSwitch"></div>
+        </div>
+        <div class="toggle-row">
+          <span>خاتمة بعد التلاوة</span>
+          <div class="switch" id="outroSwitch"></div>
+        </div>
+        <input type="text" id="outroTextInput" placeholder="نص الخاتمة" value="صدق الله العظيم" style="display:none; margin-top:8px;">
+        <p class="hint">تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — لا تُدمجان أبدًا فوق الفيديو أو أي موسيقى.</p>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-bg">
+      <h2>خلفيات جاهزة</h2>
+      <p class="hint">تُستخدم خلف النص إن لم تُحمّل فيديو، أو كخلفية بديلة عند تفعيل الكروم.</p>
+      <div class="grid-2" id="bgGrid"></div>
+
+      <div class="subsection">
+        <label class="field-label">أو ارفع خلفية خاصة بك</label>
+        <div class="upload-row" style="margin-bottom:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+          <span>رفع صورة:</span>
+          <input type="file" id="customBgUpload" accept="image/*">
+        </div>
+        <p class="hint" id="customBgNote" style="display:none; margin-top:10px; color:var(--gold-bright);">تذكير: هذه الخلفية ستظهر خلف آيات القرآن — يُستحسن اختيار صور تليق بالمحتوى القرآني (زخارف، خطوط، تدرّجات، مناظر طبيعية مجرّدة)، وتجنّب صور الأشخاص أو أي مشهد لا يناسب تلاوة الآيات.</p>
+        <button class="apply-btn" id="clearCustomBgBtn" style="display:none; margin-top:8px;">إزالة الخلفية المخصصة والعودة للخلفيات الجاهزة</button>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-chroma">
+      <h2>الكروم (خلفية خضراء)</h2>
+      <p class="hint">فعّل هذا الخيار إذا كان الفيديو المرفوع مصوّرًا أمام خلفية بلون موحّد (أخضر أو أزرق أو غيره)، ليتم استبدالها تلقائيًا بالخلفية المختارة.</p>
+      <div class="toggle-row">
+        <span>تفعيل إزالة الخلفية</span>
+        <div class="switch" id="chromaSwitch"></div>
+      </div>
+
+      <label class="field-label">لون الشاشة الملوّنة</label>
+      <div class="chroma-color-row">
+        <button type="button" class="chroma-swatch-trigger" id="chromaSwatchTrigger" style="background:#00FF00;" aria-label="اختر لون الشاشة بدقة"></button>
+        <input type="color" id="chromaColorPicker" value="#00FF00" class="color-input-hidden" tabindex="-1">
+        <button type="button" class="chroma-preset-btn selected" data-color="#00FF00" style="background:#00FF00;" aria-label="أخضر"></button>
+        <button type="button" class="chroma-preset-btn" data-color="#0000FF" style="background:#0000FF;" aria-label="أزرق"></button>
+        <span class="hint" style="margin:0;">اختر نفس لون الشاشة التي صوّرت أمامها</span>
+      </div>
+
+      <label class="field-label">قوة إزالة اللون</label>
+      <input type="range" id="chromaThresholdRange" min="40" max="140" value="90">
+      <label class="field-label">نعومة حواف القص</label>
+      <input type="range" id="chromaSoftnessRange" min="10" max="90" value="45">
+
+      <p class="hint">تتم إزالة اللون فعليًا هنا داخل المتصفح (تحليل بكسل كل إطار مع إزالة تسرّب اللون عند الحواف)، دون الحاجة لأي خادم — ويعمل مع أي لون شاشة تختاره، وليس الأخضر فقط. اضبط "القوة" إذا بقيت بقايا من لون الخلفية، و"النعومة" إذا ظهرت حواف حادة حول الشخص. الجودة النهائية تعتمد أيضًا على إضاءة التصوير الأصلية.</p>
+    </div>
+
+    <div class="pane" id="pane-reciters">
+      <h2>مقاطع صوتية للقرّاء</h2>
+      <p class="hint">اختر قارئًا لإضافة تلاوته الجاهزة إلى المقطع.</p>
+      <div id="reciterList"></div>
+    </div>
+
+    <div class="pane" id="pane-templates">
+      <h2>قوالب جاهزة</h2>
+      <p class="hint">كل قالب يضبط الموضع والخط واللون دفعة واحدة.</p>
+      <div id="tmplList"></div>
+    </div>
+
+    <div class="pane" id="pane-text">
+      <h2>تنسيق النص</h2>
+      <label class="field-label">خط الآية</label>
+      <select id="fontSelect">
+        <option value="'Amiri Quran', 'Amiri', serif">أميري قرآن (كلاسيكي)</option>
+        <option value="'Aref Ruqaa', serif">ريقعة (خط الرقعة)</option>
+      </select>
+
+      <div class="subsection">
+        <label class="field-label">أو ارفع خطًا مخصصًا</label>
+        <div class="upload-row" style="margin-bottom:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+          <span>رفع خط (TTF/OTF/WOFF):</span>
+          <input type="file" id="customFontUpload" accept=".ttf,.otf,.woff,.woff2">
+        </div>
+        <div class="detected-label" id="customFontStatus" style="margin-top:6px;"></div>
+      </div>
+
+      <label class="field-label">حجم خط الآية</label>
+      <input type="range" id="sizeRange" min="14" max="30" value="20">
+
+      <label class="field-label">حجم خط ترجمة المعاني</label>
+      <input type="range" id="sizeRangeT" min="9" max="18" value="12">
+
+      <label class="field-label">لون النص</label>
+      <div class="colors" id="colorRow"></div>
+      <div class="chroma-color-row" style="margin-top:6px;">
+        <button type="button" class="chroma-swatch-trigger" id="textColorSwatchTrigger" style="background:#ECE2CB;" aria-label="اختر لون نص مخصص بدقة"></button>
+        <input type="color" id="textColorPicker" value="#ece2cb" class="color-input-hidden" tabindex="-1">
+        <span class="hint" style="margin:0;">أو اختر أي لون آخر بدقة</span>
+      </div>
+
+      <label class="field-label">موضع النص على الشاشة</label>
+      <select id="positionSelect">
+        <option value="pos-top">أعلى الشاشة</option>
+        <option value="pos-center">منتصف الشاشة</option>
+        <option value="pos-bottom" selected>أسفل الشاشة</option>
+      </select>
+
+      <div class="toggle-row">
+        <span>إظهار ترجمة المعاني</span>
+        <div class="switch on" id="translationSwitch"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- stage -->
+  <div class="stage-wrap">
+    <div class="ratio-toggle" id="ratioToggle">
+      <button class="ratio-btn active" data-ratio="9/16">9:16 قصة</button>
+      <button class="ratio-btn" data-ratio="1/1">1:1 مربع</button>
+    </div>
+    <div class="phone-frame">
+      <div class="stage" id="stage">
+        <video id="videoEl" loop playsinline style="display:none;"></video>
+        <canvas id="chromaCanvas" style="display:none; position:absolute; inset:0; width:100%; height:100%;"></canvas>
+        <div class="chroma-tint" style="display:none;"></div>
+
+        <div class="ayah-frame pos-bottom" id="ayahFrame">
+          <div class="corner tl"><svg viewBox="0 0 40 40"><path d="M2 38 C2 20 20 2 38 2"/><circle cx="2" cy="38" r="2.2"/></svg></div>
+          <div class="corner tr"><svg viewBox="0 0 40 40"><path d="M2 38 C2 20 20 2 38 2"/><circle cx="2" cy="38" r="2.2"/></svg></div>
+          <div class="corner bl"><svg viewBox="0 0 40 40"><path d="M2 38 C2 20 20 2 38 2"/><circle cx="2" cy="38" r="2.2"/></svg></div>
+          <div class="corner br"><svg viewBox="0 0 40 40"><path d="M2 38 C2 20 20 2 38 2"/><circle cx="2" cy="38" r="2.2"/></svg></div>
+          <div class="overlay-text">
+            <div class="ayah placeholder" id="ayahText" style="font-size:14px;">اختر آية، أو ارفع فيديو واضغط "تعرّف من صوت الفيديو"</div>
+            <div class="translation" id="translationText" style="font-size:12px;"></div>
+          </div>
+        </div>
+
+        <button class="detect-btn" id="detectBtn" style="display:none;" title="يستمع مباشرة عبر الميكروفون ويطابق الكلام مع آيات القرآن باستخدام تعرّف الكلام في المتصفح">
+          <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>
+          <span id="detectBtnLabel">تعرّف من الميكروفون (مباشر)</span>
+        </button>
+
+        <div class="scan-overlay" id="scanOverlay">
+          <div class="scan-rings">
+            <div class="scan-ring r1"></div>
+            <div class="scan-ring r2"></div>
+            <div class="scan-ring r3"></div>
+            <svg class="scan-star" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.4">
+              <rect x="9" y="9" width="22" height="22"/><rect x="9" y="9" width="22" height="22" transform="rotate(45 20 20)"/>
+            </svg>
+          </div>
+          <p>جارٍ التعرف على الآية…</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="upload-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v12m0-12l-4 4m4-4l4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></svg>
+      <span>رفع فيديو أو تلاوة صوتية:</span>
+      <input type="file" id="videoUpload" accept="video/*,audio/*">
+    </div>
+    <button class="apply-btn" id="detectFromVideoBtn" style="margin-top:8px;">تعرّف من صوت الفيديو المرفوع</button>
+    <button class="apply-btn" id="autoSyncBtn" style="margin-top:8px; border-color:var(--gold);">مزامنة تلقائية: اكتب كل آية أثناء التلاوة</button>
+    <div class="detected-label" id="detectedLabel"></div>
+    <div class="detected-label" id="matchConfidence" style="color:var(--parchment-dim);"></div>
+
+    <div id="trimRow" class="subsection" style="display:none;">
+      <label class="field-label">تصدير نطاق آيات محدد (اختياري)</label>
+      <div style="display:flex; gap:8px;">
+        <select id="trimFromSelect" style="flex:1;"></select>
+        <select id="trimToSelect" style="flex:1;"></select>
+      </div>
+      <p class="hint" style="margin-top:8px;">القص يلتزم دائمًا ببداية ونهاية الآية كما رصدها التعرّف الصوتي على وقفاتها — لا يمكن القص في منتصف آية أو كلمة.</p>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <p>نسخة تجريبية لعرض الواجهة والتفاعل. للتفاصيل الكاملة عن التطبيق اضغط زر المعلومات ⓘ أعلى الصفحة.</p>
+  <div class="toggle-row" style="max-width:320px; margin:0 auto 10px; flex-wrap:wrap;">
+    <span style="flex:1 1 auto; min-width:150px;">مدة التصدير بدون فيديو (ثانية)</span>
+    <input type="number" id="staticDurationInput" min="2" max="60" value="6" style="width:56px; flex:none; text-align:center; border-radius:8px; border:1px solid var(--gold-dim); background:#0c1614; color:var(--parchment); padding:6px 4px;">
+  </div>
+  <button class="export-btn" id="exportBtn">تصدير المقطع (حتى 1080p / 120 ثانية)</button>
+</footer>
+
+</div>
+
+<div class="export-modal" id="infoModal">
+  <div class="export-card info-card">
+    <div class="export-icon">✦</div>
+    <h3>عن استوديو الآيات</h3>
+    <p class="hint">تطبيق مونتاج مخصص فقط لتصميم مقاطع الفيديو القرآنية — كل خيار فيه مبني لخدمة الآية والتلاوة، لا مونتاج عام.</p>
+    <ul class="info-list">
+      <li>تعرّف تلقائي بالذكاء الاصطناعي على الآية من الصوت، مع كتابتها وترجمتها فورًا</li>
+      <li>اختيار يدوي لأي آية، أو كتابة نص مخصص بالكامل</li>
+      <li>خلفيات جاهزة، وإزالة كروم للفيديوهات المصوّرة أمام خلفية خضراء</li>
+      <li>تلاوات جاهزة لعدد من القرّاء مع معاينة صوتية سريعة</li>
+      <li>قوالب نصية جاهزة (موضع، خط، لون) وتحكم كامل بالحجم والشكل</li>
+      <li>تصدير بنسبة 9:16 للقصص أو 1:1 للمنشورات المربعة</li>
+    </ul>
+    <p class="hint">إزالة الكروم (مع تنظيف تسرّب اللون الأخضر عند الحواف، وقوة/نعومة قابلتين للتعديل) والتصدير النهائي (حتى دقة 1080p ولمدة تصل إلى دقيقتين) يعملان فعليًا داخل المتصفح. التعرّف على الآية يعمل بثلاث طرق حقيقية: الميكروفون المباشر، تعرّف لحظي من صوت فيديو مرفوع، أو "المزامنة التلقائية" التي تحلّل الفيديو كاملاً وتكتشف كل آية والزمن الذي قيلت فيه، ثم تكتبها بأنيميشن أثناء العرض والتصدير — تمامًا مع توقيت الشيخ. يستخدم كل ذلك نموذج Whisper (الفئة "small"، الأدق حتى الآن) يعمل بالكامل على جهازك (يُحمَّل مرة واحدة فقط)، مع محرك مطابقة عربي دقيق يقارن مع القرآن الكريم كاملاً (6,236 آية، يُحمَّل تلقائيًا عند فتح التطبيق). السقف الحقيقي التالي لدقة أعلى هو نموذج تعرّف صوتي مخصص للتلاوة القرآنية على خادمك الخاص.</p>
+    <button class="export-btn" id="closeInfoBtn">إغلاق</button>
+  </div>
+</div>
+
+<div class="export-modal" id="exportModal">
+  <div class="export-card">
+    <div class="export-icon" id="exportIcon">✦</div>
+    <h3 id="exportTitle">جارٍ تجهيز المعاينة…</h3>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <p class="hint" id="exportHint">يتم الآن التصدير فعليًا داخل المتصفح: دمج الفيديو أو الخلفية، النص، إزالة الكروم إن كانت مفعّلة، وصوت القارئ إن اخترته.</p>
+    <a href="#" id="downloadExportLink" download="ayat-studio-export.webm" class="export-btn" style="display:none; text-decoration:none; margin-bottom:10px;">تنزيل الفيديو (WebM)</a>
+    <button class="export-btn" id="closeExportBtn" style="display:none;">إغلاق</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// AYAAT starts as a small curated fallback (used instantly, and used if the
+// full-Quran fetch below fails, e.g. no internet). loadFullQuranCorpus()
+// replaces its contents with all 6,236 ayat once the fetch succeeds — every
+// function in this file (matching engine, selectors, export) reads from
+// this same array, so nothing else needs to change when it grows.
+let AYAAT = [
+  {surahNum:2, surah:"البقرة", num:286, ar:"لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا", en:"Allah does not burden a soul beyond what it can bear."},
+  {surahNum:94, surah:"الشرح", num:6, ar:"إِنَّ مَعَ الْعُسْرِ يُسْرًا", en:"Indeed, with hardship comes ease."},
+  {surahNum:65, surah:"الطلاق", num:3, ar:"وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ", en:"Whoever puts their trust in Allah, He is sufficient for them."},
+  {surahNum:55, surah:"الرحمن", num:13, ar:"فَبِأَيِّ آلَاءِ رَبِّكُمَا تُكَذِّبَانِ", en:"So which of the favors of your Lord will you deny?"},
+  {surahNum:89, surah:"الفجر", num:27, ar:"يَا أَيَّتُهَا النَّفْسُ الْمُطْمَئِنَّةُ", en:"O reassured soul."},
+  {surahNum:3, surah:"آل عمران", num:159, ar:"وَشَاوِرْهُمْ فِي الْأَمْرِ", en:"And consult them in the matter."},
+];
+
+const BACKGROUNDS = ["bg1","bg2","bg3","bg4","bg5","bg6","bg7","bg8"];
+const RECITERS = ["الشيخ الدوسري","مشاري العفاسي","عبدالباسط عبدالصمد","ماهر المعيقلي","ياسر الدوسري","سعود الشريم"];
+const TEMPLATES = [
+  {name:"سطر سفلي كلاسيكي", desc:"الآية أسفل الشاشة، ترجمة تحتها", pos:"pos-bottom", extra:"", font:"'Amiri Quran', 'Amiri', serif", color:"#ECE2CB"},
+  {name:"توسّط ذهبي", desc:"الآية في المنتصف بلون ذهبي", pos:"pos-center", extra:"", font:"'Amiri Quran', 'Amiri', serif", color:"#ECC875"},
+  {name:"عنوان رقعة علوي", desc:"خط الرقعة أعلى الشاشة", pos:"pos-top", extra:"", font:"'Aref Ruqaa', serif", color:"#ECE2CB"},
+  {name:"بساطة بيضاء", desc:"نص أبيض واضح للقراءة السريعة", pos:"pos-bottom", extra:"", font:"'Amiri Quran', 'Amiri', serif", color:"#ffffff"},
+  {name:"لوحة زجاجية سفلية", desc:"نص داخل لوحة شبه شفافة أسفل الشاشة", pos:"pos-bottom", extra:"boxed", font:"'Amiri Quran', 'Amiri', serif", color:"#ECE2CB"},
+  {name:"إطار ذهبي متوسط", desc:"نص داخل إطار مذهّب في المنتصف", pos:"pos-center", extra:"framed", font:"'Aref Ruqaa', serif", color:"#ECC875"},
+];
+const COLORS = ["#ECE2CB","#ECC875","#ffffff","#8FBBAF","#C9A24B","#E8D5A8","#7FA88F","#A8C5D6","#D9A5B0","#F2F2F2"];
+
+/* =========================================================================
+   REAL AYAH-MATCHING ENGINE
+   -------------------------------------------------------------------------
+   This is a genuine (non-simulated) Arabic text matcher. It normalizes
+   Quranic/spoken Arabic (removes tashkeel, unifies hamza/alef/ya/ta-marbuta
+   variants, strips tatweel & punctuation) and then scores the transcript
+   against every ayah using a blend of:
+     1) token-overlap (order-independent, robust to ASR word drops), and
+     2) normalized Levenshtein distance (order-sensitive, catches near-misses).
+   It is deliberately adaptive: AYAAT can be swapped for the full 6,236-ayah
+   Quran corpus (e.g. a local JSON export of the Uthmani text) with zero
+   changes to the matching logic below — only the data source grows.
+   ========================================================================= */
+function normalizeArabic(text){
+  if(!text) return "";
+  return text
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")   // tashkeel / quranic marks
+    .replace(/\u0640/g, "")                                // tatweel
+    .replace(/[إأآاٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[^\u0600-\u06FF\s]/g, "")                    // strip latin/punct/digits
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  let prev = new Array(n+1);
+  for(let j=0;j<=n;j++) prev[j] = j;
+  for(let i=1;i<=m;i++){
+    const cur = [i];
+    for(let j=1;j<=n;j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+// Substring-aware edit distance: the *minimum* cost of aligning the shorter
+// string somewhere inside the longer one, with skipping before/after the
+// match kept free. Plain Levenshtein (above) penalizes length mismatch
+// directly, which unfairly punishes the extremely common case here: a 6s
+// ASR window (or a short mic clip) only ever covers a *fragment* of a full
+// ayah, or a long ayah is compared against a short transcript. This keeps
+// the same O(m*n) cost as plain Levenshtein — no slower — while scoring
+// fragments fairly.
+function partialEditDistance(shortStr, longStr){
+  const m = shortStr.length, n = longStr.length;
+  if(m === 0) return 0;
+  if(n === 0) return m;
+  let prev = new Array(n+1).fill(0); // free skip of any prefix of longStr
+  for(let i=1;i<=m;i++){
+    const cur = new Array(n+1);
+    cur[0] = i;
+    for(let j=1;j<=n;j++){
+      const cost = shortStr[i-1] === longStr[j-1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost);
+    }
+    prev = cur;
+  }
+  let minEnd = prev[n];
+  for(let j=0;j<=n;j++) if(prev[j] < minEnd) minEnd = prev[j]; // free skip of any suffix
+  return minEnd;
+}
+
+// IDF-weighted overlap (a real IR technique, not just a tuned ratio).
+// Plain token overlap treats every word as equally informative, so with a
+// growing corpus (6,236 ayat) common words (الله، من، في، قال...) dominate
+// the score and swamp the handful of distinctive words that actually tell
+// two ayat apart. Weighting each matched token by its inverse document
+// frequency — rare-across-the-corpus tokens count for more, ubiquitous
+// tokens count for almost nothing — is the standard TF-IDF-style fix, and
+// it's what keeps matching accurate once AYAAT grows from 6 ayat to the
+// full Quran.
+let idfMap = new Map();
+let corpusMaxIdf = 1;
+
+function buildIdfMap(cache){
+  const df = new Map();
+  cache.forEach(entry=>{
+    // count each token once per ayah (document frequency, not raw term freq)
+    new Set(entry.tokens).forEach(t=> df.set(t, (df.get(t)||0)+1));
+  });
+  const N = cache.length || 1;
+  const map = new Map();
+  let maxIdf = 1;
+  df.forEach((count, token)=>{
+    // smoothed idf, always > 0 even for a token in every ayah
+    const w = Math.log((N+1)/(count+1)) + 1;
+    map.set(token, w);
+    if(w > maxIdf) maxIdf = w;
+  });
+  idfMap = map;
+  corpusMaxIdf = maxIdf;
+}
+
+function idfOf(token){
+  // A token never seen in the corpus is, by definition, maximally
+  // distinctive — treat it like the rarest known token rather than 0.
+  return idfMap.has(token) ? idfMap.get(token) : corpusMaxIdf;
+}
+
+// Weighted Jaccard: sum(idf of shared tokens) / sum(idf of all tokens in
+// either set). Order-independent like the old overlap score (still robust
+// to ASR word drops/reorderings), but now a shared rare word moves the
+// score far more than a shared "و"/"من".
+function weightedOverlapScore(aTokens, bTokenSet){
+  if(aTokens.length === 0 || bTokenSet.size === 0) return 0;
+  const seen = new Set();
+  let matchWeight = 0, unionWeight = 0;
+  aTokens.forEach(t=>{
+    if(seen.has(t)) return;
+    seen.add(t);
+    const w = idfOf(t);
+    unionWeight += w;
+    if(bTokenSet.has(t)) matchWeight += w;
+  });
+  bTokenSet.forEach(t=>{
+    if(!seen.has(t)) unionWeight += idfOf(t);
+  });
+  return unionWeight > 0 ? matchWeight / unionWeight : 0;
+}
+
+// Adjacent-word pairs. A shared bigram is far more meaningful than two
+// separately-shared unigrams — "ربكما تكذبان" appearing in both texts is
+// real evidence of the same phrase, whereas the two words matching apart
+// from each other could just be common-word noise. This gives the score a
+// cheap dose of order-sensitivity without the O(m*n) cost of a full
+// alignment over every candidate.
+function bigramsOf(tokens){
+  const set = new Set();
+  for(let i=0;i<tokens.length-1;i++) set.add(tokens[i] + "_" + tokens[i+1]);
+  return set;
+}
+function bigramOverlapScore(aBigrams, bBigrams){
+  if(aBigrams.size === 0 || bBigrams.size === 0) return 0;
+  let inter = 0;
+  aBigrams.forEach(bg=>{ if(bBigrams.has(bg)) inter++; });
+  const union = aBigrams.size + bBigrams.size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+// Phonetic fallback tier — collapses Arabic letters that Whisper (and other
+// general-purpose ASR trained mostly on MSA/dialectal speech) routinely
+// confuse when transcribing Quranic tajweed pronunciation, whose precise
+// makharij (articulation points) don't always match everyday speech:
+//   - ث/س/ص  (interdental vs sibilant fricatives)
+//   - ظ/ض/ذ/ز (emphatic/dental cluster)
+//   - ق/ك    (uvular vs velar stop, collapsed in many spoken dialects)
+//   - ع/ا    (pharyngeal often weakens toward a plain vowel)
+//   - غ/خ    (voiced/voiceless velar fricative pair)
+// This is deliberately used only as a small secondary signal (see
+// PHONETIC_WEIGHT below), never in place of the exact-letter match, so it
+// can rescue a fragment with one or two misheard letters without letting
+// truly different ayat collapse into each other.
+const PHONETIC_FOLD = { "ث":"s", "س":"s", "ص":"s", "ظ":"z", "ض":"z", "ذ":"z", "ز":"z", "ق":"k", "ك":"k", "ع":"a", "ا":"a", "غ":"gh", "خ":"gh" };
+function phoneticFold(token){
+  let out = "";
+  for(const ch of token) out += PHONETIC_FOLD[ch] || ch;
+  return out;
+}
+function phoneticTokensOf(tokens){
+  return tokens.map(phoneticFold);
+}
+
+// Precomputed normalization cache — rebuilt via rebuildAyahCache() whenever
+// AYAAT changes (fallback list at boot, then again once the full corpus
+// loads). Without this, matching against 6,236 ayat would re-normalize the
+// entire Quran (and rebuild the IDF table) on every single detection call.
+let ayahCache = [];
+function rebuildAyahCache(){
+  ayahCache = AYAAT.map(a=>{
+    const norm = normalizeArabic(a.ar);
+    const tokens = norm.split(" ").filter(Boolean);
+    const phonetic = phoneticTokensOf(tokens);
+    return {
+      ayah: a, norm, tokens, tokenSet: new Set(tokens),
+      bigramSet: bigramsOf(tokens),
+      phoneticSet: new Set(phonetic),
+    };
+  });
+  buildIdfMap(ayahCache);
+}
+
+// A single word making up most of an otherwise multi-word transcript is
+// Whisper's classic failure mode when it's fed silence, room tone, or
+// mosque ambience instead of real speech — it "hallucinates" the same
+// token repeatedly rather than reporting nothing. Catching this before it
+// reaches the matcher prevents confident-looking false positives on
+// segments where nothing was actually recited.
+function looksLikeHallucination(tokens){
+  if(tokens.length < 3) return false;
+  const counts = new Map();
+  tokens.forEach(t=> counts.set(t, (counts.get(t)||0)+1));
+  let maxCount = 0;
+  counts.forEach(c=>{ if(c > maxCount) maxCount = c; });
+  return maxCount / tokens.length >= 0.6;
+}
+
+// Returns {ayah, index, confidence} for the best match, or null if nothing
+// clears the minimum confidence bar (keeps the UI honest instead of always
+// forcing a guess).
+//
+// Two-stage search, run every time against the full 6,236-ayah corpus:
+//   Stage 1 — score every ayah with the cheap IDF-weighted overlap only
+//   (just set lookups, no character-level work) and keep the top handful
+//   of candidates. This is what actually scales to the full Quran.
+//   Stage 2 — run the substring-aware alignment (partialEditDistance)
+//   against only those candidates. Because it no longer penalizes length
+//   mismatch, this stage now correctly recognizes a short mic clip or a
+//   6s ASR window that only captures *part* of a longer ayah — the single
+//   biggest real-world source of missed matches — while staying just as
+//   fast as before, since the expensive character-level pass now runs on
+//   ~20 ayat instead of all 6,236.
+const CANDIDATE_POOL_SIZE = 20;
+
+function matchAyahFromText(rawText, minConfidence = 0.35){
+  const norm = normalizeArabic(rawText);
+  if(!norm) return null;
+  const inTokens = norm.split(" ").filter(Boolean);
+  // Very short transcripts (1 stray word from noise/breathing) are the
+  // single biggest source of confident-looking false positives against a
+  // 6,236-ayah corpus — a lot of ayat share one common word. Require a
+  // little more substance before even attempting a match.
+  if(inTokens.length < 2) return null;
+  // A degenerate ASR transcript (one word repeated over and over) is noise
+  // or silence being hallucinated as speech, not a real recitation — never
+  // let it reach the scorer.
+  if(looksLikeHallucination(inTokens)) return null;
+  if(ayahCache.length !== AYAAT.length) rebuildAyahCache();
+
+  const inBigrams = bigramsOf(inTokens);
+  const inPhonetic = new Set(phoneticTokensOf(inTokens));
+
+  const candidates = [];
+  ayahCache.forEach(entry=>{
+    const overlap = weightedOverlapScore(inTokens, entry.tokenSet);
+    if(overlap <= 0) return;
+    candidates.push({ entry, overlap });
+  });
+  candidates.sort((a,b)=> b.overlap - a.overlap);
+  const pool = candidates.slice(0, CANDIDATE_POOL_SIZE);
+  if(pool.length === 0) return null;
+
+  let best = null, bestScore = -1;
+  pool.forEach(({entry, overlap})=>{
+    const shortStr = norm.length <= entry.norm.length ? norm : entry.norm;
+    const longStr = norm.length <= entry.norm.length ? entry.norm : norm;
+    const dist = partialEditDistance(shortStr, longStr);
+    const distScore = 1 - dist / Math.max(shortStr.length, 1);
+    // Two extra, deliberately lightweight signals on top of the original
+    // overlap + edit-distance blend:
+    //   - bigramScore: rewards shared adjacent-word phrases, catching
+    //     cases where two ayat share the same bag of words in a different
+    //     order (which the unigram overlap alone can't tell apart).
+    //   - phoneticScore: reruns the overlap after folding together Arabic
+    //     letters ASR commonly confuses, so a fragment with one or two
+    //     misheard letters can still surface its real ayah instead of
+    //     losing to a token-exact but wrong one.
+    // Both are capped to a modest share of the total so they can only ever
+    // nudge a close call, never override the primary evidence.
+    const bigramScore = bigramOverlapScore(inBigrams, entry.bigramSet);
+    // Plain (unweighted) Jaccard on the phonetically-folded tokens — the
+    // IDF weights above were fitted on real letters, not folded ones, so a
+    // simple overlap ratio is used here instead.
+    let phoneticInter = 0;
+    inPhonetic.forEach(t=>{ if(entry.phoneticSet.has(t)) phoneticInter++; });
+    const phoneticUnion = inPhonetic.size + entry.phoneticSet.size - phoneticInter;
+    const phoneticScore = phoneticUnion > 0 ? phoneticInter / phoneticUnion : 0;
+    const score = overlap * 0.5 + Math.max(0, distScore) * 0.3 + bigramScore * 0.1 + phoneticScore * 0.1;
+    if(score > bestScore){ bestScore = score; best = entry.ayah; }
+  });
+
+  if(!best || bestScore < minConfidence) return null;
+  return { ayah: best, index: AYAAT.indexOf(best), confidence: bestScore };
+}
+
+/* =========================================================================
+   CANVAS BACKGROUND DEFINITIONS (mirrors the CSS .bg1..bg8 gradients)
+   Needed because real chroma-key compositing and real export happen on a
+   <canvas>, which cannot read CSS gradients directly.
+   ========================================================================= */
+const BG_CANVAS_DEFS = [
+  {type:"linear", stops:["#0f2b26","#1E4B3F","#173a30"]},
+  {type:"linear", stops:["#241407","#5C2430","#3a1a20"]},
+  {type:"linear", stops:["#0b1424","#1B3A63","#152d4d"]},
+  {type:"linear", stops:["#180f1c","#3B2140","#2a1830"]},
+  {type:"linear", stops:["#161005","#4a3a10","#332809"]},
+  {type:"radial", stops:["#233a34","#050F0D"]},
+  {type:"linear", stops:["#1c1c1c","#050505","#111111"]},
+  {type:"linear", stops:["#0e1e1a","#1E4B3F","#1B3A63"]},
+];
+function drawCanvasBackground(ctx, w, h, bgIndex){
+  if(state.useCustomBg && state.customBgImg && state.customBgImg.naturalWidth){
+    const img = state.customBgImg;
+    const scale = Math.max(w/img.naturalWidth, h/img.naturalHeight);
+    const dw = img.naturalWidth*scale, dh = img.naturalHeight*scale;
+    ctx.drawImage(img, (w-dw)/2, (h-dh)/2, dw, dh);
+    return;
+  }
+  const def = BG_CANVAS_DEFS[bgIndex] || BG_CANVAS_DEFS[0];
+  let grad;
+  if(def.type === "radial"){
+    grad = ctx.createRadialGradient(w*0.3,h*0.2,10, w*0.3,h*0.2, Math.max(w,h)*0.8);
+  } else {
+    grad = ctx.createLinearGradient(0,0,w*0.6,h);
+  }
+  def.stops.forEach((c,i)=> grad.addColorStop(i/(def.stops.length-1), c));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,w,h);
+}
+
+// A standalone title card (bismillah intro / outro). Always drawn over the
+// chosen background only — never over the video frame or any audio track
+// beyond the reciter's own recitation, which is paused during these screens.
+function drawTitleCard(ctx, w, h, text){
+  drawCanvasBackground(ctx, w, h, state.bg);
+  ctx.save();
+  ctx.fillStyle = "#ECC875";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.direction = "rtl";
+  ctx.font = `${Math.round(w*0.075)}px 'Amiri Quran', 'Amiri', serif`;
+  ctx.shadowColor = "rgba(0,0,0,.5)";
+  ctx.shadowBlur = w*0.02;
+  ctx.fillText(text, w/2, h/2, w*0.86);
+  ctx.restore();
+}
+
+/* =========================================================================
+   REAL CHROMA KEY — runs entirely in-browser via per-pixel canvas
+   processing. No server needed.
+
+   Generalized beyond an assumed-pure-green screen: the old version keyed
+   on "g - max(r,b)", which only makes sense for green (and breaks for a
+   blue screen, or any other color the person actually shot against). This
+   version keys on distance to a picked keyColor in YCbCr chrominance space
+   (Cb/Cr, luma dropped) — the standard chroma-key math space, and a real
+   accuracy win beyond just "supports other colors": because luma (Y) is
+   excluded, uneven lighting across the physical screen (a shadow in one
+   corner, a hot spot in another) no longer shifts the key, since it only
+   ever moves a pixel's Y, not its Cb/Cr.
+
+   Two passes per pixel:
+     1) Keying — makes near-keyColor pixels transparent, with a soft-edge
+        ramp instead of a hard cutoff (avoids jagged/aliased silhouette
+        edges).
+     2) Spill suppression — pixels that stay opaque (skin, hair, clothing
+        near the edge of the subject) usually pick up a tint bled from the
+        screen's reflected light. This pulls chrominance back toward
+        neutral gray in proportion to how key-like the pixel still is,
+        leaving luma untouched, which is what makes a keyed subject look
+        "clean" instead of color-fringed — for whatever screen color was
+        picked, not just green.
+   ========================================================================= */
+function rgbToYCbCr(r, g, b){
+  const y  =  0.299*r + 0.587*g + 0.114*b;
+  const cb = -0.168736*r - 0.331264*g + 0.5*b + 128;
+  const cr =  0.5*r - 0.418688*g - 0.081312*b + 128;
+  return [y, cb, cr];
+}
+function ycbcrToRgb(y, cb, cr){
+  const r = y + 1.402*(cr-128);
+  const g = y - 0.344136*(cb-128) - 0.714136*(cr-128);
+  const b = y + 1.772*(cb-128);
+  return [
+    Math.max(0, Math.min(255, r)),
+    Math.max(0, Math.min(255, g)),
+    Math.max(0, Math.min(255, b))
+  ];
+}
+
+// keyColor: {r,g,b} of the screen color to remove (defaults to pure green,
+// same behavior as before if the person never picks a color).
+function chromaKeyImageData(imageData, threshold = 90, softness = 45, keyColor = {r:0, g:255, b:0}){
+  const d = imageData.data;
+  const [, keyCb, keyCr] = rgbToYCbCr(keyColor.r, keyColor.g, keyColor.b);
+
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const [y, cb, cr] = rgbToYCbCr(r, g, b);
+    const dcb = cb - keyCb, dcr = cr - keyCr;
+    const dist = Math.sqrt(dcb*dcb + dcr*dcr); // 0 = exact key-color hue/sat match
+    // Reframed as "closeness to key" so it keeps the same numeric sense
+    // (bigger = more background-like) as the old green-excess metric,
+    // which is what the existing threshold/softness sliders were tuned
+    // against — no need to recalibrate the UI for this to work.
+    const chromaMatch = 260 - dist;
+
+    if(chromaMatch > threshold){
+      d[i+3] = 0;
+      continue;
+    } else if(chromaMatch > threshold - softness){
+      const alpha = 1 - (chromaMatch - (threshold - softness)) / softness;
+      d[i+3] = Math.max(0, Math.min(255, Math.round(alpha*255)));
+    }
+
+    // spill suppression: only kicks in on pixels that are still at least
+    // somewhat key-colored (chromaMatch > 0) but survived the keying pass.
+    if(chromaMatch > 0){
+      const pull = Math.min(1, chromaMatch/260) * 0.6;
+      const newCb = 128 + (cb-128)*(1-pull);
+      const newCr = 128 + (cr-128)*(1-pull);
+      const [nr, ng, nb] = ycbcrToRgb(y, newCb, newCr);
+      d[i]   = Math.round(nr);
+      d[i+1] = Math.round(ng);
+      d[i+2] = Math.round(nb);
+    }
+  }
+  return imageData;
+}
+
+// "#RRGGBB" -> {r,g,b}. Falls back to pure green on anything malformed.
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex||"").trim());
+  if(!m) return {r:0, g:255, b:0};
+  const n = parseInt(m[1], 16);
+  return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+
+let state = { bg:0, chroma:false, reciter:0, template:0, font:"'Amiri Quran', 'Amiri', serif", color:"#ECE2CB", showTranslation:true, extra:"", chromaThreshold:90, chromaSoftness:45, chromaColorHex:"#00FF00", useCustomBg:false, customBgDataUrl:null, customBgImg:null, showIntro:false, showOutro:false, outroText:"صدق الله العظيم", trimStart:null, trimEnd:null, textPosition:"pos-bottom" };
+
+const $ = (id)=>document.getElementById(id);
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), 2200);
+}
+function makeFocusable(el){
+  el.tabIndex = 0;
+  el.setAttribute("role","button");
+  el.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" || e.key === " "){ e.preventDefault(); el.click(); }
+  });
+}
+function revealAyah(arText, enText, label){
+  const frame = $("ayahFrame");
+  const ayahEl = $("ayahText");
+  frame.classList.remove("revealed");
+  ayahEl.classList.remove("placeholder");
+  ayahEl.style.fontSize = $("sizeRange").value + "px";
+  ayahEl.textContent = arText;
+  ayahEl.classList.add("fade-in");
+  if(state.showTranslation && enText){
+    $("translationText").textContent = enText;
+    $("translationText").classList.add("fade-in");
+  } else if(!enText){
+    $("translationText").textContent = "";
+  }
+  $("detectedLabel").textContent = label;
+  void frame.offsetWidth;
+  frame.classList.add("revealed");
+  setTimeout(()=>{ ayahEl.classList.remove("fade-in"); $("translationText").classList.remove("fade-in"); }, 600);
+}
+let chromaRAF = null;
+const chromaWorkCanvas = document.createElement("canvas"); // offscreen scratch buffer
+
+function stopChromaLoop(){
+  if(chromaRAF){ cancelAnimationFrame(chromaRAF); chromaRAF = null; }
+}
+
+function startChromaLoop(){
+  stopChromaLoop();
+  const videoEl = $("videoEl");
+  const outCanvas = $("chromaCanvas");
+  const ctx = outCanvas.getContext("2d");
+  const workCtx = chromaWorkCanvas.getContext("2d", { willReadFrequently: true });
+
+  function frame(){
+    const w = outCanvas.clientWidth || 270, h = outCanvas.clientHeight || 480;
+    if(outCanvas.width !== w) outCanvas.width = w;
+    if(outCanvas.height !== h) outCanvas.height = h;
+    chromaWorkCanvas.width = w; chromaWorkCanvas.height = h;
+
+    // 1) real background behind the keyed subject
+    drawCanvasBackground(ctx, w, h, state.bg);
+
+    // 2) draw the current video frame into a scratch canvas sized to the stage
+    if(videoEl.videoWidth){
+      const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+      const scale = Math.max(w/vw, h/vh);
+      const dw = vw*scale, dh = vh*scale;
+      const dx = (w-dw)/2, dy = (h-dh)/2;
+      workCtx.clearRect(0,0,w,h);
+      workCtx.drawImage(videoEl, dx, dy, dw, dh);
+
+      // 3) real per-pixel chroma key on that frame
+      const imgData = workCtx.getImageData(0,0,w,h);
+      chromaKeyImageData(imgData, state.chromaThreshold, state.chromaSoftness, hexToRgb(state.chromaColorHex));
+      workCtx.putImageData(imgData, 0, 0);
+
+      // 4) composite the keyed subject over the real background
+      ctx.drawImage(chromaWorkCanvas, 0, 0);
+    }
+    chromaRAF = requestAnimationFrame(frame);
+  }
+  chromaRAF = requestAnimationFrame(frame);
+}
+
+function applyStageBackground(){
+  const stage = $("stage");
+  const videoEl = $("videoEl");
+  const tint = document.querySelector(".chroma-tint");
+  const chromaCanvas = $("chromaCanvas");
+  BACKGROUNDS.forEach(c=>stage.classList.remove(c));
+  tint.style.display = "none"; // legacy fake overlay retired in favor of real canvas keying
+
+  const hasVideo = videoEl.dataset.hasSrc === "1";
+
+  if(state.chroma && hasVideo){
+    // real chroma-key path: canvas replaces the raw <video> element on screen
+    // (video must stay "block"/decoding so the canvas has live frames to read)
+    videoEl.style.display = "block";
+    videoEl.style.visibility = "hidden";
+    videoEl.style.position = "absolute";
+    chromaCanvas.style.display = "block";
+    stage.style.background = "";
+    startChromaLoop();
+  } else {
+    stopChromaLoop();
+    chromaCanvas.style.display = "none";
+    videoEl.style.visibility = "visible";
+    if(hasVideo){
+      videoEl.style.display = "block";
+      stage.style.background = "transparent";
+    } else {
+      videoEl.style.display = "none";
+      stage.style.background = "";
+      if(state.useCustomBg && state.customBgDataUrl){
+        stage.style.background = `center/cover no-repeat url(${state.customBgDataUrl})`;
+      } else {
+        stage.classList.add(BACKGROUNDS[state.bg]);
+      }
+    }
+  }
+  stage.classList.toggle("chroma-on", false); // fake tint class no longer used
+}
+
+const bgGrid = $("bgGrid");
+BACKGROUNDS.forEach((cls, i)=>{
+  const d = document.createElement("div");
+  d.className = "swatch " + cls + (i===0 ? " selected" : "");
+  d.innerHTML = `<span>خلفية ${i+1}</span>`;
+  d.onclick = ()=>{
+    document.querySelectorAll(".swatch").forEach(s=>s.classList.remove("selected"));
+    d.classList.add("selected");
+    state.bg = i;
+    state.useCustomBg = false;
+    $("customBgNote").style.display = "none";
+    $("clearCustomBgBtn").style.display = "none";
+    applyStageBackground();
+  };
+  makeFocusable(d);
+  bgGrid.appendChild(d);
+});
+
+// Custom background upload: processed entirely client-side (FileReader → data
+// URL), never sent anywhere. Since this is user-supplied content the app can't
+// screen it, so a visible reminder note appears once a custom image is active
+// nudging the person toward visuals that fit Quranic content, rather than
+// silently allowing anything.
+$("customBgUpload").onchange = (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    state.customBgDataUrl = reader.result;
+    const img = new Image();
+    img.onload = ()=>{ state.customBgImg = img; };
+    img.src = reader.result;
+    state.useCustomBg = true;
+    document.querySelectorAll(".swatch").forEach(s=>s.classList.remove("selected"));
+    $("customBgNote").style.display = "block";
+    $("clearCustomBgBtn").style.display = "block";
+    applyStageBackground();
+    toast("تم رفع الخلفية ✓");
+  };
+  reader.readAsDataURL(file);
+};
+$("clearCustomBgBtn").onclick = ()=>{
+  state.useCustomBg = false;
+  state.customBgDataUrl = null;
+  state.customBgImg = null;
+  $("customBgNote").style.display = "none";
+  $("clearCustomBgBtn").style.display = "none";
+  const firstSwatch = document.querySelector(".swatch");
+  if(firstSwatch) firstSwatch.classList.add("selected");
+  state.bg = 0;
+  applyStageBackground();
+};
+
+// Reciter audio is real: the app ships with no copyrighted recitation audio bundled,
+// so each reciter slot lets the user attach their own licensed audio file (e.g. from
+// their own recordings or a rights-cleared library). Once attached, play/pause and
+// selection are fully functional real <audio> playback, and the selected clip is
+// mixed into the real export below.
+const reciterList = $("reciterList");
+const reciterAudioEls = []; // real <audio> element per reciter, or null if none attached
+
+RECITERS.forEach((name, i)=>{
+  const d = document.createElement("div");
+  d.className = "list-item" + (i===0 ? " selected" : "");
+  let bars = "";
+  for(let b=0;b<14;b++){ bars += `<i style="height:${4+Math.random()*12}px;"></i>`; }
+  d.innerHTML = `<div class="avatar"></div>
+                 <div style="flex:1; min-width:0;">
+                   <div class="name">${name}</div>
+                   <label class="upload-mini" style="font-size:10.5px; color:var(--parchment-dim); cursor:pointer; text-decoration:underline; text-underline-offset:2px;">
+                     إرفاق تلاوة صوتية
+                     <input type="file" accept="audio/*" style="display:none;" class="reciter-file">
+                   </label>
+                   <span class="reciter-file-name" style="font-size:10px; color:var(--gold-dim); display:block;"></span>
+                 </div>
+                 <div class="wave">${bars}</div>
+                 <div class="play-btn" aria-label="تشغيل التلاوة المرفقة" title="تشغيل/إيقاف">
+                   <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+                 </div>`;
+  d.onclick = ()=>{
+    document.querySelectorAll(".list-item").forEach(s=>s.classList.remove("selected"));
+    d.classList.add("selected");
+    state.reciter = i;
+    toast(`تم اختيار قارئ: ${name}`);
+  };
+  makeFocusable(d);
+
+  const fileInput = d.querySelector(".reciter-file");
+  const fileNameEl = d.querySelector(".reciter-file-name");
+  fileInput.addEventListener("click", (e)=> e.stopPropagation());
+  fileInput.addEventListener("change", (e)=>{
+    e.stopPropagation();
+    const file = e.target.files[0];
+    if(!file) return;
+    const url = URL.createObjectURL(file);
+    const audioEl = new Audio(url);
+    audioEl.preload = "metadata";
+    reciterAudioEls[i] = audioEl;
+    fileNameEl.textContent = `✓ ${file.name}`;
+    audioEl.addEventListener("ended", ()=> d.classList.remove("previewing"));
+    toast(`تم إرفاق تلاوة لـ ${name} ✓`);
+  });
+
+  const playBtn = d.querySelector(".play-btn");
+  playBtn.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    const audioEl = reciterAudioEls[i];
+    if(!audioEl){
+      toast("أرفق ملف تلاوة صوتية أولًا");
+      return;
+    }
+    // pause every other reciter's preview so only one plays at a time
+    reciterAudioEls.forEach((a, j)=>{ if(a && j !== i){ a.pause(); a.currentTime = 0; } });
+    document.querySelectorAll(".list-item.previewing").forEach(el=> el.classList.remove("previewing"));
+    if(audioEl.paused){
+      audioEl.play();
+      d.classList.add("previewing");
+    } else {
+      audioEl.pause();
+      d.classList.remove("previewing");
+    }
+  });
+  playBtn.tabIndex = 0;
+  playBtn.setAttribute("role","button");
+  playBtn.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" || e.key === " "){ e.preventDefault(); e.stopPropagation(); playBtn.click(); }
+  });
+  reciterList.appendChild(d);
+});
+
+const tmplList = $("tmplList");
+TEMPLATES.forEach((t, i)=>{
+  const d = document.createElement("div");
+  d.className = "tmpl" + (i===0 ? " selected" : "");
+  const linePos = t.pos === "pos-top" ? "top:7px;" : t.pos === "pos-center" ? "top:22px;" : "bottom:7px;";
+  d.innerHTML = `<div class="mini"><div class="l" style="${linePos} background:${t.color};"></div></div>
+                 <div><div class="name">${t.name}</div><div class="desc">${t.desc}</div></div>`;
+  d.onclick = ()=>{
+    document.querySelectorAll(".tmpl").forEach(s=>s.classList.remove("selected"));
+    d.classList.add("selected");
+    state.template = i; state.font = t.font; state.color = t.color; state.extra = t.extra; state.textPosition = t.pos;
+    $("ayahFrame").className = "ayah-frame " + t.pos + (t.extra ? " " + t.extra : "");
+    $("ayahText").style.fontFamily = t.font;
+    $("ayahText").style.color = t.color;
+    $("fontSelect").value = t.font;
+    $("positionSelect").value = t.pos;
+    document.querySelectorAll(".dot").forEach(dd=>dd.classList.toggle("selected", dd.dataset.c === t.color));
+    toast(`تم تطبيق قالب: ${t.name}`);
+  };
+  makeFocusable(d);
+  tmplList.appendChild(d);
+});
+
+const colorRow = $("colorRow");
+COLORS.forEach((c,i)=>{
+  const d = document.createElement("div");
+  d.className = "dot" + (i===0?" selected":"");
+  d.style.background = c; d.dataset.c = c;
+  d.setAttribute("aria-label", "لون النص");
+  d.onclick = ()=>{
+    document.querySelectorAll(".dot").forEach(s=>s.classList.remove("selected"));
+    d.classList.add("selected");
+    setTextColor(c);
+  };
+  makeFocusable(d);
+  colorRow.appendChild(d);
+});
+
+function selectTab(tabName){
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active", b.dataset.tab === tabName));
+  document.querySelectorAll(".drawer-item[data-tab]").forEach(b=>b.classList.toggle("active", b.dataset.tab === tabName));
+  const next = $("pane-" + tabName);
+  const current = document.querySelector(".pane.active");
+  if(current && current !== next){
+    current.classList.remove("active");
+    current.classList.add("leaving");
+    setTimeout(()=> current.classList.remove("leaving"), 190);
+  }
+  next.classList.add("active");
+}
+document.querySelectorAll(".tab-btn").forEach(btn=>{
+  btn.onclick = ()=> selectTab(btn.dataset.tab);
+});
+document.querySelectorAll(".drawer-item[data-tab]").forEach(btn=>{
+  btn.onclick = ()=>{
+    selectTab(btn.dataset.tab);
+    closeDrawer();
+  };
+});
+
+function openDrawer(){ $("drawer").classList.add("show"); $("drawerOverlay").classList.add("show"); }
+function closeDrawer(){ $("drawer").classList.remove("show"); $("drawerOverlay").classList.remove("show"); }
+$("menuBtn").onclick = openDrawer;
+$("closeDrawerBtn").onclick = closeDrawer;
+$("drawerOverlay").onclick = closeDrawer;
+
+function openInfo(){ $("infoModal").classList.add("show"); }
+function closeInfo(){ $("infoModal").classList.remove("show"); }
+$("infoBtn").onclick = openInfo;
+$("drawerInfoBtn").onclick = ()=>{ closeDrawer(); openInfo(); };
+$("closeInfoBtn").onclick = closeInfo;
+$("infoModal").addEventListener("click", (e)=>{ if(e.target.id === "infoModal") closeInfo(); });
+
+$("startBtn").onclick = ()=>{
+  $("welcomeScreen").classList.add("hidden");
+};
+$("welcomeInfoBtn").onclick = openInfo;
+
+/* =========================================================================
+   REAL FULL-QURAN CORPUS LOADER
+   -------------------------------------------------------------------------
+   Fetches the complete Quran (6,236 ayat, all 114 surahs) in Arabic
+   (Uthmani script) plus the Saheeh International English translation from
+   Al Quran Cloud (api.alquran.cloud) — a free, keyless, public-domain-text
+   API. On success this REPLACES the 6-ayah placeholder list above with the
+   real thing, rebuilds the matching cache, and repopulates the surah/ayah
+   selectors. If the device is offline or the API is unreachable, it fails
+   silently back to the small curated list so the app still works.
+   No data is embedded in this file — it's fetched live so this file stays
+   small and the text is always the canonical, unmodified source.
+   ========================================================================= */
+async function loadFullQuranCorpus(){
+  const statusEl = $("corpusStatus");
+  try{
+    const [arRes, enRes] = await Promise.all([
+      fetch("https://api.alquran.cloud/v1/quran/quran-uthmani"),
+      fetch("https://api.alquran.cloud/v1/quran/en.sahih"),
+    ]);
+    if(!arRes.ok || !enRes.ok) throw new Error("HTTP " + arRes.status + "/" + enRes.status);
+    const arJson = await arRes.json();
+    const enJson = await enRes.json();
+    const arSurahs = arJson.data.surahs;
+    const enSurahs = enJson.data.surahs;
+    if(!Array.isArray(arSurahs) || arSurahs.length !== 114) throw new Error("شكل بيانات غير متوقع");
+
+    const full = [];
+    arSurahs.forEach((s, si)=>{
+      const enSurah = enSurahs[si];
+      s.ayahs.forEach((ayah, ai)=>{
+        full.push({
+          surahNum: s.number,
+          surah: s.name.replace(/[\u064B-\u065F\u0670]/g, "").replace(/^سورة\s*/, "").trim(),
+          num: ayah.numberInSurah,
+          ar: ayah.text,
+          en: enSurah && enSurah.ayahs[ai] ? enSurah.ayahs[ai].text : "",
+        });
+      });
+    });
+    if(full.length < 6000) throw new Error("عدد آيات غير مكتمل: " + full.length);
+
+    AYAAT = full;
+    rebuildAyahCache();
+    populateSurahSelect();
+    statusEl.textContent = `تم تحميل القرآن الكريم كاملاً (${AYAAT.length} آية) ✓`;
+    toast("تم تحميل القرآن الكريم كاملاً ✓");
+  } catch(err){
+    console.error("Quran corpus load failed, using fallback list:", err);
+    statusEl.textContent = "تعذّر تحميل القرآن الكامل (لا يوجد اتصال؟) — يعمل التطبيق حاليًا بقائمة مصغّرة من 6 آيات";
+  }
+}
+
+function populateSurahSelect(){
+  const surahSelect = $("surahSelect");
+  const uniqueSurahs = [];
+  const seen = new Set();
+  AYAAT.forEach(a=>{
+    if(!seen.has(a.surahNum)){ seen.add(a.surahNum); uniqueSurahs.push({num:a.surahNum, name:a.surah}); }
+  });
+  uniqueSurahs.sort((x,y)=> x.num - y.num);
+  surahSelect.innerHTML = uniqueSurahs.map(s=>`<option value="${s.num}">سورة ${s.name}</option>`).join("");
+  populateAyahNumSelect(uniqueSurahs[0] ? uniqueSurahs[0].num : null);
+}
+
+function populateAyahNumSelect(surahNum){
+  const ayahNumSelect = $("ayahNumSelect");
+  const ayat = AYAAT.filter(a=> a.surahNum === surahNum);
+  ayahNumSelect.innerHTML = ayat.map((a,i)=>`<option value="${AYAAT.indexOf(a)}">آية ${a.num}</option>`).join("");
+}
+
+$("surahSelect").onchange = ()=>{
+  populateAyahNumSelect(parseInt($("surahSelect").value, 10));
+};
+$("ayahNumSelect").onchange = ()=>{
+  const i = parseInt($("ayahNumSelect").value, 10);
+  if(isNaN(i) || i < 0) return;
+  const a = AYAAT[i];
+  revealAyah(a.ar, a.en, `تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}`);
+};
+
+populateSurahSelect();
+loadFullQuranCorpus();
+
+$("applyCustomBtn").onclick = ()=>{
+  const ar = $("customAyahAr").value.trim();
+  const en = $("customAyahEn").value.trim();
+  if(!ar){
+    toast("اكتب نص الآية أولًا");
+    return;
+  }
+  // Run whatever the person typed through the exact same matching engine
+  // used for mic/Whisper transcripts, against the full 6,236-ayah corpus —
+  // so typing works as a real, reliable alternative to voice recognition,
+  // not just a free-text box. On a real match this replaces the typed text
+  // with the correct canonical ayah + its real surah/ayah number and
+  // translation (unless the person typed their own translation).
+  const match = matchAyahFromText(ar, 0.28);
+  if(match){
+    const a = match.ayah;
+    revealAyah(a.ar, en || a.en, `تم التعرّف: سورة ${a.surah} — آية ${a.num}`);
+    toast(`تم العثور على الآية ✓ (سورة ${a.surah}:${a.num})`);
+  } else {
+    revealAyah(ar, en, "نص مخصص (لم يتم العثور على تطابق في القرآن)");
+    toast("لم يتم العثور على تطابق دقيق — تم استخدام النص كما هو");
+  }
+};
+
+document.querySelectorAll(".ratio-btn").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll(".ratio-btn").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelector(".phone-frame").style.aspectRatio = btn.dataset.ratio;
+  };
+});
+
+$("chromaSwitch").setAttribute("role","switch");
+$("chromaSwitch").tabIndex = 0;
+$("chromaSwitch").setAttribute("aria-checked","false");
+$("chromaSwitch").onclick = ()=>{
+  state.chroma = !state.chroma;
+  $("chromaSwitch").classList.toggle("on", state.chroma);
+  $("chromaSwitch").setAttribute("aria-checked", state.chroma ? "true" : "false");
+  applyStageBackground();
+};
+$("chromaSwitch").addEventListener("keydown", (e)=>{
+  if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("chromaSwitch").click(); }
+});
+
+$("chromaThresholdRange").addEventListener("input", ()=>{
+  state.chromaThreshold = parseInt($("chromaThresholdRange").value, 10);
+});
+$("chromaSoftnessRange").addEventListener("input", ()=>{
+  state.chromaSoftness = parseInt($("chromaSoftnessRange").value, 10);
+});
+
+function setChromaColor(hex){
+  state.chromaColorHex = hex;
+  $("chromaColorPicker").value = hex;
+  $("chromaSwatchTrigger").style.background = hex;
+  document.querySelectorAll(".chroma-preset-btn").forEach(b=>{
+    b.classList.toggle("selected", b.dataset.color.toLowerCase() === hex.toLowerCase());
+  });
+}
+// The visible circle is just a themed proxy — clicking it opens the real
+// (native, unavoidable-looking) color picker, which stays hidden otherwise.
+$("chromaSwatchTrigger").addEventListener("click", ()=> $("chromaColorPicker").click());
+$("chromaColorPicker").addEventListener("input", ()=> setChromaColor($("chromaColorPicker").value));
+document.querySelectorAll(".chroma-preset-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=> setChromaColor(btn.dataset.color));
+});
+
+// Keeps every range slider's filled portion (the --fill custom property
+// the CSS gradient reads) in sync with its current value, including on
+// load — otherwise the groove would always render at a fixed 50%.
+function updateRangeFill(el){
+  const min = parseFloat(el.min || 0), max = parseFloat(el.max || 100), val = parseFloat(el.value);
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  el.style.setProperty("--fill", pct + "%");
+}
+document.querySelectorAll('input[type="range"]').forEach(el=>{
+  updateRangeFill(el);
+  el.addEventListener("input", ()=> updateRangeFill(el));
+});
+
+$("translationSwitch").setAttribute("role","switch");
+$("translationSwitch").tabIndex = 0;
+$("translationSwitch").setAttribute("aria-checked","true");
+$("translationSwitch").onclick = ()=>{
+  state.showTranslation = !state.showTranslation;
+  $("translationSwitch").classList.toggle("on", state.showTranslation);
+  $("translationSwitch").setAttribute("aria-checked", state.showTranslation ? "true" : "false");
+  $("translationText").style.display = state.showTranslation ? "block" : "none";
+};
+$("translationSwitch").addEventListener("keydown", (e)=>{
+  if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("translationSwitch").click(); }
+});
+
+$("fontSelect").onchange = (e)=>{ state.font = e.target.value; $("ayahText").style.fontFamily = state.font; };
+
+// Custom font upload — loaded entirely client-side via the FontFace API, so
+// it works the same whether typed live in the preview or drawn into the
+// export canvas (both just read state.font / document.fonts).
+let customFontCounter = 0;
+$("customFontUpload").onchange = async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const buf = await file.arrayBuffer();
+    customFontCounter++;
+    const family = `CustomAyahFont${customFontCounter}`;
+    const face = new FontFace(family, buf);
+    await face.load();
+    document.fonts.add(face);
+    const fontValue = `'${family}'`;
+    const opt = document.createElement("option");
+    opt.value = fontValue;
+    opt.textContent = "خط مخصص: " + file.name;
+    $("fontSelect").appendChild(opt);
+    $("fontSelect").value = fontValue;
+    state.font = fontValue;
+    $("ayahText").style.fontFamily = fontValue;
+    $("customFontStatus").textContent = "تم تحميل الخط وتطبيقه على الآية ✓";
+    toast("تم رفع الخط ✓");
+  } catch(err){
+    console.error(err);
+    $("customFontStatus").textContent = "";
+    toast("تعذّر تحميل هذا الملف كخط — تأكد أنه TTF أو OTF أو WOFF صالح");
+  }
+};
+
+// Custom text color — same swatch-trigger-opens-native-picker pattern as the
+// chroma color picker, so preset dots stay for quick picks but any color is
+// reachable too.
+function setTextColor(hex){
+  state.color = hex;
+  $("ayahText").style.color = hex;
+  $("textColorPicker").value = hex;
+  $("textColorSwatchTrigger").style.background = hex;
+  document.querySelectorAll(".dot").forEach(dd=>dd.classList.toggle("selected", dd.dataset.c && dd.dataset.c.toLowerCase() === hex.toLowerCase()));
+}
+$("textColorSwatchTrigger").addEventListener("click", ()=> $("textColorPicker").click());
+$("textColorPicker").addEventListener("input", ()=> setTextColor($("textColorPicker").value));
+
+// Manual text position (independent of templates — picking a template still
+// updates this selector, but it can also be changed on its own afterward).
+$("positionSelect").onchange = (e)=>{
+  state.textPosition = e.target.value;
+  const frame = $("ayahFrame");
+  frame.className = "ayah-frame " + state.textPosition + (state.extra ? " " + state.extra : "");
+};
+$("sizeRange").oninput = (e)=>{ $("ayahText").style.fontSize = e.target.value + "px"; };
+$("sizeRangeT").oninput = (e)=>{ $("translationText").style.fontSize = e.target.value + "px"; };
+
+// Bismillah intro / outro title cards — independent screens shown before/after
+// the main clip only. They are never composited under the video, music, or
+// any other visual, by design (see drawTitleCard / renderFrame export logic).
+$("introSwitch").setAttribute("role","switch");
+$("introSwitch").tabIndex = 0;
+$("introSwitch").setAttribute("aria-checked","false");
+$("introSwitch").onclick = ()=>{
+  state.showIntro = !state.showIntro;
+  $("introSwitch").classList.toggle("on", state.showIntro);
+  $("introSwitch").setAttribute("aria-checked", state.showIntro ? "true" : "false");
+};
+$("introSwitch").addEventListener("keydown", (e)=>{
+  if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("introSwitch").click(); }
+});
+
+$("outroSwitch").setAttribute("role","switch");
+$("outroSwitch").tabIndex = 0;
+$("outroSwitch").setAttribute("aria-checked","false");
+$("outroSwitch").onclick = ()=>{
+  state.showOutro = !state.showOutro;
+  $("outroSwitch").classList.toggle("on", state.showOutro);
+  $("outroSwitch").setAttribute("aria-checked", state.showOutro ? "true" : "false");
+  $("outroTextInput").style.display = state.showOutro ? "block" : "none";
+};
+$("outroSwitch").addEventListener("keydown", (e)=>{
+  if(e.key === "Enter" || e.key === " "){ e.preventDefault(); $("outroSwitch").click(); }
+});
+$("outroTextInput").oninput = (e)=>{ state.outroText = e.target.value.trim() || "صدق الله العظيم"; };
+
+$("videoUpload").onchange = (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const videoEl = $("videoEl");
+  // Revoke the previous blob URL (if any) before creating a new one — each
+  // createObjectURL() call reserves memory for the file's lifetime, and it
+  // is never released on its own. Testing several clips back-to-back in
+  // one session without this would keep every earlier file's data alive in
+  // memory at the same time, on top of whatever the ASR model itself uses.
+  if(videoEl.dataset.hasSrc === "1" && videoEl.src){ URL.revokeObjectURL(videoEl.src); }
+  const url = URL.createObjectURL(file);
+  videoEl.src = url;
+  videoEl.dataset.hasSrc = "1";
+  // BUG FIX: this used to be the `muted` HTML attribute instead of volume=0.
+  // On Android Chrome, a `muted` media element is a known signal for the
+  // browser to skip decoding its audio track entirely as a CPU/battery
+  // optimization — so captureStream()/createMediaElementSource() on it can
+  // yield a silent or empty audio track even though the file itself has
+  // real audio. volume=0 keeps playback silent for the person without
+  // telling the browser it can skip decoding the audio at all, which is
+  // what real audio capture (below, in export) depends on.
+  videoEl.volume = 0;
+  videoEl.play().catch(()=>{});
+  applyStageBackground();
+  // a new video invalidates any previously detected ayah timeline/trim range
+  timelineActive = false;
+  ayahTimeline = [];
+  state.trimStart = null; state.trimEnd = null;
+  $("trimRow").style.display = "none";
+  toast("تم رفع الفيديو ✓");
+};
+
+/* =========================================================================
+   REAL AI DETECTION — PATH 1: live microphone (fully working, no backend)
+   Uses the browser's built-in speech-recognition service (webkitSpeechRecognition
+   / SpeechRecognition, backed by the OS/browser vendor's real ASR) set to
+   Arabic, then runs the transcript through matchAyahFromText() above — an
+   actual text-similarity algorithm, not a random pick.
+   ========================================================================= */
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognizer = null;
+let isListening = false;
+
+function setDetectLabel(text){ $("detectBtnLabel").textContent = text; }
+
+$("detectBtn").onclick = ()=>{
+  if(!SpeechRecognitionAPI){
+    toast("متصفحك لا يدعم تعرّف الكلام (جرّب Chrome على أندرويد/سطح المكتب)");
+    return;
+  }
+  const scan = $("scanOverlay");
+  const scanText = scan.querySelector("p");
+
+  if(isListening){
+    recognizer.stop();
+    return;
+  }
+
+  recognizer = new SpeechRecognitionAPI();
+  recognizer.lang = "ar-SA";
+  recognizer.continuous = false;
+  recognizer.interimResults = false;
+  recognizer.maxAlternatives = 3;
+
+  recognizer.onstart = ()=>{
+    isListening = true;
+    setDetectLabel("جارٍ الاستماع… اضغط للإيقاف");
+    scanText.textContent = "جارٍ الاستماع للتلاوة…";
+    scan.classList.add("active");
+  };
+
+  recognizer.onresult = (event)=>{
+    // try every alternative the recognizer offers and keep the best ayah match
+    let best = null;
+    for(let i=0;i<event.results[0].length;i++){
+      const transcript = event.results[0][i].transcript;
+      const match = matchAyahFromText(transcript);
+      if(match && (!best || match.confidence > best.confidence)) best = match;
+    }
+    if(best){
+      const pct = Math.round(best.confidence * 100);
+      revealAyah(best.ayah.ar, best.ayah.en, `تم التعرف: سورة ${best.ayah.surah} — آية ${best.ayah.num}`);
+      $("matchConfidence").textContent = `نسبة التطابق: ${pct}٪`;
+    } else {
+      toast("لم يتم العثور على آية مطابقة بثقة كافية — حاول التلاوة بوضوح أكبر");
+      $("matchConfidence").textContent = "";
+    }
+  };
+
+  recognizer.onerror = (event)=>{
+    if(event.error === "not-allowed" || event.error === "permission-denied"){
+      toast("الرجاء السماح باستخدام الميكروفون للتعرّف المباشر");
+    } else if(event.error === "no-speech"){
+      toast("لم يُسمع أي كلام، حاول مجددًا");
+    } else {
+      toast("تعذّر التعرّف على الصوت: " + event.error);
+    }
+  };
+
+  recognizer.onend = ()=>{
+    isListening = false;
+    setDetectLabel("تعرّف من الميكروفون (مباشر)");
+    scan.classList.remove("active");
+  };
+
+  recognizer.start();
+};
+
+/* =========================================================================
+   AI DETECTION — PATH 2: audio extracted from an uploaded video file.
+   REAL ENGINE (no external server): runs OpenAI Whisper entirely on-device
+   in the browser via transformers.js (WASM/ONNX backend). The model is
+   fetched once from the HF Hub CDN on first use and cached by the browser
+   afterward, so this keeps working offline after the first run. The video's
+   audio track is decoded and resampled to 16kHz mono with the Web Audio
+   API, fed straight into Whisper, and the resulting Arabic transcript is
+   run through the exact same matchAyahFromText() engine as the live-mic
+   path — so both detection paths now share one real matching pipeline.
+
+   Model size, revised after real-device testing: this was "whisper-small"
+   for a real accuracy step over "whisper-base", but that traded away
+   reliability it shouldn't have — on an actual Android phone (Chrome) it
+   reliably killed the tab with an out-of-memory renderer crash ("Aw,
+   Snap!"), not just a slow load. That's not a bug this file can route
+   around with timeouts or lighter decoding settings: it's the model
+   simply not fitting in the memory Chrome gives a mobile tab. Dropping
+   back to "whisper-base" trades some accuracy on noisy/reverberant audio
+   for actually running at all on a phone. A dedicated backend (e.g.
+   whisper-large on your HuggingFace Space, or better yet a model
+   fine-tuned on Quranic recitation specifically) remains the real ceiling
+   for both accuracy and reliability on higher-end audio — in-browser
+   inference on a phone has a real memory ceiling this file now respects.
+   ========================================================================= */
+const ASR_MODEL_ID = "Xenova/whisper-base";
+// Beam search (instead of the pipeline default of greedy decoding) trades a
+// bit of extra compute for a real accuracy gain on Quranic recitation:
+// elongated madd, tajweed pausing, and reverberant mosque/room audio all
+// produce token-probability ties that greedy decoding resolves wrong more
+// often. num_beams:5 matches Whisper's own recommended default in the
+// Python transformers pipeline. temperature:0 keeps decoding deterministic
+// (no sampling) so repeated exports of the same clip land on the same text.
+// This is only used for one-shot transcription (a single mic clip or a
+// single uploaded video's audio) — one beam-5 decode on whisper-base's
+// much smaller footprint is affordable even on a phone.
+const ASR_GENERATE_KWARGS = {
+  language: "arabic",
+  task: "transcribe",
+  num_beams: 5,
+  temperature: 0,
+  condition_on_prev_tokens: false,
+};
+// The auto-sync timeline scan calls the model ~20 times for even a short
+// (~1 minute) recitation. Even on the smaller whisper-base, that many
+// sequential beam-5 decodes in a row is unnecessary sustained load — greedy
+// decoding (num_beams:1) here cuts the repeated cost roughly fivefold. It's
+// a real (if modest) accuracy trade-off per chunk, but a timeline that
+// finishes reliably beats one that never completes on a phone.
+const ASR_TIMELINE_GENERATE_KWARGS = {
+  language: "arabic",
+  task: "transcribe",
+  num_beams: 1,
+  temperature: 0,
+  condition_on_prev_tokens: false,
+};
+const ASR_LOAD_TIMEOUT_MS = 120000; // 2 minutes — long enough for a slow connection, short enough to fail loudly instead of hanging forever
+let asrPipelinePromise = null;
+
+function getAsrPipeline(onProgress){
+  if(!asrPipelinePromise){
+    asrPipelinePromise = (async ()=>{
+      const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
+      // quantized:true is set explicitly (rather than relying on the
+      // library's undocumented default, which has changed across versions)
+      // so the model download stays predictably small on mobile — the
+      // full-precision weights are several times larger for no real
+      // accuracy gain here.
+      const loadPromise = pipeline("automatic-speech-recognition", ASR_MODEL_ID, {
+        progress_callback: onProgress,
+        quantized: true,
+      });
+      const timeoutPromise = new Promise((_, reject)=>{
+        setTimeout(()=> reject(new Error("انتهت مهلة تحميل النموذج — تحقق من الاتصال بالإنترنت وحاول مجددًا")), ASR_LOAD_TIMEOUT_MS);
+      });
+      return Promise.race([loadPromise, timeoutPromise]);
+    })();
+    // BUG FIX: a failed/timed-out load used to leave asrPipelinePromise set
+    // to the rejected promise forever — every later attempt (even a fresh
+    // upload, even after reconnecting to the internet) would immediately
+    // re-throw that same stale rejection with no way to retry short of
+    // reloading the whole page. Resetting it back to null on failure lets
+    // the very next call to getAsrPipeline() start a genuinely new attempt.
+    asrPipelinePromise.catch(()=>{ asrPipelinePromise = null; });
+  }
+  return asrPipelinePromise;
+}
+
+// Decode a video/audio file into a mono Float32Array at 16kHz — the exact
+// format Whisper expects — using only standard Web Audio API calls.
+// BUG FIX: was 45000. Decoding+resampling a full multi-minute recitation
+// video's audio on a real phone (not a desktop) regularly takes longer than
+// 45s, especially under the memory pressure of also holding the Whisper
+// model in memory — this was very likely firing as a false "failed to
+// analyze audio" on exactly the kind of longer clip a person actually
+// uploads, not catching a genuine stall. 3 minutes gives real decoding room
+// while still failing loudly on an actual hang instead of waiting forever.
+// Bumped further below for the new realtime fallback path, which by nature
+// can't finish faster than the clip's own duration.
+const PCM_DECODE_TIMEOUT_MS = 300000;
+
+async function decodeAudioBuffer(file){
+  const arrayBuffer = await file.arrayBuffer();
+  const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    return await decodeCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    decodeCtx.close();
+  }
+}
+
+// BUG FIX: "Unable to decode audio data" — seen specifically when a file
+// this app itself exported (a MediaRecorder-produced .webm/opus) is
+// re-uploaded for detection. decodeAudioData() uses a strict demuxer that
+// can reject a webm container MediaRecorder never finalized with proper
+// duration/seek metadata — even though the browser's own <video> element
+// opens and plays that exact same file without complaint. Rather than fight
+// the demuxer, this fallback trusts the more lenient playback pipeline: it
+// plays the file back in real time through a hidden, silenced <video> and
+// taps the decoded PCM as it streams out via a ScriptProcessorNode. Slower
+// (bounded by the clip's own length instead of instant), but works on
+// containers decodeAudioData refuses to touch.
+async function decodeViaRealtimePlayback(file){
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const el = document.createElement("video");
+  el.src = URL.createObjectURL(file);
+  el.volume = 0;
+  el.playsInline = true;
+  el.preload = "auto";
+  try {
+    await new Promise((resolve, reject)=>{
+      el.onloadedmetadata = resolve;
+      el.onerror = ()=> reject(new Error("تعذّر فتح الملف لاستخراج الصوت منه"));
+    });
+
+    const source = ctx.createMediaElementSource(el);
+    const processor = ctx.createScriptProcessor(4096, 2, 1);
+    const silence = ctx.createGain();
+    silence.gain.value = 0; // capture the audio without playing it out loud
+    source.connect(processor);
+    processor.connect(silence);
+    silence.connect(ctx.destination); // ScriptProcessorNode only fires once it reaches the destination
+
+    const chunks = [];
+    processor.onaudioprocess = (e)=>{ chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+
+    await ctx.resume();
+    await new Promise((resolve, reject)=>{
+      el.onended = resolve;
+      el.onerror = ()=> reject(new Error("تعذّر تشغيل الملف لاستخراج الصوت منه"));
+      el.play().catch(reject);
+    });
+
+    processor.disconnect(); source.disconnect(); silence.disconnect();
+
+    let total = 0; chunks.forEach(c=> total += c.length);
+    const merged = new Float32Array(total);
+    let offset = 0; chunks.forEach(c=>{ merged.set(c, offset); offset += c.length; });
+    const buffer = ctx.createBuffer(1, Math.max(1, merged.length), ctx.sampleRate);
+    buffer.copyToChannel(merged, 0);
+    return buffer;
+  } finally {
+    URL.revokeObjectURL(el.src);
+    await ctx.close().catch(()=>{});
+  }
+}
+
+async function extractMonoPCM16k(file){
+  const decodeWork = (async ()=>{
+    let decoded;
+    try {
+      decoded = await decodeAudioBuffer(file);
+    } catch(err){
+      console.warn("decodeAudioData failed — falling back to realtime playback capture:", err);
+      decoded = await decodeViaRealtimePlayback(file);
+    }
+
+    const targetRate = 16000;
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offline.destination); // multi-channel input auto-downmixes to the 1-channel destination
+    src.start();
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0);
+  })();
+  const timeout = new Promise((_, reject)=>{
+    setTimeout(()=> reject(new Error("تعذّر تحليل الصوت — قد يكون الملف تالفًا أو غير مدعوم")), PCM_DECODE_TIMEOUT_MS);
+  });
+  return Promise.race([decodeWork, timeout]);
+}
+
+
+/* =========================================================================
+   LIVE AYAH TIMELINE — detects *which ayah the sheikh is reciting and when*
+   across the whole video, then types each one out on screen exactly as it's
+   spoken, instead of requiring a single manual "detect" tap.
+   -------------------------------------------------------------------------
+   Real engine, no fakery: the full recitation audio is decoded once, then
+   scanned in overlapping 6-second windows through the same on-device
+   Whisper pipeline used elsewhere in this file. Each window's transcript is
+   matched against the Quran corpus; consecutive windows that land on the
+   same ayah are merged into one timeline segment {start, end, ayah}. During
+   playback (and during export) the segment whose time range contains the
+   current video position is looked up and its text is revealed with a
+   typewriter animation timed to when that segment began.
+   ========================================================================= */
+const TYPING_REVEAL_MS = 1100;   // how long the typewriter effect takes per ayah
+const TIMELINE_CHUNK_SEC = 6;    // analysis window length
+// BUG FIX: was 3s. That gave tighter sync precision but meant ~1 Whisper
+// decode every 3s of video — a 3-minute recitation is ~60 sequential
+// beam/greedy decodes on-device, which is exactly the "takes a long time"
+// complaint. 5s cuts the chunk count by ~40% (and therefore wall-clock time
+// by roughly the same) for a small loss in how tightly a segment boundary
+// lines up with the exact word — an acceptable trade since the typewriter
+// reveal already only needs to land within roughly a word's tolerance, not
+// frame-exact.
+const TIMELINE_STEP_SEC = 5;
+// Was 0.42 — stricter than the single-shot mic/typed-text path (0.35 / 0.28)
+// for the stated reason of noise/silence windows being common across a full
+// video. In practice this meant a video that matched fine one ayah at a
+// time via mic still came back completely empty from auto-sync, because
+// real recitation audio through Whisper commonly scores in the 0.35-0.42
+// band — that band isn't noise, it's a normal correct transcript that just
+// isn't a word-for-word match. Bringing this in line with the other paths
+// fixes videos coming back with zero detected ayat.
+const TIMELINE_MIN_CONFIDENCE = 0.32;
+const TIMELINE_HIGH_CONFIDENCE = 0.55; // clear enough to commit off a single window, no confirmation needed
+
+let ayahTimeline = [];      // [{start, end, ayah, confidence}]
+let timelineActive = false;
+let lastTimelineIndex = -1;
+
+// Root-mean-square energy of a PCM slice, used as a cheap voice-activity
+// check. Feeding a near-silent window (gaps between ayat, room tone, a
+// muted mosque mic) straight into Whisper is exactly when it tends to
+// hallucinate fluent-sounding but fabricated Arabic instead of returning
+// nothing — so skipping the model call entirely on those windows both
+// removes a real source of false matches and saves the (much more
+// expensive) transcription pass.
+function rmsEnergy(float32arr){
+  let sum = 0;
+  for(let i=0;i<float32arr.length;i++) sum += float32arr[i] * float32arr[i];
+  return Math.sqrt(sum / Math.max(1, float32arr.length));
+}
+const VAD_SILENCE_RMS = 0.008; // roughly -42 dBFS — comfortably below normal speech, above electrical/room noise floor
+
+async function buildAyahTimeline(videoFile, onStatus){
+  onStatus && onStatus("جارٍ تحميل نموذج التعرّف على الكلام (أول مرة فقط)…");
+  const transcriber = await getAsrPipeline((p)=>{
+    if(p.status === "progress" && onStatus) onStatus(`جارٍ تحميل النموذج… ${Math.round(p.progress || 0)}٪`);
+  });
+
+  onStatus && onStatus("جارٍ تحليل الصوت الكامل…");
+  const pcm = await extractMonoPCM16k(videoFile);
+  const SR = 16000;
+  const totalSec = pcm.length / SR;
+  const totalChunks = Math.max(1, Math.ceil(totalSec / TIMELINE_STEP_SEC));
+
+  const timeline = [];
+  // A borderline match (below TIMELINE_HIGH_CONFIDENCE) only gets committed
+  // to the timeline once the *next* window agrees on the same ayah too.
+  // A single noisy/reverberant window can score just over TIMELINE_MIN_
+  // CONFIDENCE by chance; requiring two consecutive windows to agree costs
+  // at most one step (3s) of latency but removes most one-off false
+  // positives, which previously showed up as a flickering wrong ayah.
+  let pending = null; // {ayah, start, confidence}
+  let chunkIndex = 0;
+  for(let t = 0; t < totalSec; t += TIMELINE_STEP_SEC){
+    chunkIndex++;
+    onStatus && onStatus(`جارٍ رصد الآيات: مقطع ${chunkIndex} من ${totalChunks}…`);
+    const startSample = Math.floor(t * SR);
+    const endSample = Math.min(pcm.length, Math.floor((t + TIMELINE_CHUNK_SEC) * SR));
+    if(endSample - startSample < SR * 1.2) continue; // skip a too-short tail window
+    const slice = pcm.subarray(startSample, endSample);
+    if(rmsEnergy(slice) < VAD_SILENCE_RMS){ pending = null; continue; } // near-silent window — nothing to transcribe
+
+    let text = "";
+    try {
+      const result = await transcriber(slice, ASR_TIMELINE_GENERATE_KWARGS);
+      text = result && result.text ? result.text.trim() : "";
+    } catch(err){
+      console.error("timeline chunk failed:", err);
+      continue;
+    }
+    // Hand control back to the browser for a tick after every chunk. The
+    // `await` on transcriber() above already yields once the call resolves,
+    // but on a phone under sustained load that's not always enough room for
+    // painting/GC/input to keep up — an explicit macrotask yield here is
+    // cheap insurance against the exact kind of "stops responding" crash
+    // this loop was producing on long clips.
+    await new Promise(r=> setTimeout(r, 0));
+    const match = matchAyahFromText(text, TIMELINE_MIN_CONFIDENCE);
+    // Diagnostics: what Whisper actually heard, and how close the best
+    // candidate ayah got, even when it's below the commit threshold. Open
+    // the browser console during a scan to see this per chunk — it tells
+    // you whether the video is being read as silence, gibberish, or a real
+    // but just-below-threshold transcript.
+    const debugBest = match || matchAyahFromText(text, 0);
+    console.log(`[auto-sync ${t.toFixed(1)}s] heard: "${text}" | best match: ${debugBest ? debugBest.ayah.surah+':'+debugBest.ayah.num+' @ '+Math.round(debugBest.confidence*100)+'%' : 'none'}`);
+    if(!match){ pending = null; continue; }
+
+    const last = timeline[timeline.length - 1];
+    if(last && last.ayah === match.ayah){
+      last.end = t + TIMELINE_CHUNK_SEC; // same ayah still being recited — extend the segment
+      last.confidence = Math.max(last.confidence, match.confidence);
+      pending = null;
+      continue;
+    }
+
+    if(match.confidence >= TIMELINE_HIGH_CONFIDENCE){
+      timeline.push({ start: t, end: t + TIMELINE_CHUNK_SEC, ayah: match.ayah, confidence: match.confidence });
+      pending = null;
+    } else if(pending && pending.ayah === match.ayah){
+      // second window in a row agrees — commit, backdated to where it first appeared
+      timeline.push({ start: pending.start, end: t + TIMELINE_CHUNK_SEC, ayah: match.ayah, confidence: Math.max(pending.confidence, match.confidence) });
+      pending = null;
+    } else {
+      pending = { ayah: match.ayah, start: t, confidence: match.confidence };
+    }
+  }
+  return timeline;
+}
+
+// Reveals an ayah character-by-character, synced to real elapsed time —
+// this is what makes it look like the app is "writing along" with the sheikh.
+function typeAyahText(ayah, label){
+  const frame = $("ayahFrame");
+  const ayahEl = $("ayahText");
+  frame.classList.remove("revealed");
+  ayahEl.classList.remove("placeholder");
+  ayahEl.style.fontSize = $("sizeRange").value + "px";
+  $("translationText").textContent = "";
+  void frame.offsetWidth;
+  frame.classList.add("revealed");
+
+  const text = ayah.ar;
+  const start = performance.now();
+  function step(now){
+    const frac = Math.min(1, (now - start) / TYPING_REVEAL_MS);
+    ayahEl.textContent = text.slice(0, Math.round(text.length * frac));
+    if(frac < 1){
+      requestAnimationFrame(step);
+    } else if(state.showTranslation && ayah.en){
+      $("translationText").textContent = ayah.en;
+      $("translationText").classList.add("fade-in");
+      setTimeout(()=> $("translationText").classList.remove("fade-in"), 500);
+    }
+  }
+  requestAnimationFrame(step);
+  $("detectedLabel").textContent = label || `مزامنة تلقائية: سورة ${ayah.surah} — آية ${ayah.num}`;
+}
+
+$("videoEl").addEventListener("timeupdate", ()=>{
+  if(!timelineActive || ayahTimeline.length === 0) return;
+  const t = $("videoEl").currentTime;
+  const idx = ayahTimeline.findIndex(e => t >= e.start && t < e.end);
+  if(idx !== -1 && idx !== lastTimelineIndex){
+    lastTimelineIndex = idx;
+    const entry = ayahTimeline[idx];
+    typeAyahText(entry.ayah, `تمت الكتابة تلقائيًا أثناء التلاوة: سورة ${entry.ayah.surah} — آية ${entry.ayah.num} (ثقة ${Math.round(entry.confidence*100)}٪)`);
+  }
+});
+
+$("autoSyncBtn").onclick = async ()=>{
+  const videoEl = $("videoEl");
+  if(videoEl.dataset.hasSrc !== "1"){
+    toast("ارفع فيديو أولًا");
+    return;
+  }
+  // Pause the live preview before decoding the same file a second time for
+  // analysis. Letting the <video>/<audio> element keep actively decoding
+  // and playing its track while extractMonoPCM16k() decodes that exact
+  // same file through a separate AudioContext doubles up decoder work on
+  // the same media at once — real contention on a phone's often-limited
+  // hardware/software decode resources, and a plausible source of the
+  // freeze during "جارٍ تحليل الصوت الكامل".
+  videoEl.pause();
+  const scan = $("scanOverlay");
+  const scanText = scan.querySelector("p");
+  scan.classList.add("active");
+
+  const fileInput = $("videoUpload");
+  const file = fileInput.files && fileInput.files[0];
+  try {
+    ayahTimeline = await buildAyahTimeline(file, (msg)=>{ scanText.textContent = msg; });
+  } catch(err){
+    console.error(err);
+    scan.classList.remove("active");
+    toast("تعذّر تحليل التلاوة: " + err.message);
+    return;
+  }
+  scan.classList.remove("active");
+
+  if(ayahTimeline.length === 0){
+    toast("لم يتم رصد أي آية معروفة بثقة كافية في هذا الفيديو");
+    timelineActive = false;
+    return;
+  }
+  timelineActive = true;
+  lastTimelineIndex = -1;
+  $("matchConfidence").textContent = `تم رصد ${ayahTimeline.length} آية على طول الفيديو — شغّله لعرضها تلقائيًا بالكتابة الحيّة`;
+  toast(`تم رصد ${ayahTimeline.length} آية ✓ — التصدير سيستخدم نفس التوقيت تلقائيًا`);
+  populateTrimSelectors();
+};
+
+// Lets the person export just a range of the recognized ayaat instead of the
+// whole clip — but the only choices offered are ayah boundaries the matching
+// engine already found (real waqf points), never an arbitrary timestamp, so
+// a cut can't land mid-ayah or mid-word.
+function populateTrimSelectors(){
+  const fromSel = $("trimFromSelect"), toSel = $("trimToSelect");
+  fromSel.innerHTML = ""; toSel.innerHTML = "";
+  const wholeClipOption = ()=>{
+    const o = document.createElement("option");
+    o.value = "-1"; o.textContent = "(المقطع كاملاً)";
+    return o;
+  };
+  fromSel.appendChild(wholeClipOption());
+  toSel.appendChild(wholeClipOption());
+  ayahTimeline.forEach((seg, i)=>{
+    const label = `سورة ${seg.ayah.surah} — آية ${seg.ayah.num}`;
+    const oFrom = document.createElement("option"); oFrom.value = i; oFrom.textContent = label;
+    const oTo = document.createElement("option"); oTo.value = i; oTo.textContent = label;
+    fromSel.appendChild(oFrom);
+    toSel.appendChild(oTo);
+  });
+  fromSel.value = "-1"; toSel.value = "-1";
+  state.trimStart = null; state.trimEnd = null;
+  $("trimRow").style.display = "block";
+}
+function updateTrimRange(){
+  const fromIdx = parseInt($("trimFromSelect").value, 10);
+  const toIdx = parseInt($("trimToSelect").value, 10);
+  if(fromIdx === -1 || toIdx === -1){
+    state.trimStart = null; state.trimEnd = null;
+    return;
+  }
+  if(toIdx < fromIdx){
+    toast("اختر آية نهاية بعد آية البداية");
+    state.trimStart = null; state.trimEnd = null;
+    return;
+  }
+  state.trimStart = ayahTimeline[fromIdx].start;
+  state.trimEnd = ayahTimeline[toIdx].end;
+  toast(`سيُصدَّر من بداية آية ${ayahTimeline[fromIdx].ayah.num} حتى نهاية آية ${ayahTimeline[toIdx].ayah.num}`);
+}
+$("trimFromSelect").onchange = updateTrimRange;
+$("trimToSelect").onchange = updateTrimRange;
+
+async function transcribeVideoAudio(videoFile, onStatus){
+  if(!videoFile) return null;
+  onStatus && onStatus("جارٍ تحميل نموذج التعرّف على الكلام (أول مرة فقط)…");
+  const transcriber = await getAsrPipeline((p)=>{
+    if(p.status === "progress" && onStatus){
+      onStatus(`جارٍ تحميل النموذج… ${Math.round(p.progress || 0)}٪`);
+    }
+  });
+  onStatus && onStatus("جارٍ استخراج الصوت من الفيديو…");
+  const pcm = await extractMonoPCM16k(videoFile);
+
+  onStatus && onStatus("جارٍ تفريغ الصوت إلى نص…");
+  const result = await transcriber(pcm, ASR_GENERATE_KWARGS);
+  return (result && result.text) ? result.text.trim() : null;
+}
+
+$("detectFromVideoBtn").onclick = async ()=>{
+  const videoEl = $("videoEl");
+  if(videoEl.dataset.hasSrc !== "1"){
+    toast("ارفع فيديو أولًا");
+    return;
+  }
+  const scan = $("scanOverlay");
+  const scanText = scan.querySelector("p");
+  scan.classList.add("active");
+
+  const fileInput = $("videoUpload");
+  const file = fileInput.files && fileInput.files[0];
+
+  let transcript = null;
+  try {
+    transcript = await transcribeVideoAudio(file, (msg)=>{ scanText.textContent = msg; });
+  } catch(err){
+    console.error(err);
+    scan.classList.remove("active");
+    toast("تعذّر تفريغ الصوت: " + err.message);
+    return;
+  }
+  scanText.textContent = "جارٍ التعرف على الآية…";
+  scan.classList.remove("active");
+
+  if(!transcript){
+    toast("لم يتم استخراج أي كلام واضح من الفيديو");
+    return;
+  }
+  const match = matchAyahFromText(transcript);
+  if(match){
+    revealAyah(match.ayah.ar, match.ayah.en, `تم التعرف: سورة ${match.ayah.surah} — آية ${match.ayah.num}`);
+    $("matchConfidence").textContent = `نسبة التطابق: ${Math.round(match.confidence*100)}٪ — النص المسموع: "${transcript}"`;
+  } else {
+    toast("تم تفريغ الصوت لكن لم تُطابق أي آية بثقة كافية");
+  }
+};
+
+/* =========================================================================
+   REAL EXPORT — canvas compositing + MediaRecorder, entirely in-browser.
+   Draws the background/video (with real chroma-key if enabled), the ayah
+   text and translation (matching the current font/size/color/position/
+   template), and mixes in the attached reciter audio if one was selected —
+   then records the canvas+audio stream into a downloadable WebM file.
+   ========================================================================= */
+function wrapCanvasText(ctx, text, maxWidth){
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  words.forEach(word=>{
+    const test = line ? line + " " + word : word;
+    if(ctx.measureText(test).width > maxWidth && line){
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  });
+  if(line) lines.push(line);
+  return lines;
+}
+
+function drawExportTextOverlay(ctx, w, h, overrideText, overrideTrans){
+  const ayahEl = $("ayahText"), transEl = $("translationText");
+  const text = overrideText !== undefined ? overrideText : (ayahEl.textContent || "");
+  if(!text || (overrideText === undefined && ayahEl.classList.contains("placeholder"))) return;
+
+  const scale = w / (document.querySelector(".stage").clientWidth || 270);
+  const ayahSize = Math.round(parseFloat($("sizeRange").value) * scale);
+  const transSize = Math.round(parseFloat($("sizeRangeT").value) * scale);
+  const template = TEMPLATES[state.template] || TEMPLATES[0];
+  const posClass = state.textPosition || template.pos;
+  let centerY = posClass === "pos-top" ? h*0.16 : posClass === "pos-center" ? h*0.5 : h*0.78;
+
+  ctx.direction = "rtl";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${ayahSize}px ${state.font}`;
+  const maxWidth = w * 0.86;
+  const lines = wrapCanvasText(ctx, text, maxWidth);
+  const lineHeight = ayahSize * 1.5;
+  const transText = overrideTrans !== undefined ? overrideTrans : transEl.textContent;
+  const showTrans = state.showTranslation && transText;
+  const transLines = showTrans ? wrapCanvasText(ctx, transText, maxWidth) : [];
+  const totalHeight = lines.length*lineHeight + (showTrans ? transLines.length*(transSize*1.4) + transSize : 0);
+  let y = centerY - totalHeight/2 + lineHeight/2;
+
+  // background panel for "boxed"/"framed" templates
+  if(state.extra === "boxed" || state.extra === "framed"){
+    const padX = 24*scale, padY = 18*scale;
+    const boxTop = y - lineHeight/2 - padY;
+    const boxH = totalHeight + padY*2;
+    ctx.save();
+    if(state.extra === "boxed"){
+      ctx.fillStyle = "rgba(5,15,13,0.5)";
+      ctx.fillRect(w*0.07 - padX*0.2, boxTop, w*0.86 + padX*0.4, boxH);
+    } else {
+      ctx.strokeStyle = "rgba(201,162,75,0.9)";
+      ctx.lineWidth = 2*scale;
+      ctx.strokeRect(w*0.07 - padX*0.2, boxTop, w*0.86 + padX*0.4, boxH);
+    }
+    ctx.restore();
+  }
+
+  ctx.fillStyle = state.color;
+  ctx.shadowColor = "rgba(0,0,0,0.65)";
+  ctx.shadowBlur = 8*scale;
+  lines.forEach(line=>{
+    ctx.fillText(line, w/2, y);
+    y += lineHeight;
+  });
+  if(showTrans){
+    y += transSize*0.6;
+    ctx.font = `${transSize}px 'Tajawal', sans-serif`;
+    ctx.globalAlpha = 0.88;
+    transLines.forEach(line=>{
+      ctx.fillText(line, w/2, y);
+      y += transSize*1.4;
+    });
+    ctx.globalAlpha = 1;
+  }
+  ctx.shadowBlur = 0;
+}
+
+let sharedAudioCtx = null;
+const reciterSourceNodeCache = new WeakMap();
+function getReciterSourceNode(audioEl){
+  if(!sharedAudioCtx) sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(!reciterSourceNodeCache.has(audioEl)){
+    reciterSourceNodeCache.set(audioEl, sharedAudioCtx.createMediaElementSource(audioEl));
+  }
+  return { ctx: sharedAudioCtx, source: reciterSourceNodeCache.get(audioEl) };
+}
+// Same pattern, for the uploaded <video>'s own audio track (see runExport).
+// A single WeakMap entry is enough since there's only ever one videoEl.
+const videoSourceNodeCache = new WeakMap();
+function getVideoSourceNode(videoEl){
+  if(!sharedAudioCtx) sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(!videoSourceNodeCache.has(videoEl)){
+    videoSourceNodeCache.set(videoEl, sharedAudioCtx.createMediaElementSource(videoEl));
+  }
+  return { ctx: sharedAudioCtx, source: videoSourceNodeCache.get(videoEl) };
+}
+
+async function runExport(){
+  if(!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder){
+    toast("متصفحك لا يدعم التصدير المباشر (جرّب Chrome حديثًا)");
+    return;
+  }
+  const modal = $("exportModal");
+  const fill = $("progressFill");
+  const title = $("exportTitle");
+  const icon = $("exportIcon");
+  const closeBtn = $("closeExportBtn");
+  const downloadLink = $("downloadExportLink");
+
+  title.textContent = "جارٍ التصدير الفعلي…";
+  icon.textContent = "✦";
+  closeBtn.style.display = "none";
+  downloadLink.style.display = "none";
+  fill.style.transition = "none";
+  fill.style.width = "0%";
+  modal.classList.add("show", "rendering");
+
+  const videoEl = $("videoEl");
+  const hasVideo = videoEl.dataset.hasSrc === "1";
+  const ratio = document.querySelector(".phone-frame").style.aspectRatio || "9/16";
+  const isSquare = ratio.trim() === "1/1";
+  // Bumped from 540x960/720x720 to a real 1080p-class tier for sharper output.
+  // Trade-off: chroma-key's per-pixel pass has ~4x more pixels to process
+  // than before, so on an older/slower phone the live preview or export
+  // may drop frames under heavy chroma use — acceptable on modern hardware.
+  const exportW = isSquare ? 1080 : 1080;
+  const exportH = isSquare ? 1080 : 1920;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = exportW; canvas.height = exportH;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const workCanvas = document.createElement("canvas");
+  workCanvas.width = exportW; workCanvas.height = exportH;
+  const workCtx = workCanvas.getContext("2d", { willReadFrequently: true });
+
+  // Cap raised from 30s to 2 minutes (matches the "make it a minute" ask).
+  // For a background-only export (no uploaded video) the user's own duration
+  // input is used, since there's no source clip length to fall back on.
+  const staticDuration = Math.max(2, Math.min(60, parseInt($("staticDurationInput").value, 10) || 6));
+  const hasTrim = hasVideo && state.trimStart != null && state.trimEnd != null;
+  const duration = hasVideo
+    ? (hasTrim ? Math.max(0.5, Math.min(state.trimEnd - state.trimStart, 120)) : Math.min(videoEl.duration || 8, 120))
+    : staticDuration;
+
+  // real audio mix. Two possible sources, in priority order:
+  //   1) a separately-attached reciter track (state.reciter), if the person
+  //      picked one.
+  //   2) BUG FIX: the uploaded video's own embedded audio track. This used
+  //      to be missing entirely, then a captureStream()-based attempt still
+  //      produced silence on real Android devices — captureStream()'s audio
+  //      track on a `muted` element is unreliable on mobile Chrome (muted
+  //      media is a common signal for the browser to skip decoding audio
+  //      entirely, as a CPU/battery optimization). Routing the video through
+  //      the SAME createMediaElementSource()-based Web Audio graph already
+  //      proven to work for reciter tracks (below) is a more reliable path,
+  //      and the `muted` attribute on <video id="videoEl"> was replaced with
+  //      volume=0 at upload time (see videoUpload.onchange) precisely so
+  //      the browser doesn't skip decoding its audio in the first place.
+  //      A MediaElementSource can only ever be created once per element, so
+  //      it's cached/shared across exports just like the reciter one.
+  const reciterAudio = reciterAudioEls[state.reciter];
+  const tracks = [];
+  const canvasStream = canvas.captureStream(30);
+  tracks.push(...canvasStream.getVideoTracks());
+
+  // BUG FIX (real root cause of "exported video has no sound", seen across
+  // both the old captureStream() approach AND the createMediaElementSource()
+  // approach below — because it was never about *how* the audio was routed):
+  // a freshly-created AudioContext starts in "suspended" state under mobile
+  // autoplay policy. Every node hung off a suspended context — including a
+  // MediaStreamDestination feeding MediaRecorder — silently produces zero
+  // samples, even though nothing throws and the recording "succeeds". This
+  // must run synchronously inside this click-triggered handler (no prior
+  // `await` in this function before this point) so the browser still counts
+  // it as a user-gesture-initiated resume.
+  if(!sharedAudioCtx) sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(sharedAudioCtx.state !== "running"){
+    try { await sharedAudioCtx.resume(); } catch(err){ console.error("AudioContext.resume() failed:", err); }
+  }
+
+  if(reciterAudio){
+    const { source } = getReciterSourceNode(reciterAudio);
+    const destNode = sharedAudioCtx.createMediaStreamDestination();
+    source.connect(destNode);
+    tracks.push(...destNode.stream.getAudioTracks());
+    reciterAudio.currentTime = 0;
+  } else if(hasVideo){
+    try {
+      const { source } = getVideoSourceNode(videoEl);
+      const destNode = sharedAudioCtx.createMediaStreamDestination();
+      source.connect(destNode);
+      const videoAudioTracks = destNode.stream.getAudioTracks();
+      if(videoAudioTracks.length){
+        tracks.push(...videoAudioTracks);
+      } else {
+        console.warn("uploaded video reports no embedded audio track");
+      }
+    } catch(err){
+      console.error("could not capture the uploaded video's own audio track:", err);
+    }
+  }
+
+  const mixedStream = new MediaStream(tracks);
+  let mimeType = "video/webm;codecs=vp9,opus";
+  if(!MediaRecorder.isTypeSupported(mimeType)) mimeType = "video/webm";
+  // Explicit higher bitrate — MediaRecorder's default is fairly conservative
+  // and visibly softens fine text edges at the higher resolution above.
+  const recorder = new MediaRecorder(mixedStream, { mimeType, videoBitsPerSecond: 8_000_000 });
+  const chunks = [];
+  recorder.ondataavailable = (e)=>{ if(e.data.size) chunks.push(e.data); };
+
+  const recordingDone = new Promise(resolve=>{
+    recorder.onstop = resolve;
+  });
+
+  // Bismillah intro / outro: independent title-card phases bracketing the
+  // main clip. Video/reciter playback is deliberately held off until the
+  // intro card's phase ends, and paused again once the outro phase begins,
+  // so these screens are never composited under the recitation or the clip —
+  // they're their own isolated beat before and after it.
+  const introSec = state.showIntro ? 2.2 : 0;
+  const outroSec = state.showOutro ? 2.2 : 0;
+  const totalDuration = introSec + duration + outroSec;
+  let contentStarted = false;
+  let contentStopped = false;
+
+  recorder.start();
+
+  const startTime = performance.now();
+  let renderRAF = null;
+  function renderFrame(){
+    const elapsed = (performance.now() - startTime) / 1000;
+
+    if(elapsed < introSec){
+      drawTitleCard(ctx, exportW, exportH, "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ");
+    } else if(elapsed < introSec + duration){
+      if(!contentStarted){
+        contentStarted = true;
+        if(hasVideo){ videoEl.currentTime = hasTrim ? state.trimStart : 0; videoEl.play().catch(()=>{}); }
+        if(reciterAudio) reciterAudio.play().catch(()=>{});
+      }
+      if(state.chroma && hasVideo){
+        drawCanvasBackground(ctx, exportW, exportH, state.bg);
+        if(videoEl.videoWidth){
+          const scale = Math.max(exportW/videoEl.videoWidth, exportH/videoEl.videoHeight);
+          const dw = videoEl.videoWidth*scale, dh = videoEl.videoHeight*scale;
+          workCtx.clearRect(0,0,exportW,exportH);
+          workCtx.drawImage(videoEl, (exportW-dw)/2, (exportH-dh)/2, dw, dh);
+          const imgData = workCtx.getImageData(0,0,exportW,exportH);
+          chromaKeyImageData(imgData, state.chromaThreshold, state.chromaSoftness, hexToRgb(state.chromaColorHex));
+          workCtx.putImageData(imgData, 0, 0);
+          ctx.drawImage(workCanvas, 0, 0);
+        }
+      } else if(hasVideo){
+        const scale = Math.max(exportW/videoEl.videoWidth, exportH/videoEl.videoHeight) || 1;
+        const dw = (videoEl.videoWidth||exportW)*scale, dh = (videoEl.videoHeight||exportH)*scale;
+        ctx.drawImage(videoEl, (exportW-dw)/2, (exportH-dh)/2, dw, dh);
+      } else {
+        drawCanvasBackground(ctx, exportW, exportH, state.bg);
+      }
+      if(timelineActive && hasVideo && ayahTimeline.length){
+        const t = videoEl.currentTime;
+        const idx = ayahTimeline.findIndex(e=> t >= e.start && t < e.end);
+        if(idx !== -1){
+          const entry = ayahTimeline[idx];
+          const frac = Math.min(1, ((t - entry.start) * 1000) / TYPING_REVEAL_MS);
+          const typed = entry.ayah.ar.slice(0, Math.round(entry.ayah.ar.length * frac));
+          drawExportTextOverlay(ctx, exportW, exportH, typed, frac >= 1 ? entry.ayah.en : "");
+        } else {
+          drawExportTextOverlay(ctx, exportW, exportH, "", "");
+        }
+      } else {
+        drawExportTextOverlay(ctx, exportW, exportH);
+      }
+    } else if(elapsed < totalDuration){
+      if(!contentStopped){
+        contentStopped = true;
+        if(hasVideo) videoEl.pause();
+        if(reciterAudio) reciterAudio.pause();
+      }
+      drawTitleCard(ctx, exportW, exportH, state.outroText || "صدق الله العظيم");
+    }
+
+    fill.style.width = Math.min(100, (elapsed/totalDuration)*100) + "%";
+
+    if(elapsed < totalDuration){
+      renderRAF = requestAnimationFrame(renderFrame);
+    } else {
+      cancelAnimationFrame(renderRAF);
+      recorder.stop();
+      if(hasVideo) videoEl.pause();
+      if(reciterAudio) reciterAudio.pause();
+    }
+  }
+  renderRAF = requestAnimationFrame(renderFrame);
+
+  await recordingDone;
+
+  const blob = new Blob(chunks, { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  downloadLink.href = url;
+  downloadLink.style.display = "inline-block";
+
+  modal.classList.remove("rendering");
+  icon.textContent = "✓";
+  title.textContent = "التصدير جاهز";
+  closeBtn.style.display = "inline-block";
+}
+
+$("exportBtn").onclick = ()=>{
+  runExport().catch(err=>{
+    console.error(err);
+    toast("تعذّر التصدير: " + err.message);
+    $("exportModal").classList.remove("show");
+  });
+};
+
+$("closeExportBtn").onclick = ()=>{
+  $("exportModal").classList.remove("show");
+};
+
+applyStageBackground();
+
+// ---------- ripple effect for primary buttons ----------
+function attachRipple(el){
+  el.style.position = el.style.position || "relative";
+  el.style.overflow = "hidden";
+  el.addEventListener("click", function(e){
+    const rect = el.getBoundingClientRect();
+    const ripple = document.createElement("span");
+    const size = Math.max(rect.width, rect.height) * 1.4;
+    ripple.style.cssText = `position:absolute; border-radius:50%; pointer-events:none;
+      width:${size}px; height:${size}px; left:${e.clientX - rect.left - size/2}px; top:${e.clientY - rect.top - size/2}px;
+      background:radial-gradient(circle, rgba(255,255,255,.35), transparent 70%);
+      transform:scale(0); opacity:1; transition:transform .55s ease, opacity .55s ease;`;
+    el.appendChild(ripple);
+    requestAnimationFrame(()=>{ ripple.style.transform = "scale(1)"; ripple.style.opacity = "0"; });
+    setTimeout(()=> ripple.remove(), 600);
+  });
+}
+document.querySelectorAll(".export-btn, .welcome-cta, .apply-btn, .detect-btn").forEach(attachRipple);
+</script>
+
+</body>
+</html>

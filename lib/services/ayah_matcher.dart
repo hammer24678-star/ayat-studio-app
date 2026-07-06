@@ -1,18 +1,31 @@
-// Real (non-simulated) Arabic ayah matcher — ported 1:1 from the browser
+// Real (non-simulated) Arabic ayah matcher — ported from the browser
 // version's matchAyahFromText(): normalization, IDF-weighted token overlap
 // for candidate selection, then partial (substring-aware) edit distance +
 // bigram overlap + phonetic-fold overlap as a blended score on the top
-// candidates. See ayat_studio-22.html for the original JS + the reasoning
-// comments behind each weight/threshold.
+// candidates. See docs/ayat_studio225.html for the original JS + the
+// reasoning comments behind each weight/threshold.
+//
+// One improvement beyond the HTML version: a coverage-based boost (see
+// _overlapScores) so a short ASR window from the middle of a very long ayah
+// (e.g. ayat ad-dayn, البقرة 282) can still match — plain weighted Jaccard
+// structurally caps such fragments near ~0.1. Regression harness:
+// `dart run tool/matcher_test.dart`.
 
 import 'dart:math';
 
 class Ayah {
+  final int surahNum;
   final String surah;
   final int num;
   final String ar;
   final String en;
-  Ayah({required this.surah, required this.num, required this.ar, required this.en});
+  Ayah({
+    required this.surahNum,
+    required this.surah,
+    required this.num,
+    required this.ar,
+    required this.en,
+  });
 }
 
 class AyahMatch {
@@ -107,21 +120,53 @@ class AyahMatcher {
 
   double _idfOf(String token) => _idf[token] ?? _corpusMaxIdf;
 
-  double _weightedOverlap(List<String> aTokens, Set<String> bTokenSet) {
-    if (aTokens.isEmpty || bTokenSet.isEmpty) return 0;
+  // A token rare enough (document frequency ≲ 15 across 6,236 ayat) to be
+  // real evidence of a specific ayah on its own — used to gate the
+  // fragment-of-a-long-ayah coverage boost below.
+  static const double _distinctiveIdf = 6.0;
+
+  /// Returns (jaccard, boosted) where `boosted` additionally considers
+  /// input-coverage for the fragment-of-a-long-ayah case.
+  ///
+  /// Plain weighted Jaccard divides by the union of BOTH token sets, which
+  /// structurally punishes long ayat: a clean 10-word ASR window from the
+  /// middle of ayat ad-dayn (البقرة 282, ~130 words) can never score above
+  /// ~0.1 even when every word matches. For that case we also measure
+  /// *coverage* — how much of the INPUT's idf mass the ayah contains — but
+  /// only when the fragment is substantial (4+ tokens), the ayah really is
+  /// much longer, and at least one matched token is rare enough to be real
+  /// evidence (otherwise a noise window of common words like
+  /// "يا أيها الذين آمنوا" would suddenly match everything).
+  (double, double) _overlapScores(
+      List<String> aTokens, Set<String> bTokenSet, int bTokenCount) {
+    if (aTokens.isEmpty || bTokenSet.isEmpty) return (0, 0);
     final seen = <String>{};
-    double matchWeight = 0, unionWeight = 0;
+    double matchWeight = 0, unionWeight = 0, inputWeight = 0;
+    var matchedDistinctive = false;
     for (final t in aTokens) {
       if (seen.contains(t)) continue;
       seen.add(t);
       final w = _idfOf(t);
       unionWeight += w;
-      if (bTokenSet.contains(t)) matchWeight += w;
+      inputWeight += w;
+      if (bTokenSet.contains(t)) {
+        matchWeight += w;
+        if (w >= _distinctiveIdf) matchedDistinctive = true;
+      }
     }
     for (final t in bTokenSet) {
       if (!seen.contains(t)) unionWeight += _idfOf(t);
     }
-    return unionWeight > 0 ? matchWeight / unionWeight : 0;
+    final jaccard = unionWeight > 0 ? matchWeight / unionWeight : 0.0;
+    var boosted = jaccard;
+    if (matchedDistinctive &&
+        seen.length >= 4 &&
+        bTokenCount > seen.length * 2 &&
+        inputWeight > 0) {
+      final coverage = matchWeight / inputWeight;
+      boosted = max(jaccard, coverage * 0.85);
+    }
+    return (jaccard, boosted);
   }
 
   double _bigramOverlap(Set<String> a, Set<String> b) {
@@ -183,7 +228,8 @@ class AyahMatcher {
 
     final candidates = <MapEntry<_CacheEntry, double>>[];
     for (final entry in _cache) {
-      final overlap = _weightedOverlap(inTokens, entry.tokenSet);
+      final (_, overlap) =
+          _overlapScores(inTokens, entry.tokenSet, entry.tokens.length);
       if (overlap <= 0) continue;
       candidates.add(MapEntry(entry, overlap));
     }
