@@ -1,4 +1,4 @@
-import 'package:whisper_ggml/whisper_ggml.dart';
+import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 
 /// whisper_ggml manages the model file itself — WhisperController.getPath()
 /// resolves where it lives on disk, and downloadModel() fetches + caches it
