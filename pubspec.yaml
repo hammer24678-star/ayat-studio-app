@@ -24,11 +24,19 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/quran/
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
   # NOTE: assets/models/ is intentionally NOT bundled — ggml-base.bin is
   # ~141MB and GitHub rejects any pushed file over 100MB. WhisperService
   # downloads and caches it on first run instead (see whisper_service.dart).

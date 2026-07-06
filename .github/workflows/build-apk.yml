@@ -36,14 +36,34 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build release APK (first pass — lets ffmpeg_kit_flutter_new download its native AAR; expected to fail on a clean checkout)
-        run: flutter build apk --release || true
+      - name: Generate Android launcher icon from real logo
+        run: dart run flutter_launcher_icons
 
-      - name: Clean possibly-truncated ffmpeg AAR cache before retry
-        run: rm -rf build/ffmpeg_kit_flutter_android/localMaven
-
-      - name: Build release APK (retry — AAR re-downloads clean, this pass should succeed)
-        run: flutter build apk --release
+      - name: Build release APK (retries — ffmpeg_kit_flutter_new's Gradle plugin
+          downloads its native AAR from GitHub Releases on a build pass; that
+          download has no integrity check of its own and can silently truncate
+          on flaky runner network, so a fixed two-pass count isn't reliable.
+          Wipe the local-maven staging dir before every attempt so a truncated
+          file from a previous attempt is never reused, and keep retrying with
+          backoff until one attempt gets a clean download.)
+        run: |
+          MAX_ATTEMPTS=5
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "::group::Build attempt $attempt/$MAX_ATTEMPTS"
+            rm -rf build/ffmpeg_kit_flutter_android/localMaven
+            if flutter build apk --release; then
+              echo "Build succeeded on attempt $attempt"
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "Attempt $attempt failed"
+            echo "::endgroup::"
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "All $MAX_ATTEMPTS build attempts failed"
+          exit 1
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
