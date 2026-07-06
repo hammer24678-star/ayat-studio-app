@@ -39,7 +39,10 @@ jobs:
       - name: Build release APK (first pass — lets ffmpeg_kit_flutter_new download its native AAR; expected to fail on a clean checkout)
         run: flutter build apk --release || true
 
-      - name: Build release APK (retry — AAR is now cached, this pass should succeed)
+      - name: Clean possibly-truncated ffmpeg AAR cache before retry
+        run: rm -rf build/ffmpeg_kit_flutter_android/localMaven
+
+      - name: Build release APK (retry — AAR re-downloads clean, this pass should succeed)
         run: flutter build apk --release
 
       - name: Upload APK artifact
