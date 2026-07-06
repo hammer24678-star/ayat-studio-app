@@ -19,12 +19,14 @@ jobs:
       - name: Generate platform folders (android/ etc.) if missing
         run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
 
-      - name: Pin NDK version required by whisper_ggml
+      - name: Pin NDK version required by whisper_ggml, minSdk required by ffmpeg_kit_flutter_new v4.x
         run: |
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/ndkVersion = flutter.ndkVersion/ndkVersion = "29.0.13113456"/' android/app/build.gradle.kts
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
           elif [ -f android/app/build.gradle ]; then
             sed -i 's/ndkVersion flutter.ndkVersion/ndkVersion "29.0.13113456"/' android/app/build.gradle
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 24/' android/app/build.gradle
           else
             echo "Neither build.gradle.kts nor build.gradle found under android/app/" >&2
             exit 1
@@ -39,31 +41,8 @@ jobs:
       - name: Generate Android launcher icon from real logo
         run: dart run flutter_launcher_icons
 
-      - name: Build release APK (retries — ffmpeg_kit_flutter_new's Gradle plugin
-          downloads its native AAR from GitHub Releases on a build pass; that
-          download has no integrity check of its own and can silently truncate
-          on flaky runner network, so a fixed two-pass count isn't reliable.
-          Wipe the local-maven staging dir before every attempt so a truncated
-          file from a previous attempt is never reused, and keep retrying with
-          backoff until one attempt gets a clean download.)
-        run: |
-          MAX_ATTEMPTS=5
-          for attempt in $(seq 1 $MAX_ATTEMPTS); do
-            echo "::group::Build attempt $attempt/$MAX_ATTEMPTS"
-            rm -rf build/ffmpeg_kit_flutter_android/localMaven
-            if flutter build apk --release; then
-              echo "Build succeeded on attempt $attempt"
-              echo "::endgroup::"
-              exit 0
-            fi
-            echo "Attempt $attempt failed"
-            echo "::endgroup::"
-            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
-              sleep $((attempt * 10))
-            fi
-          done
-          echo "All $MAX_ATTEMPTS build attempts failed"
-          exit 1
+      - name: Build release APK
+        run: flutter build apk --release
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
