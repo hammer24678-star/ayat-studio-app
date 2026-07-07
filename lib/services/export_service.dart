@@ -19,6 +19,7 @@ import 'dart:ui' show Color;
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:media_store_plus/media_store_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../data/studio_presets.dart';
@@ -27,6 +28,7 @@ import 'overlay_renderer.dart';
 
 class ExportService {
   static const double typingRevealMs = 1100; // matches the preview animation
+  static const double fadeMs = 300; // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out duration
   static const double titleCardSec = 2.2;
   static const int overlayFps = 6; // typewriter granularity in the export
   static const int maxExportSec = 120;
@@ -168,6 +170,23 @@ class ExportService {
         }
       }
       onProgress?.call(1);
+      // PATCH_S25_SAVE_TO_DOWNLOADS: also publish a copy into the public Download/
+      // folder so the video shows up in the device's file manager /
+      // Downloads app right away -- the path above alone is app-
+      // private storage and invisible outside the app. Best-effort:
+      // export already succeeded even if this extra copy fails.
+      if (Platform.isAndroid) {
+        try {
+          await MediaStore().saveFile(
+            tempFilePath: outPath,
+            fileName: outPath.split('/').last,
+            dirType: DirType.download,
+            dirName: DirName.download,
+          );
+        } catch (_) {
+          // Non-fatal -- the Share button below still works from outPath.
+        }
+      }
       return outPath;
     } finally {
       work.delete(recursive: true).ignore();
@@ -205,18 +224,26 @@ class ExportService {
       }
       String text = '', trans = '';
       String key = 'empty';
+      double opacity = 1.0; // PATCH_S27_FADE_TEXT_ANIMATIONS
       if (seg != null) {
         final frac =
             min(1.0, (videoT - seg.start) * 1000 / typingRevealMs);
         final chars = (seg.ayah.ar.length * frac).round();
         text = seg.ayah.ar.substring(0, chars);
         trans = frac >= 1 ? seg.ayah.en : '';
-        key = '${seg.ayah.surahNum}:${seg.ayah.num}:$chars:${trans.isNotEmpty}';
+        // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in over the first 300ms and out over the
+        // last 300ms of this ayah's on-screen window.
+        final msIntoSeg = (videoT - seg.start) * 1000;
+        final msToSegEnd = (seg.end - videoT) * 1000;
+        final fadeIn = (msIntoSeg / fadeMs).clamp(0.0, 1.0);
+        final fadeOut = (msToSegEnd / fadeMs).clamp(0.0, 1.0);
+        opacity = fadeIn < fadeOut ? fadeIn : fadeOut;
+        key = '${seg.ayah.surahNum}:${seg.ayah.num}:$chars:${trans.isNotEmpty}:${(opacity * 20).round()}';
       }
       var bytes = cache[key];
       if (bytes == null) {
         bytes = await OverlayRenderer.renderTextOverlayPng(
-            w: w, h: h, text: text, translation: trans, style: style);
+            w: w, h: h, text: text, translation: trans, style: style, opacity: opacity);
         cache[key] = bytes;
       }
       final name = 'ov_${i.toString().padLeft(5, '0')}.png';
@@ -288,8 +315,13 @@ class ExportService {
     } else if (overlayPng != null) {
       inputs.write('-loop 1 -i "$overlayPng" ');
       final ovIdx = idx++;
-      // gentle fade-in so the static text appears like the preview reveal
-      filters.add('[$ovIdx:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1[ovf]');
+      // gentle fade-in so the static text appears like the preview reveal;
+      // PATCH_S27_FADE_TEXT_ANIMATIONS: and fade back out near the end instead of a hard cut.
+      final fadeOutStart = (duration - 0.6).clamp(0.0, double.infinity);
+      final fadeOutFilter = duration > 1.3
+          ? ',fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.6:alpha=1'
+          : '';
+      filters.add('[$ovIdx:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1$fadeOutFilter[ovf]');
       filters.add('[$base][ovf]overlay=0:0:shortest=1[outv]');
     } else {
       filters.add('[$base]null[outv]');

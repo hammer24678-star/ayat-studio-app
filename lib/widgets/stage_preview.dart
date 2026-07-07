@@ -18,7 +18,11 @@ import '../theme/ayat_theme.dart';
 class StageOverlayText {
   final String text;
   final String translation;
-  const StageOverlayText(this.text, this.translation);
+  // PATCH_S27_FADE_TEXT_ANIMATIONS: identifies which ayah/segment this reveal belongs to,
+  // so the stage can fade BETWEEN ayahs without re-fading on every
+  // character of the same ayah's typewriter reveal.
+  final String segmentKey;
+  const StageOverlayText(this.text, this.translation, [this.segmentKey = '']);
 }
 
 class StagePreview extends StatefulWidget {
@@ -89,7 +93,8 @@ class _StagePreviewState extends State<StagePreview>
                 // PATCH_S28_ANIMATED_BACKGROUND: only over the plain preset gradient --
                 // never over real video or a custom photo background.
                 if (!videoReady &&
-                    !(state.useCustomBg && state.customBgPath != null))
+                    !(state.useCustomBg && state.customBgPath != null) &&
+                    state.bgAnimated) // PATCH_S29_BG_ANIMATION_TOGGLE
                   AnimatedBuilder(
                     animation: _bgAnim,
                     builder: (context, _) {
@@ -162,7 +167,23 @@ class _StagePreviewState extends State<StagePreview>
                         ),
                       );
                     }
-                    return _overlay(context, text, trans, scale);
+                    // PATCH_S27_FADE_TEXT_ANIMATIONS: fade between ayahs/segments instead of
+                    // popping instantly. Keyed on the segment identity (falls
+                    // back to the raw text when there is none) so an in-
+                    // progress typewriter reveal of the SAME ayah does not
+                    // re-trigger the fade on every new character.
+                    final overlayKey = (live != null && live.segmentKey.isNotEmpty)
+                        ? live.segmentKey
+                        : text;
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 450),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: KeyedSubtree(
+                        key: ValueKey(overlayKey),
+                        child: _overlay(context, text, trans, scale),
+                      ),
+                    );
                   },
                 ),
               ],

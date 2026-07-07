@@ -41,6 +41,7 @@ class StudioState extends ChangeNotifier {
   int bgIndex = 0;
   bool useCustomBg = false;
   String? customBgPath;
+  bool bgAnimated = true; // PATCH_S29_BG_ANIMATION_TOGGLE: animated sheen on/off (preset backgrounds only)
 
   // ---- chroma key ----
   bool chromaEnabled = false;

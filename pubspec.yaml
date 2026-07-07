@@ -20,6 +20,7 @@ dependencies:
   http: ^1.2.1
   share_plus: ^12.0.0
   google_fonts: ^6.2.1
+  media_store_plus: ^0.1.3 # PATCH_S25_SAVE_TO_DOWNLOADS: publish exports to the public Download folder
 
 dev_dependencies:
   flutter_test:

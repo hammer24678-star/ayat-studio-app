@@ -73,7 +73,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadCorpus();
-    OverlayRenderer.ensureFontsLoaded();
+    // PATCH_S26_FONT_LOAD_REBUILD: google_fonts paints with a system-fallback font while
+    // the real Amiri Quran / Aref Ruqaa files are still downloading, and
+    // does not rebuild this widget on its own once they're ready --
+    // without the setState() below the preview could be stuck showing
+    // fallback glyphs (wrong shaping/tashkeel) for the whole session.
+    OverlayRenderer.ensureFontsLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     _syncTimer = Timer.periodic(
         const Duration(milliseconds: 100), (_) => _tickAutoSync());
   }
@@ -255,11 +262,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final chars = (seg.ayah.ar.length * frac).round();
     final typed = seg.ayah.ar.substring(0, chars);
     final trans = frac >= 1 ? seg.ayah.en : '';
+    // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-ayah key so StagePreview only fades when
+    // the segment actually changes, not on every typed character.
+    final segmentKey = '${seg.ayah.surahNum}:${seg.ayah.num}';
     final current = _liveOverlay.value;
     if (current == null ||
         current.text != typed ||
         current.translation != trans) {
-      _liveOverlay.value = StageOverlayText(typed, trans);
+      _liveOverlay.value = StageOverlayText(typed, trans, segmentKey);
     }
   }
 
@@ -876,6 +886,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
           ],
+        ),
+        // PATCH_S29_BG_ANIMATION_TOGGLE: on/off switch for the S28 animated sheen -- only
+        // meaningful for the preset gradients above, so it's placed
+        // right under them.
+        const SizedBox(height: 10),
+        ToggleRow(
+          label: 'خلفية متحركة',
+          value: state.bgAnimated,
+          onChanged: (v) => state.update(() => state.bgAnimated = v),
         ),
         const Divider(height: 32, color: AyatColors.hairline),
         ElevatedButton.icon(

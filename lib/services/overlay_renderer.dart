@@ -144,6 +144,7 @@ class OverlayRenderer {
     required String text,
     required String translation,
     required OverlayStyle style,
+    double opacity = 1.0, // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out around each ayah's window
   }) async {
     await ensureFontsLoaded();
     final rec = ui.PictureRecorder();
@@ -151,8 +152,10 @@ class OverlayRenderer {
     if (text.isNotEmpty) {
       final scale = w / 270.0; // same preview-stage scale factor as the HTML
       final maxWidth = w * 0.86;
+      // PATCH_S27_FADE_TEXT_ANIMATIONS: ramp alpha instead of a hard on/off cut.
+      final effColor = style.color.withValues(alpha: style.color.a * opacity);
       final shadows = [
-        Shadow(color: const Color(0xA6000000), blurRadius: 8 * scale),
+        Shadow(color: Color.fromRGBO(0, 0, 0, 0.651 * opacity), blurRadius: 8 * scale),
       ];
       final ayahPainter = TextPainter(
         text: TextSpan(
@@ -160,7 +163,7 @@ class OverlayRenderer {
           style: ayahTextStyle(
             style.fontKey,
             fontSize: style.ayahFontSize * scale * ayahAutoFontScale(text), // PATCH_S24_AUTO_SHRINK_LONG_AYAH
-            color: style.color,
+            color: effColor,
             height: 1.5,
             shadows: shadows,
           ),
@@ -177,7 +180,7 @@ class OverlayRenderer {
             text: translation,
             style: translationTextStyle(
               fontSize: style.transFontSize * scale,
-              color: style.color.withValues(alpha: 0.88),
+              color: style.color.withValues(alpha: 0.88 * opacity),
               shadows: shadows,
             ),
           ),
