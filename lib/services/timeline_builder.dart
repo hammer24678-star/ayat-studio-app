@@ -13,6 +13,16 @@
 //      one-shot detection paths. Borderline matches only commit once two
 //      consecutive windows agree; consecutive windows on the same ayah merge
 //      into one {start, end, ayah} segment.
+//   4. PATCH_S35_SMARTER_DETECTION: recitation follows mushaf order, so when
+//      the corpus-wide search fails or is weak, the ayat we EXPECT next
+//      (the current ayah continuing, or the following one/two) are re-scored
+//      directly with a relaxed threshold — a window straddling two ayat or
+//      garbled by reverb often still clearly matches its expected successor.
+//   5. PATCH_S35_SMARTER_DETECTION: the raw segments are quantized to the
+//      6s-window/5s-step grid, so afterwards overlaps/small gaps between
+//      consecutive segments are normalized away and each shared boundary is
+//      snapped to the quietest instant nearby — the reciter's breath pause
+//      between ayat — which makes the karaoke word timing noticeably tighter.
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -29,6 +39,16 @@ class TimelineBuilder {
   static const double highConfidence = 0.55; // commit off a single window
   static const double vadSilenceRms = 0.008; // ~-42 dBFS
   static const int sampleRate = 16000;
+  // PATCH_S35_SMARTER_DETECTION: thresholds for the expected-next re-score.
+  // The mushaf-order prior lets us accept weaker acoustic evidence, and the
+  // bonus lets an expected ayah win a near-tie against an unrelated one.
+  static const double contextMinConfidence = 0.22;
+  static const double contextPriorBonus = 0.08;
+
+  // PATCH_S37_CANCEL_LONG_JOBS: lets the UI abort a long scan; checked once
+  // per window so cancellation lands within ~1 window's processing time.
+  static bool _cancelRequested = false;
+  static void requestCancel() => _cancelRequested = true;
 
   /// Scans [mediaPath] (video or audio) and returns the detected ayah
   /// timeline. [onStatus] receives human-readable Arabic progress text,
@@ -39,6 +59,7 @@ class TimelineBuilder {
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
   }) async {
+    _cancelRequested = false; // PATCH_S37_CANCEL_LONG_JOBS
     await WhisperService.ensureReady(onStatus: onStatus);
 
     onStatus?.call('جارٍ استخراج الصوت الكامل…');
@@ -58,6 +79,9 @@ class TimelineBuilder {
 
     try {
       for (double t = 0; t < totalSec; t += stepSec) {
+        if (_cancelRequested) {
+          throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
+        }
         chunkIndex++;
         onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks…');
         onProgress?.call(chunkIndex / totalChunks);
@@ -83,7 +107,28 @@ class TimelineBuilder {
           continue; // one failed window shouldn't kill the whole scan
         }
 
-        final match = matcher.match(text, minConfidence: minConfidence);
+        var match = matcher.match(text, minConfidence: minConfidence);
+
+        // PATCH_S35_SMARTER_DETECTION: when the corpus-wide search failed or
+        // stayed below the single-window commit bar, re-score just the ayat
+        // the mushaf order predicts here (current ayah continuing, next,
+        // next-after) with a relaxed threshold and a small prior bonus.
+        final anchor = timeline.isEmpty ? null : timeline.last.ayah;
+        if (anchor != null &&
+            (match == null || match.confidence < highConfidence)) {
+          final expected = _expectedNext(matcher.ayaat, anchor);
+          final ctx = matcher.matchAmong(text, expected,
+              minConfidence: contextMinConfidence);
+          if (ctx != null &&
+              (match == null ||
+                  identical(ctx.ayah, match.ayah) ||
+                  ctx.confidence + contextPriorBonus >= match.confidence)) {
+            match = ctx.confidence >= (match?.confidence ?? 0)
+                ? ctx
+                : AyahMatch(ctx.ayah, match!.confidence);
+          }
+        }
+
         if (match == null) {
           pending = null;
           continue;
@@ -122,11 +167,73 @@ class TimelineBuilder {
               confidence: match.confidence);
         }
       }
+      // PATCH_S35_SMARTER_DETECTION: clean the step-grid quantization up and
+      // snap ayah boundaries to the reciter's breath pauses.
+      normalizeTimeline(timeline, totalSec);
+      _refineBoundaries(timeline, pcm);
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
     }
     return timeline;
+  }
+
+  // PATCH_S35_SMARTER_DETECTION: the ayat mushaf order predicts after
+  // [anchor]: the anchor itself (still being recited) and the next two.
+  static List<Ayah> _expectedNext(List<Ayah> ayaat, Ayah anchor) {
+    final i = ayaat.indexOf(anchor); // identity ==, Ayah defines no operator==
+    if (i < 0) return [anchor];
+    return ayaat.sublist(i, min(ayaat.length, i + 3));
+  }
+
+  /// PATCH_S35_SMARTER_DETECTION: resolves the 6s-window/5s-step grid
+  /// artifacts. Consecutive segments that overlap (the previous window
+  /// reached past where the next ayah was first heard) get split at the
+  /// midpoint of the overlap; small gaps (≤ one step — recitation is
+  /// continuous, the gap is just a window that matched nothing) are bridged
+  /// the same way. Public and pure so it's unit-testable.
+  static void normalizeTimeline(
+      List<TimelineSegment> timeline, double totalSec) {
+    if (timeline.isEmpty) return;
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      final a = timeline[i], b = timeline[i + 1];
+      if (a.end > b.start || b.start - a.end <= stepSec + 0.01) {
+        final mid = (a.end + b.start) / 2;
+        a.end = mid;
+        b.start = mid;
+      }
+    }
+    timeline.first.start = max(0, timeline.first.start);
+    timeline.last.end = min(totalSec, max(timeline.last.end, timeline.last.start + 0.5));
+  }
+
+  // PATCH_S35_SMARTER_DETECTION: reciters pause for breath between ayat —
+  // scan ±1.5s around each shared segment boundary in 80ms hops and move
+  // the boundary to the center of the quietest 240ms window.
+  static void _refineBoundaries(
+      List<TimelineSegment> timeline, Int16List pcm) {
+    const searchSec = 1.5, winSec = 0.24, hopSec = 0.08;
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      final a = timeline[i], b = timeline[i + 1];
+      if ((b.start - a.end).abs() > 0.01) continue; // only shared boundaries
+      final lo = max(a.start + 0.5, a.end - searchSec);
+      final hi = min(b.end - 0.5, b.start + searchSec);
+      if (hi - lo < winSec + 0.05) continue;
+      var bestT = a.end;
+      var bestRms = double.infinity;
+      for (var t = lo; t + winSec <= hi; t += hopSec) {
+        final s = (t * sampleRate).floor();
+        final e = min(pcm.length, ((t + winSec) * sampleRate).floor());
+        if (e <= s) break;
+        final rms = _rmsEnergy(Int16List.sublistView(pcm, s, e));
+        if (rms < bestRms) {
+          bestRms = rms;
+          bestT = t + winSec / 2;
+        }
+      }
+      a.end = bestT;
+      b.start = bestT;
+    }
   }
 
   static double _rmsEnergy(Int16List samples) {

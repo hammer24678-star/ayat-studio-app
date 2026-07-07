@@ -54,9 +54,20 @@ const Map<String, String> _phoneticFold = {
   'غ': 'gh', 'خ': 'gh',
 };
 
+// PATCH_S35_SMARTER_DETECTION: precomputed features of one ASR input, shared
+// by match / matchTop / matchAmong so they all score identically.
+class _InputFeatures {
+  final String norm;
+  final List<String> tokens;
+  final Set<String> bigrams;
+  final Set<String> phonetic;
+  _InputFeatures(this.norm, this.tokens, this.bigrams, this.phonetic);
+}
+
 class AyahMatcher {
   final List<Ayah> ayaat;
   final List<_CacheEntry> _cache = [];
+  final Map<Ayah, _CacheEntry> _entryByAyah = {}; // PATCH_S35_SMARTER_DETECTION
   final Map<String, double> _idf = {};
   double _corpusMaxIdf = 1;
 
@@ -96,6 +107,7 @@ class AyahMatcher {
 
   void _rebuildCache() {
     _cache.clear();
+    _entryByAyah.clear(); // PATCH_S35_SMARTER_DETECTION
     final df = <String, int>{};
     for (final a in ayaat) {
       final norm = normalize(a.ar);
@@ -103,7 +115,10 @@ class AyahMatcher {
       final tokenSet = tokens.toSet();
       final bigramSet = _bigramsOf(tokens);
       final phoneticSet = tokens.map(_phoneticFoldToken).toSet();
-      _cache.add(_CacheEntry(a, norm, tokens, tokenSet, bigramSet, phoneticSet));
+      final entry =
+          _CacheEntry(a, norm, tokens, tokenSet, bigramSet, phoneticSet);
+      _cache.add(entry);
+      _entryByAyah[a] = entry; // PATCH_S35_SMARTER_DETECTION
       for (final t in tokenSet) {
         df[t] = (df[t] ?? 0) + 1;
       }
@@ -214,51 +229,99 @@ class AyahMatcher {
     return maxCount / tokens.length >= 0.6;
   }
 
-  /// Returns the best match, or null if nothing clears [minConfidence].
-  AyahMatch? match(String rawText, {double minConfidence = 0.35}) {
+  // PATCH_S35_SMARTER_DETECTION: shared input featurization + gates for all
+  // matching entry points. Returns null when the input is unmatchable
+  // (empty, single word, or a Whisper hallucination loop).
+  _InputFeatures? _featuresOf(String rawText) {
     final norm = normalize(rawText);
     if (norm.isEmpty) return null;
     final inTokens = norm.split(' ').where((t) => t.isNotEmpty).toList();
     if (inTokens.length < 2) return null;
     if (_looksLikeHallucination(inTokens)) return null;
     if (_cache.length != ayaat.length) _rebuildCache();
+    return _InputFeatures(norm, inTokens, _bigramsOf(inTokens),
+        inTokens.map(_phoneticFoldToken).toSet());
+  }
 
-    final inBigrams = _bigramsOf(inTokens);
-    final inPhonetic = inTokens.map(_phoneticFoldToken).toSet();
+  // The blended per-candidate score used identically by match / matchTop /
+  // matchAmong (formula unchanged from the original match()).
+  double _blendScore(_CacheEntry entry, _InputFeatures f, double overlap) {
+    final shortStr = f.norm.length <= entry.norm.length ? f.norm : entry.norm;
+    final longStr = f.norm.length <= entry.norm.length ? entry.norm : f.norm;
+    final dist = _partialEditDistance(shortStr, longStr);
+    final distScore = 1 - dist / max(shortStr.length, 1);
+    final bigramScore = _bigramOverlap(f.bigrams, entry.bigramSet);
+    var phoneticInter = 0;
+    for (final t in f.phonetic) {
+      if (entry.phoneticSet.contains(t)) phoneticInter++;
+    }
+    final phoneticUnion =
+        f.phonetic.length + entry.phoneticSet.length - phoneticInter;
+    final phoneticScore =
+        phoneticUnion > 0 ? phoneticInter / phoneticUnion : 0.0;
+    return overlap * 0.5 +
+        max(0.0, distScore) * 0.3 +
+        bigramScore * 0.1 +
+        phoneticScore * 0.1;
+  }
+
+  /// Returns the best match, or null if nothing clears [minConfidence].
+  AyahMatch? match(String rawText, {double minConfidence = 0.35}) {
+    final top = matchTop(rawText, k: 1, minConfidence: minConfidence);
+    return top.isEmpty ? null : top.first;
+  }
+
+  /// PATCH_S35_SMARTER_DETECTION: the top [k] matches above [minConfidence],
+  /// best first — lets the UI offer "did you mean…?" choices instead of
+  /// silently committing to a borderline winner.
+  List<AyahMatch> matchTop(String rawText,
+      {int k = 3, double minConfidence = 0.2}) {
+    final f = _featuresOf(rawText);
+    if (f == null) return const [];
 
     final candidates = <MapEntry<_CacheEntry, double>>[];
     for (final entry in _cache) {
       final (_, overlap) =
-          _overlapScores(inTokens, entry.tokenSet, entry.tokens.length);
+          _overlapScores(f.tokens, entry.tokenSet, entry.tokens.length);
       if (overlap <= 0) continue;
       candidates.add(MapEntry(entry, overlap));
     }
     candidates.sort((a, b) => b.value.compareTo(a.value));
-    final pool = candidates.take(candidatePoolSize).toList();
-    if (pool.isEmpty) return null;
+    final pool = candidates.take(candidatePoolSize);
 
-    Ayah? best;
-    var bestScore = -1.0;
+    final scored = <AyahMatch>[];
     for (final c in pool) {
-      final entry = c.key;
-      final shortStr = norm.length <= entry.norm.length ? norm : entry.norm;
-      final longStr = norm.length <= entry.norm.length ? entry.norm : norm;
-      final dist = _partialEditDistance(shortStr, longStr);
-      final distScore = 1 - dist / max(shortStr.length, 1);
-      final bigramScore = _bigramOverlap(inBigrams, entry.bigramSet);
-      var phoneticInter = 0;
-      for (final t in inPhonetic) {
-        if (entry.phoneticSet.contains(t)) phoneticInter++;
-      }
-      final phoneticUnion = inPhonetic.length + entry.phoneticSet.length - phoneticInter;
-      final phoneticScore = phoneticUnion > 0 ? phoneticInter / phoneticUnion : 0.0;
-      final score = c.value * 0.5 + max(0.0, distScore) * 0.3 + bigramScore * 0.1 + phoneticScore * 0.1;
-      if (score > bestScore) {
-        bestScore = score;
-        best = entry.ayah;
+      final score = _blendScore(c.key, f, c.value);
+      if (score >= minConfidence) {
+        scored.add(AyahMatch(c.key.ayah, score.clamp(0, 1)));
       }
     }
-    if (best == null || bestScore < minConfidence) return null;
-    return AyahMatch(best, bestScore.clamp(0, 1));
+    scored.sort((a, b) => b.confidence.compareTo(a.confidence));
+    return scored.take(k).toList();
+  }
+
+  /// PATCH_S35_SMARTER_DETECTION: scores ONLY the given [candidates] (same
+  /// blended formula, no candidate-pool pruning) with a caller-chosen
+  /// relaxed threshold. Used by the timeline builder to test the ayat we
+  /// EXPECT next during a recitation — the current ayah continuing or the
+  /// following ones in mushaf order — where the sequential prior justifies
+  /// accepting a weaker acoustic score than a blind corpus-wide search.
+  AyahMatch? matchAmong(String rawText, Iterable<Ayah> candidates,
+      {double minConfidence = 0.22}) {
+    final f = _featuresOf(rawText);
+    if (f == null) return null;
+    AyahMatch? best;
+    for (final a in candidates) {
+      final entry = _entryByAyah[a];
+      if (entry == null) continue;
+      final (_, overlap) =
+          _overlapScores(f.tokens, entry.tokenSet, entry.tokens.length);
+      final score = _blendScore(entry, f, overlap);
+      if (score >= minConfidence &&
+          (best == null || score > best.confidence)) {
+        best = AyahMatch(entry.ayah, score.clamp(0, 1));
+      }
+    }
+    return best;
   }
 }

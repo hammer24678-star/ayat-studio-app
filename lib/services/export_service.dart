@@ -44,11 +44,25 @@ class ExportService {
   // stalling ffmpeg on-device, not a feature limit.
   static const int maxExportResolutionCap = 3840;
 
+  // PATCH_S37_CANCEL_LONG_JOBS: user-requested abort. Kills any running
+  // ffmpeg session immediately and makes the frame-render loops bail at
+  // their next iteration.
+  static bool _cancelRequested = false;
+  static Future<void> cancel() async {
+    _cancelRequested = true;
+    await FFmpegKit.cancel();
+  }
+
+  static void _checkCancel() {
+    if (_cancelRequested) throw Exception('تم إلغاء التصدير');
+  }
+
   static Future<String> export({
     required StudioState state,
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
   }) async {
+    _cancelRequested = false; // PATCH_S37_CANCEL_LONG_JOBS
     final work = Directory.systemTemp.createTempSync('ayat_export');
     try {
       onStatus?.call('جارٍ تجهيز الخلفية والنصوص…');
@@ -163,6 +177,7 @@ class ExportService {
         var fxH = (h * fxW / w).round();
         if (fxH.isOdd) fxH += 1;
         for (var i = 0; i < StageEffects.exportFrameCount; i++) {
+          _checkCancel(); // PATCH_S37_CANCEL_LONG_JOBS
           final bytes = await StageEffects.renderEffectFramePng(
             w: fxW,
             h: fxH,
@@ -284,6 +299,7 @@ class ExportService {
     final cache = <String, List<int>>{};
     final chunkCache = <TimelineSegment, List<KaraokeChunk>>{};
     for (var i = 0; i < frames; i++) {
+      _checkCancel(); // PATCH_S37_CANCEL_LONG_JOBS
       if (i % (overlayFps * 5) == 0) {
         onStatus?.call(
             'جارٍ رسم إضاءة الكلمات مع التلاوة… ${(i * 100 / frames).round()}٪');
@@ -489,6 +505,10 @@ class ExportService {
       final rc = await session.getReturnCode();
       if (ReturnCode.isSuccess(rc)) {
         completer.complete();
+      } else if (_cancelRequested) {
+        // PATCH_S37_CANCEL_LONG_JOBS: the non-success rc is our own abort,
+        // not a real encoder failure — surface it as the cancel message.
+        completer.completeError(Exception('تم إلغاء التصدير'));
       } else {
         final logs = await session.getAllLogsAsString() ?? '';
         final tail = logs.length > 600 ? logs.substring(logs.length - 600) : logs;

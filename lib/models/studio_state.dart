@@ -188,6 +188,46 @@ class StudioState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // PATCH_S36_TIMELINE_EDITOR: remove one wrongly detected segment. The trim
+  // range indexes into [timeline], so it resets rather than dangle.
+  void removeTimelineSegment(int index) {
+    if (index < 0 || index >= timeline.length) return;
+    timeline.removeAt(index);
+    timelineActive = timeline.isNotEmpty;
+    trimFromIndex = -1;
+    trimToIndex = -1;
+    notifyListeners();
+  }
+
+  // PATCH_S36_TIMELINE_EDITOR: nudge a segment's start/end by [startDelta]/
+  // [endDelta] seconds. A segment keeps at least 0.3s of length, and moving
+  // an edge past a neighbour pulls the neighbour's shared boundary along
+  // (detected boundaries are shared after normalization, so this behaves
+  // like dragging the cut point between two ayat).
+  void nudgeTimelineSegment(int index,
+      {double startDelta = 0, double endDelta = 0}) {
+    if (index < 0 || index >= timeline.length) return;
+    final seg = timeline[index];
+    if (startDelta != 0) {
+      final floor = index > 0 ? timeline[index - 1].start + 0.3 : 0.0;
+      seg.start = (seg.start + startDelta).clamp(floor, seg.end - 0.3);
+      if (index > 0 && timeline[index - 1].end > seg.start) {
+        timeline[index - 1].end = seg.start;
+      }
+    }
+    if (endDelta != 0) {
+      final ceil = index + 1 < timeline.length
+          ? timeline[index + 1].end - 0.3
+          : (videoDurationSec > 0 ? videoDurationSec : double.infinity);
+      seg.end = (seg.end + endDelta).clamp(seg.start + 0.3, ceil);
+      if (index + 1 < timeline.length &&
+          timeline[index + 1].start < seg.end) {
+        timeline[index + 1].start = seg.end;
+      }
+    }
+    notifyListeners();
+  }
+
   void applyTemplate(int index) {
     templateIndex = index;
     final t = kTemplates[index];

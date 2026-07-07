@@ -21,6 +21,7 @@ import '../services/ayah_matcher.dart';
 import '../services/export_service.dart';
 import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import '../services/media_service.dart';
+import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
@@ -51,7 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _busy = false;
   String _busyStatus = '';
   double? _busyProgress;
+  // PATCH_S37_CANCEL_LONG_JOBS: set by long jobs (export / auto-sync) so the
+  // status card can offer a working إلغاء button; cleared when the job ends.
+  VoidCallback? _busyCancelAction;
   bool _listening = false;
+  Timer? _persistDebounce; // PATCH_S37_PERSISTENT_SETTINGS
+  bool _settingsRestored = false;
 
   int _selectedTab = 0;
   int _customFontCounter = 0;
@@ -87,10 +93,30 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _syncTimer = Timer.periodic(
         const Duration(milliseconds: 100), (_) => _tickAutoSync());
+    // PATCH_S37_PERSISTENT_SETTINGS: reopen the studio the way it was left,
+    // then start auto-saving style changes (debounced).
+    SettingsService.restore(state).then((_) {
+      if (!mounted) return;
+      _settingsRestored = true;
+      _outroCtrl.text = state.outroText;
+      _staticDurCtrl.text = '${state.staticDurationSec}';
+    });
+    state.addListener(_schedulePersist);
+  }
+
+  // PATCH_S37_PERSISTENT_SETTINGS
+  void _schedulePersist() {
+    if (!_settingsRestored) return; // don't overwrite saved prefs with defaults
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(milliseconds: 800), () {
+      SettingsService.persist(state);
+    });
   }
 
   @override
   void dispose() {
+    state.removeListener(_schedulePersist); // PATCH_S37_PERSISTENT_SETTINGS
+    _persistDebounce?.cancel();
     _syncTimer?.cancel();
     _video?.dispose();
     _reciterPreview?.dispose();
@@ -144,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _busy = false;
           _busyStatus = '';
           _busyProgress = null;
+          _busyCancelAction = null; // PATCH_S37_CANCEL_LONG_JOBS
         });
       }
     }
@@ -184,38 +211,125 @@ class _HomeScreenState extends State<HomeScreen> {
     _toast('تم رفع الملف ✓');
   }
 
+  // PATCH_S35_SMARTER_DETECTION: apply one confirmed/auto-detected match.
+  void _applyDetectedAyah(AyahMatch m, {String? heardText}) {
+    _liveOverlay.value = null;
+    state.setAyah(
+      m.ayah.ar,
+      m.ayah.en,
+      'تم التعرف: سورة ${m.ayah.surah} — آية ${m.ayah.num}',
+      confidenceText: 'نسبة التطابق: ${(m.confidence * 100).round()}٪'
+          '${heardText != null ? ' — النص المسموع: "$heardText"' : ''}',
+      surahNum: m.ayah.surahNum, // PATCH_S32_AI_ART_NANO_BANANA
+      ayahNum: m.ayah.num,
+    );
+  }
+
+  // PATCH_S35_SMARTER_DETECTION: "did you mean…?" — instead of silently
+  // committing to a borderline winner, let the user pick among the top
+  // candidates. Returns (match, false), (null, true) for "use the text as
+  // typed" (only when [allowRaw]), or null when dismissed.
+  Future<(AyahMatch?, bool)?> _pickAyahCandidate(
+    List<AyahMatch> candidates, {
+    bool allowRaw = false,
+  }) {
+    String snippet(String s) =>
+        s.length <= 90 ? s : '${s.substring(0, 90)}…';
+    return showDialog<(AyahMatch?, bool)>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AyatColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: const BorderSide(color: AyatColors.hairline),
+        ),
+        title: const Text('هل تقصد إحدى هذه الآيات؟'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final m in candidates)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: AyatColors.surface2,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AyatColors.hairline),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => Navigator.pop(context, (m, false)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'سورة ${m.ayah.surah} — آية ${m.ayah.num} · ${(m.confidence * 100).round()}٪',
+                            style: const TextStyle(
+                                fontSize: 12, color: AyatColors.goldBright),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            snippet(m.ayah.ar),
+                            textDirection: TextDirection.rtl,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (allowRaw)
+                TextButton(
+                  onPressed: () => Navigator.pop(context, (null, true)),
+                  child: const Text('ولا واحدة — استخدم النص كما كتبته'),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _detectFromVideo() async {
     final matcher = state.matcher;
     if (!state.hasVideo || matcher == null) {
       _toast('ارفع فيديو أولًا');
       return;
     }
-    await _withBusy(() async {
+    final text = await _withBusy(() async {
       _setBusyStatus('جارٍ استخراج الصوت…');
       final wav = await MediaService.extractWav16kMono(state.videoPath!);
-      final text = await WhisperService.transcribeWav(wav,
+      final t = await WhisperService.transcribeWav(wav,
           onStatus: (s) => _setBusyStatus(s));
       File(wav).delete().ignore();
-      if (text.isEmpty) {
-        _toast('لم يتم استخراج أي كلام واضح من الفيديو');
-        return;
-      }
-      final match = matcher.match(text);
-      if (match != null) {
-        _liveOverlay.value = null;
-        state.setAyah(
-          match.ayah.ar,
-          match.ayah.en,
-          'تم التعرف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
-          confidenceText:
-              'نسبة التطابق: ${(match.confidence * 100).round()}٪ — النص المسموع: "$text"',
-          surahNum: match.ayah.surahNum, // PATCH_S32_AI_ART_NANO_BANANA
-          ayahNum: match.ayah.num,
-        );
-      } else {
-        _toast('تم تفريغ الصوت لكن لم تُطابق أي آية بثقة كافية');
-      }
+      return t;
     });
+    if (text == null || !mounted) return;
+    if (text.isEmpty) {
+      _toast('لم يتم استخراج أي كلام واضح من الفيديو');
+      return;
+    }
+    // PATCH_S35_SMARTER_DETECTION: strong winner applies directly; a
+    // borderline one offers the top candidates to choose from.
+    final candidates = matcher.matchTop(text, k: 3, minConfidence: 0.30);
+    if (candidates.isEmpty) {
+      _toast('تم تفريغ الصوت لكن لم تُطابق أي آية بثقة كافية');
+      return;
+    }
+    if (candidates.first.confidence >= 0.55 || candidates.length == 1) {
+      _applyDetectedAyah(candidates.first, heardText: text);
+      return;
+    }
+    final picked = await _pickAyahCandidate(candidates);
+    if (picked?.$1 != null) _applyDetectedAyah(picked!.$1!, heardText: text);
   }
 
   Future<void> _autoSync() async {
@@ -226,6 +340,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     // pause the preview so the decoder isn't fighting the analysis pass
     await _video?.pause();
+    // PATCH_S37_CANCEL_LONG_JOBS: a full scan can take minutes on long clips
+    setState(() => _busyCancelAction = TimelineBuilder.requestCancel);
     await _withBusy(() async {
       final timeline = await TimelineBuilder.build(
         mediaPath: state.videoPath!,
@@ -324,6 +440,8 @@ class _HomeScreenState extends State<HomeScreen> {
     state.staticDurationSec =
         (int.tryParse(_staticDurCtrl.text) ?? 6).clamp(2, 60);
     await _video?.pause();
+    // PATCH_S37_CANCEL_LONG_JOBS
+    setState(() => _busyCancelAction = () => ExportService.cancel());
     final path = await _withBusy(() async {
       _setBusyStatus('جارٍ تجهيز التصدير…', 0);
       return ExportService.export(
@@ -442,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _applyCustomText() {
+  Future<void> _applyCustomText() async {
     final matcher = state.matcher;
     final ar = _customArCtrl.text.trim();
     final en = _customEnCtrl.text.trim();
@@ -451,15 +569,36 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     _liveOverlay.value = null;
-    final match = matcher?.match(ar, minConfidence: 0.28);
-    if (match != null) {
-      state.setAyah(match.ayah.ar, en.isNotEmpty ? en : match.ayah.en,
-          'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
-          surahNum: match.ayah.surahNum, ayahNum: match.ayah.num); // PATCH_S32_AI_ART_NANO_BANANA
-      _toast('تم العثور على الآية ✓ (سورة ${match.ayah.surah}:${match.ayah.num})');
-    } else {
+    void applyMatch(AyahMatch m) {
+      state.setAyah(m.ayah.ar, en.isNotEmpty ? en : m.ayah.en,
+          'تم التعرّف: سورة ${m.ayah.surah} — آية ${m.ayah.num}',
+          surahNum: m.ayah.surahNum, ayahNum: m.ayah.num); // PATCH_S32_AI_ART_NANO_BANANA
+      _toast('تم العثور على الآية ✓ (سورة ${m.ayah.surah}:${m.ayah.num})');
+    }
+
+    void applyRaw() {
       state.setAyah(ar, en, 'نص مخصص (لم يتم العثور على تطابق في القرآن)');
-      _toast('لم يتم العثور على تطابق دقيق — تم استخدام النص كما هو');
+      _toast('تم استخدام النص كما كتبته');
+    }
+
+    // PATCH_S35_SMARTER_DETECTION: confident match applies directly; weaker
+    // ones offer the top candidates (plus "use as typed") to choose from.
+    final candidates = matcher?.matchTop(ar, k: 3, minConfidence: 0.2) ??
+        const <AyahMatch>[];
+    if (candidates.isEmpty) {
+      applyRaw();
+      return;
+    }
+    if (candidates.first.confidence >= 0.5) {
+      applyMatch(candidates.first);
+      return;
+    }
+    final picked = await _pickAyahCandidate(candidates, allowRaw: true);
+    if (picked == null) return; // dismissed — change nothing
+    if (picked.$2) {
+      applyRaw();
+    } else if (picked.$1 != null) {
+      applyMatch(picked.$1!);
     }
   }
 
@@ -526,6 +665,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (state.timelineActive) ...[
                   const SizedBox(height: 12),
                   _trimCard(),
+                  const SizedBox(height: 12),
+                  _timelineEditorCard(), // PATCH_S36_TIMELINE_EDITOR
                 ],
                 const SizedBox(height: 18),
                 _tabChips(),
@@ -585,6 +726,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
               ),
             ),
+            // PATCH_S37_CANCEL_LONG_JOBS: abort export / auto-sync scan
+            if (_busyCancelAction != null) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: () {
+                  _busyCancelAction?.call();
+                  setState(() => _busyCancelAction = null);
+                  _setBusyStatus('جارٍ الإلغاء…');
+                },
+                icon: const Icon(Icons.cancel_outlined,
+                    size: 16, color: AyatColors.parchmentDim),
+                label: const Text('إلغاء العملية',
+                    style: TextStyle(
+                        fontSize: 12, color: AyatColors.parchmentDim)),
+              ),
+            ],
           ],
         ],
       ),
@@ -737,6 +894,17 @@ class _HomeScreenState extends State<HomeScreen> {
           final posMs = v.position.inMilliseconds.clamp(0, durMs);
           return Row(
             children: [
+              // PATCH_S36_TIMELINE_EDITOR: jump between detected ayat
+              if (state.timelineActive)
+                IconButton(
+                  onPressed: () => _seekToAdjacentAyah(-1),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 34, minHeight: 40),
+                  icon: const Icon(Icons.skip_previous_outlined,
+                      color: AyatColors.parchmentDim, size: 20),
+                  tooltip: 'الآية السابقة',
+                ),
               IconButton(
                 onPressed: () => v.isPlaying ? c.pause() : c.play(),
                 icon: Icon(
@@ -747,6 +915,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 tooltip: 'تشغيل/إيقاف',
               ),
+              if (state.timelineActive)
+                IconButton(
+                  onPressed: () => _seekToAdjacentAyah(1),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 34, minHeight: 40),
+                  icon: const Icon(Icons.skip_next_outlined,
+                      color: AyatColors.parchmentDim, size: 20),
+                  tooltip: 'الآية التالية',
+                ),
               Text(_fmtSec(posMs / 1000),
                   style: const TextStyle(
                       fontSize: 11, color: AyatColors.parchmentDim)),
@@ -766,6 +944,190 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
     );
+  }
+
+  // PATCH_S36_TIMELINE_EDITOR ------------------------------------------------
+  // Review and fix the detected timeline by hand: tap an ayah to jump the
+  // preview there, fine-tune its start/end (the karaoke lighting and the
+  // export follow immediately), or delete a wrong detection.
+
+  Widget _timelineEditorCard() {
+    return _card(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Theme(
+        // ExpansionTile draws its own dividers — keep the card clean
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 10),
+          iconColor: AyatColors.goldBright,
+          collapsedIconColor: AyatColors.parchmentDim,
+          title: Text('مراجعة الآيات المرصودة (${state.timeline.length})',
+              style: Theme.of(context).textTheme.labelLarge),
+          subtitle: Text(
+            'اضغط آية للانتقال إليها، أو عدّل توقيتها أو احذفها إن كان الرصد خاطئًا.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          children: [
+            for (var i = 0; i < state.timeline.length; i++)
+              _timelineSegmentRow(i),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timelineSegmentRow(int i) {
+    final seg = state.timeline[i];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AyatColors.surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AyatColors.hairline),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                final c = _video;
+                if (c != null && c.value.isInitialized) {
+                  c.seekTo(Duration(
+                      milliseconds: (seg.start * 1000).round() + 30));
+                  c.play();
+                }
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('سورة ${seg.ayah.surah} — آية ${seg.ayah.num}',
+                      style: Theme.of(context).textTheme.bodyLarge),
+                  Text(
+                    '${_fmtSec(seg.start)} — ${_fmtSec(seg.end)} · ثقة ${(seg.confidence * 100).round()}٪',
+                    style: const TextStyle(
+                        fontSize: 10.5, color: AyatColors.parchmentDim),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: () => _editSegmentTiming(i),
+            icon: const Icon(Icons.tune,
+                size: 18, color: AyatColors.goldBright),
+            tooltip: 'ضبط التوقيت',
+          ),
+          IconButton(
+            onPressed: () {
+              state.removeTimelineSegment(i);
+              _toast('تم حذف الآية من الخط الزمني');
+            },
+            icon: const Icon(Icons.delete_outline,
+                size: 18, color: AyatColors.parchmentDim),
+            tooltip: 'حذف',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editSegmentTiming(int i) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          if (i >= state.timeline.length) {
+            return const SizedBox.shrink();
+          }
+          final seg = state.timeline[i];
+          Widget nudgeRow(String label, double value,
+              void Function(double delta) onNudge) {
+            Widget btn(String text, double d) => OutlinedButton(
+                  onPressed: () {
+                    onNudge(d);
+                    setDialogState(() {});
+                  },
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(52, 34),
+                    padding: EdgeInsets.zero,
+                    side: const BorderSide(color: AyatColors.hairline),
+                  ),
+                  child: Text(text, style: const TextStyle(fontSize: 12)),
+                );
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                      child: Text('$label: ${_fmtSec(value)}',
+                          style: Theme.of(context).textTheme.bodyLarge)),
+                  btn('-٠٫٥ث', -0.5),
+                  const SizedBox(width: 6),
+                  btn('+٠٫٥ث', 0.5),
+                ],
+              ),
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: AyatColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: const BorderSide(color: AyatColors.hairline),
+            ),
+            title: Text('توقيت آية ${seg.ayah.num} — ${seg.ayah.surah}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                nudgeRow('البداية', seg.start,
+                    (d) => state.nudgeTimelineSegment(i, startDelta: d)),
+                nudgeRow('النهاية', seg.end,
+                    (d) => state.nudgeTimelineSegment(i, endDelta: d)),
+                const SizedBox(height: 4),
+                Text(
+                  'التعديل يظهر فورًا في المعاينة وفي إضاءة الكلمات، ويلتزم به التصدير.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('تم')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // PATCH_S36_TIMELINE_EDITOR: seek to the previous/next detected ayah.
+  void _seekToAdjacentAyah(int dir) {
+    final c = _video;
+    if (c == null || !c.value.isInitialized || state.timeline.isEmpty) return;
+    final t = c.value.position.inMilliseconds / 1000.0;
+    double? target;
+    if (dir > 0) {
+      for (final s in state.timeline) {
+        if (s.start > t + 0.25) {
+          target = s.start;
+          break;
+        }
+      }
+    } else {
+      for (final s in state.timeline.reversed) {
+        if (s.start < t - 1.0) {
+          target = s.start;
+          break;
+        }
+      }
+      target ??= state.timeline.first.start;
+    }
+    if (target != null) {
+      c.seekTo(Duration(milliseconds: (target * 1000).round() + 30));
+    }
   }
 
   /// Free manual cut anywhere in the clip — complements the ayah-boundary
