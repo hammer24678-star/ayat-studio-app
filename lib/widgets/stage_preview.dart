@@ -160,7 +160,7 @@ class StagePreview extends StatelessWidget {
               textDirection: TextDirection.rtl,
               style: ayahTextStyle(
                 state.fontKey,
-                fontSize: state.ayahFontSize * scale,
+                fontSize: state.ayahFontSize * scale * ayahAutoFontScale(text), // PATCH_S24_AUTO_SHRINK_LONG_AYAH
                 color: state.textColor,
                 height: 1.5,
                 shadows: shadows,

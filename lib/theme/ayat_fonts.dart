@@ -4,6 +4,22 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// PATCH_S24_AUTO_SHRINK_LONG_AYAH: long ayahs (Al-Baqarah 282, Al-Ahzab 20, etc.) can run
+// 4-6x longer than a typical short surah -- without this, a fixed font
+// size either overflows the card or crowds the translation/label
+// against the frame edge. Length-based, not real text measurement, but
+// cheap and deterministic -- used identically by the live preview
+// (stage_preview.dart) and the export renderer (overlay_renderer.dart)
+// so what you see matches what gets burned into the video.
+double ayahAutoFontScale(String text) {
+  final len = text.length;
+  if (len <= 60) return 1.0;
+  if (len <= 100) return 0.88;
+  if (len <= 150) return 0.76;
+  if (len <= 220) return 0.66;
+  return 0.58;
+}
+
 TextStyle ayahTextStyle(
   String fontKey, {
   double? fontSize,

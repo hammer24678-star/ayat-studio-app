@@ -159,7 +159,7 @@ class OverlayRenderer {
           text: text,
           style: ayahTextStyle(
             style.fontKey,
-            fontSize: style.ayahFontSize * scale,
+            fontSize: style.ayahFontSize * scale * ayahAutoFontScale(text), // PATCH_S24_AUTO_SHRINK_LONG_AYAH
             color: style.color,
             height: 1.5,
             shadows: shadows,
