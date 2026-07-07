@@ -177,9 +177,13 @@ class ExportService {
       // export already succeeded even if this extra copy fails.
       if (Platform.isAndroid) {
         try {
+          // PATCH_S30_FIX_S25_SAVEFILE_SIGNATURE: saveFile has no fileName param on the real
+          // media_store_plus 0.1.3 API -- it takes the name from
+          // tempFilePath's own basename. Passing fileName here is
+          // what broke the CI build ("No named parameter with the
+          // name 'fileName'").
           await MediaStore().saveFile(
             tempFilePath: outPath,
-            fileName: outPath.split('/').last,
             dirType: DirType.download,
             dirName: DirName.download,
           );
