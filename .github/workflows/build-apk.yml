@@ -165,21 +165,30 @@ jobs:
             if [ -f android/key.properties ]; then
               cat >> android/app/build.gradle.kts << 'GRADLE'
 
-          // PATCH_S20_RELEASE_SIGNING -- stable keystore so every CI build
-          // carries the same signing identity (see patch_s20 for why).
-          run {
-              val keyPropsFile = rootProject.file("key.properties")
-              if (keyPropsFile.exists()) {
-                  val keyProps = java.util.Properties()
-                  keyProps.load(java.io.FileInputStream(keyPropsFile))
-                  android.signingConfigs.create("release") {
-                      storeFile = file(keyProps.getProperty("storeFile"))
-                      storePassword = keyProps.getProperty("storePassword")
-                      keyAlias = keyProps.getProperty("keyAlias")
-                      keyPassword = keyProps.getProperty("keyPassword")
+          // PATCH_S20_RELEASE_SIGNING v2 -- stable keystore so every CI build
+          // carries the same signing identity. v2 fixes the two Kotlin-script
+          // compilation errors the first version hit once the keystore secrets
+          // existed: (1) `java.util.Properties`/`java.io.FileInputStream` don't
+          // resolve at the top level of a .kts (the bare name `java` is Gradle's
+          // java-plugin extension accessor there, so `java.util` means
+          // "the extension's .util"), replaced with pure-Kotlin line parsing;
+          // (2) the old `android.signingConfigs` Project accessor is an
+          // error-level deprecation under AGP 9's newDsl, replaced with
+          // extensions.configure on the new ApplicationExtension DSL type.
+          val keyPropsFile = rootProject.file("key.properties")
+          if (keyPropsFile.exists()) {
+              val keyProps = keyPropsFile.readLines()
+                  .filter { it.contains("=") }
+                  .associate { it.substringBefore("=").trim() to it.substringAfter("=").trim() }
+              extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
+                  signingConfigs.create("release") {
+                      storeFile = file(keyProps["storeFile"] ?: "release-keystore.jks")
+                      storePassword = keyProps["storePassword"]
+                      keyAlias = keyProps["keyAlias"] ?: ""
+                      keyPassword = keyProps["keyPassword"]
                   }
-                  android.buildTypes.getByName("release") {
-                      signingConfig = android.signingConfigs.getByName("release")
+                  buildTypes.getByName("release") {
+                      signingConfig = signingConfigs.getByName("release")
                   }
               }
           }
