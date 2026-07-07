@@ -194,6 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
           'تم التعرف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
           confidenceText:
               'نسبة التطابق: ${(match.confidence * 100).round()}٪ — النص المسموع: "$text"',
+          reference: 'سورة ${match.ayah.surah} — آية ${match.ayah.num}',
         );
       } else {
         _toast('تم تفريغ الصوت لكن لم تُطابق أي آية بثقة كافية');
@@ -252,14 +253,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (seg == null) return; // keep the last ayah on screen between segments
     final frac =
         min(1.0, (t - seg.start) * 1000 / ExportService.typingRevealMs);
-    final chars = (seg.ayah.ar.length * frac).round();
-    final typed = seg.ayah.ar.substring(0, chars);
+    // word-by-word: Arabic glyphs reshape while a word grows, so whole words
+    // read much better than character slicing
+    final typed = revealWordsByFraction(seg.ayah.ar, frac);
     final trans = frac >= 1 ? seg.ayah.en : '';
+    final ref =
+        frac >= 1 ? 'سورة ${seg.ayah.surah} — آية ${seg.ayah.num}' : '';
     final current = _liveOverlay.value;
     if (current == null ||
         current.text != typed ||
-        current.translation != trans) {
-      _liveOverlay.value = StageOverlayText(typed, trans);
+        current.translation != trans ||
+        current.reference != ref) {
+      _liveOverlay.value = StageOverlayText(typed, trans, ref);
     }
   }
 
@@ -280,6 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
           best.ayah.en,
           'تم التعرف: سورة ${best.ayah.surah} — آية ${best.ayah.num}',
           confidenceText: 'نسبة التطابق: ${(best.confidence * 100).round()}٪',
+          reference: 'سورة ${best.ayah.surah} — آية ${best.ayah.num}',
         );
       } else {
         _toast('لم يتم العثور على آية مطابقة بثقة كافية — حاول التلاوة بوضوح أكبر');
@@ -301,7 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
     state.staticDurationSec =
         (int.tryParse(_staticDurCtrl.text) ?? 6).clamp(2, 60);
     await _video?.pause();
-    final path = await _withBusy(() async {
+    final saved = await _withBusy(() async {
       _setBusyStatus('جارٍ تجهيز التصدير…', 0);
       return ExportService.export(
         state: state,
@@ -309,7 +315,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onProgress: (f) => setState(() => _busyProgress = f),
       );
     });
-    if (path == null || !mounted) return;
+    if (saved == null || !mounted) return;
+    final where = saved.inDownloads
+        ? 'تم حفظ المقطع في مجلد التنزيلات:\nDownload/AyatStudio/${saved.path.split('/').last}\n\nستجده في تطبيق «الملفات» أو معرض الفيديوهات.'
+        : 'تم حفظ المقطع داخل مساحة التطبيق:\n${saved.path}\n\nاستخدم زر المشاركة لنقله أينما تريد.';
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -319,15 +328,14 @@ class _HomeScreenState extends State<HomeScreen> {
           side: const BorderSide(color: AyatColors.hairline),
         ),
         title: const Text('التصدير جاهز ✓'),
-        content: Text('تم حفظ المقطع بصيغة MP4:\n$path',
-            style: Theme.of(context).textTheme.bodyMedium),
+        content: Text(where, style: Theme.of(context).textTheme.bodyMedium),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('إغلاق')),
           FilledButton.icon(
             onPressed: () => SharePlus.instance
-                .share(ShareParams(files: [XFile(path)])),
+                .share(ShareParams(files: [XFile(saved.path)])),
             icon: const Icon(Icons.share, size: 16),
             label: const Text('مشاركة الفيديو'),
           ),
@@ -431,7 +439,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final match = matcher?.match(ar, minConfidence: 0.28);
     if (match != null) {
       state.setAyah(match.ayah.ar, en.isNotEmpty ? en : match.ayah.en,
-          'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num}');
+          'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
+          reference: 'سورة ${match.ayah.surah} — آية ${match.ayah.num}');
       _toast('تم العثور على الآية ✓ (سورة ${match.ayah.surah}:${match.ayah.num})');
     } else {
       state.setAyah(ar, en, 'نص مخصص (لم يتم العثور على تطابق في القرآن)');
@@ -537,7 +546,11 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            _busy && _busyStatus.isNotEmpty ? _busyStatus : state.corpusStatus,
+            _busy && _busyStatus.isNotEmpty
+                ? (_busyProgress != null
+                    ? '$_busyStatus (${(_busyProgress! * 100).round()}٪)'
+                    : _busyStatus)
+                : state.corpusStatus,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 13, color: AyatColors.goldBright),
           ),
@@ -704,15 +717,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _panelCard() {
-    return _card(
-      child: switch (_selectedTab) {
-        0 => _ayahPanel(),
-        1 => _bgPanel(),
-        2 => _chromaPanel(),
-        3 => _recitersPanel(),
-        4 => _templatesPanel(),
-        _ => _textPanel(),
-      },
+    // fade+rise on tab change, like the HTML's paneIn animation
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+                  begin: const Offset(0, 0.02), end: Offset.zero)
+              .animate(anim),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(_selectedTab),
+        child: _card(
+          child: switch (_selectedTab) {
+            0 => _ayahPanel(),
+            1 => _bgPanel(),
+            2 => _chromaPanel(),
+            3 => _recitersPanel(),
+            4 => _templatesPanel(),
+            _ => _textPanel(),
+          },
+        ),
+      ),
     );
   }
 
@@ -784,8 +814,9 @@ class _HomeScreenState extends State<HomeScreen> {
             if (v == null) return;
             final a = state.ayaat[v];
             _liveOverlay.value = null;
-            state.setAyah(a.ar, a.en,
-                'تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}');
+            state.setAyah(
+                a.ar, a.en, 'تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}',
+                reference: 'سورة ${a.surah} — آية ${a.num}');
           },
         ),
         _fieldLabel('أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)'),

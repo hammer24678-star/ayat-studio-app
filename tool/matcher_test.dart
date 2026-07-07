@@ -63,6 +63,36 @@ void main() {
         '$got (expected $expected)'
         '${m != null ? " conf=${(m.confidence * 100).round()}%" : ""}');
   });
+  // --- sequential prior (auto-sync mushaf-order) checks ---
+  // A short/ambiguous fragment that alone matches elsewhere or nothing
+  // should resolve to the expected NEXT ayah when the prior points at the
+  // previous one. الشرح:5 = "فإن مع العسر يسرا", الشرح:6 = "إن مع العسر يسرا".
+  final i5 = ayaat.indexWhere((a) => a.surah == 'الشرح' && a.num == 5);
+  final withPrior = matcher.match('ان مع العسر يسرا', priorIndex: i5);
+  final ok1 = withPrior != null &&
+      withPrior.ayah.surah == 'الشرح' &&
+      withPrior.ayah.num == 6;
+  print('${ok1 ? "PASS" : "FAIL"} prior(الشرح:5) + "ان مع العسر يسرا" -> '
+      '${withPrior?.ayah.surah}:${withPrior?.ayah.num} (expected الشرح:6)');
+  ok1 ? pass++ : fail++;
+
+  // The identical-text ayah فبأي آلاء ربكما تكذبان must resolve to the
+  // occurrence right after the prior, not an arbitrary one of the 31 copies.
+  final i16 = ayaat.indexWhere((a) => a.surah == 'الرحمن' && a.num == 15);
+  final m2 = matcher.match('فباي الاء ربكما تكذبان', priorIndex: i16);
+  final ok2 = m2 != null && m2.ayah.surah == 'الرحمن' && m2.ayah.num == 16;
+  print('${ok2 ? "PASS" : "FAIL"} prior(الرحمن:15) + التكرار -> '
+      '${m2?.ayah.surah}:${m2?.ayah.num} (expected الرحمن:16)');
+  ok2 ? pass++ : fail++;
+
+  // The prior must NOT override strong contrary evidence: a clear fragment
+  // of a completely different ayah still wins despite the prior.
+  final m3 = matcher.match('قل هو الله احد', priorIndex: i5);
+  final ok3 = m3 != null && m3.ayah.surah == 'الإخلاص';
+  print('${ok3 ? "PASS" : "FAIL"} prior(الشرح:5) + "قل هو الله احد" -> '
+      '${m3?.ayah.surah}:${m3?.ayah.num} (expected الإخلاص:1)');
+  ok3 ? pass++ : fail++;
+
   print('$pass passed, $fail failed');
   exit(fail == 0 ? 0 : 1);
 }

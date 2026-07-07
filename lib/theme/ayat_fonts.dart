@@ -24,6 +24,14 @@ TextStyle ayahTextStyle(
       return GoogleFonts.amiriQuran(textStyle: base);
     case 'ruqaa':
       return GoogleFonts.arefRuqaa(textStyle: base);
+    case 'notoNaskh':
+      return GoogleFonts.notoNaskhArabic(textStyle: base);
+    case 'scheherazade':
+      return GoogleFonts.scheherazadeNew(textStyle: base);
+    case 'lateef':
+      return GoogleFonts.lateef(textStyle: base);
+    case 'reemKufi':
+      return GoogleFonts.reemKufi(textStyle: base);
     default:
       // custom uploaded font, registered through FontLoader under fontKey
       return base.copyWith(fontFamily: fontKey);

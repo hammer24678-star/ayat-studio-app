@@ -31,7 +31,11 @@ class Ayah {
 class AyahMatch {
   final Ayah ayah;
   final double confidence;
-  AyahMatch(this.ayah, this.confidence);
+
+  /// Position of [ayah] in the corpus list — lets callers reason about
+  /// mushaf order (e.g. the auto-sync sequential prior).
+  final int index;
+  AyahMatch(this.ayah, this.confidence, this.index);
 }
 
 class _CacheEntry {
@@ -215,7 +219,16 @@ class AyahMatcher {
   }
 
   /// Returns the best match, or null if nothing clears [minConfidence].
-  AyahMatch? match(String rawText, {double minConfidence = 0.35}) {
+  ///
+  /// [priorIndex]: corpus index of the ayah heard in the previous window.
+  /// Recitation follows mushaf order, so the same ayah continuing and the
+  /// next one or two ayat get a score bonus. This is what lets auto-sync
+  /// follow a recitation ayah-by-ayah instead of latching onto one ayah:
+  /// the following ayah often shares little vocabulary with a noisy 6s
+  /// window and would otherwise lose to word-overlap noise from anywhere
+  /// in the 6,236-ayah corpus.
+  AyahMatch? match(String rawText,
+      {double minConfidence = 0.35, int? priorIndex}) {
     final norm = normalize(rawText);
     if (norm.isEmpty) return null;
     final inTokens = norm.split(' ').where((t) => t.isNotEmpty).toList();
@@ -226,21 +239,35 @@ class AyahMatcher {
     final inBigrams = _bigramsOf(inTokens);
     final inPhonetic = inTokens.map(_phoneticFoldToken).toSet();
 
-    final candidates = <MapEntry<_CacheEntry, double>>[];
-    for (final entry in _cache) {
+    double priorBoostFor(int index) {
+      if (priorIndex == null) return 0;
+      if (index == priorIndex) return 0.06; // same ayah still being recited
+      if (index == priorIndex + 1) return 0.15; // the expected next ayah
+      if (index == priorIndex + 2) return 0.08; // one window skipped an ayah
+      return 0;
+    }
+
+    // (index, raw overlap) — the prior only influences pool *selection* here
+    // (so the expected-next ayah always gets a stage-2 look) and is added
+    // once to the final blended score below.
+    final candidates = <(int, double)>[];
+    for (var i = 0; i < _cache.length; i++) {
+      final entry = _cache[i];
       final (_, overlap) =
           _overlapScores(inTokens, entry.tokenSet, entry.tokens.length);
-      if (overlap <= 0) continue;
-      candidates.add(MapEntry(entry, overlap));
+      if (overlap <= 0 && priorBoostFor(i) <= 0) continue;
+      candidates.add((i, overlap));
     }
-    candidates.sort((a, b) => b.value.compareTo(a.value));
+    candidates.sort((a, b) => (b.$2 + priorBoostFor(b.$1))
+        .compareTo(a.$2 + priorBoostFor(a.$1)));
     final pool = candidates.take(candidatePoolSize).toList();
     if (pool.isEmpty) return null;
 
     Ayah? best;
     var bestScore = -1.0;
-    for (final c in pool) {
-      final entry = c.key;
+    var bestIndex = -1;
+    for (final (idx, overlap) in pool) {
+      final entry = _cache[idx];
       final shortStr = norm.length <= entry.norm.length ? norm : entry.norm;
       final longStr = norm.length <= entry.norm.length ? entry.norm : norm;
       final dist = _partialEditDistance(shortStr, longStr);
@@ -252,13 +279,18 @@ class AyahMatcher {
       }
       final phoneticUnion = inPhonetic.length + entry.phoneticSet.length - phoneticInter;
       final phoneticScore = phoneticUnion > 0 ? phoneticInter / phoneticUnion : 0.0;
-      final score = c.value * 0.5 + max(0.0, distScore) * 0.3 + bigramScore * 0.1 + phoneticScore * 0.1;
+      final score = overlap * 0.5 +
+          max(0.0, distScore) * 0.3 +
+          bigramScore * 0.1 +
+          phoneticScore * 0.1 +
+          priorBoostFor(idx);
       if (score > bestScore) {
         bestScore = score;
         best = entry.ayah;
+        bestIndex = idx;
       }
     }
     if (best == null || bestScore < minConfidence) return null;
-    return AyahMatch(best, bestScore.clamp(0, 1));
+    return AyahMatch(best, bestScore.clamp(0, 1), bestIndex);
   }
 }

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import '../services/overlay_renderer.dart';
 import '../theme/ayat_fonts.dart';
 import '../theme/ayat_theme.dart';
 
@@ -18,7 +19,21 @@ import '../theme/ayat_theme.dart';
 class StageOverlayText {
   final String text;
   final String translation;
-  const StageOverlayText(this.text, this.translation);
+  final String reference;
+  const StageOverlayText(this.text, this.translation, [this.reference = '']);
+}
+
+class _CornersPainter extends CustomPainter {
+  final double scale;
+  const _CornersPainter(this.scale);
+  @override
+  void paint(Canvas canvas, Size size) {
+    OverlayRenderer.paintCornerOrnaments(
+        canvas, size.width, size.height, scale, const Color(0x8CC9A24B));
+  }
+
+  @override
+  bool shouldRepaint(_CornersPainter old) => old.scale != scale;
 }
 
 class StagePreview extends StatelessWidget {
@@ -98,6 +113,7 @@ class StagePreview extends StatelessWidget {
                   builder: (context, live, _) {
                     final text = live?.text ?? state.ayahText;
                     final trans = live?.translation ?? state.translationText;
+                    final ref = live?.reference ?? state.ayahReference;
                     if (text.isEmpty) {
                       return Center(
                         child: Padding(
@@ -112,7 +128,10 @@ class StagePreview extends StatelessWidget {
                         ),
                       );
                     }
-                    return _overlay(context, text, trans, scale);
+                    return Stack(fit: StackFit.expand, children: [
+                      CustomPaint(painter: _CornersPainter(scale)),
+                      _overlay(context, text, trans, ref, scale),
+                    ]);
                   },
                 ),
               ],
@@ -123,7 +142,8 @@ class StagePreview extends StatelessWidget {
     );
   }
 
-  Widget _overlay(BuildContext context, String text, String trans, double scale) {
+  Widget _overlay(BuildContext context, String text, String trans, String ref,
+      double scale) {
     final alignY = switch (state.textPosition) {
       AyahTextPosition.top => -0.68,
       AyahTextPosition.center => 0.0,
@@ -168,12 +188,28 @@ class StagePreview extends StatelessWidget {
             ),
             if (state.showTranslation && trans.isNotEmpty) ...[
               SizedBox(height: 4 * scale),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 400),
+                child: Text(
+                  trans,
+                  key: ValueKey(trans),
+                  textAlign: TextAlign.center,
+                  style: translationTextStyle(
+                    fontSize: state.transFontSize * scale,
+                    color: state.textColor.withValues(alpha: 0.88),
+                    shadows: shadows,
+                  ),
+                ),
+              ),
+            ],
+            if (ref.isNotEmpty) ...[
+              SizedBox(height: 3 * scale),
               Text(
-                trans,
+                ref,
                 textAlign: TextAlign.center,
                 style: translationTextStyle(
-                  fontSize: state.transFontSize * scale,
-                  color: state.textColor.withValues(alpha: 0.88),
+                  fontSize: state.transFontSize * scale * 0.82,
+                  color: AyatColors.goldBright,
                   shadows: shadows,
                 ),
               ),

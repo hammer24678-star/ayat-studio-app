@@ -27,7 +27,11 @@ class TimelineBuilder {
   static const double stepSec = 5; // window stride
   static const double minConfidence = 0.32;
   static const double highConfidence = 0.55; // commit off a single window
-  static const double vadSilenceRms = 0.008; // ~-42 dBFS
+  // Slightly below the browser version's 0.008: real phone recordings of a
+  // distant/quiet sheikh were getting whole windows skipped as "silence",
+  // which is one way an entire recitation collapses to a single detected
+  // ayah. Whisper-hallucination guards downstream still protect true noise.
+  static const double vadSilenceRms = 0.006;
   static const int sampleRate = 16000;
 
   /// Scans [mediaPath] (video or audio) and returns the detected ayah
@@ -53,7 +57,15 @@ class TimelineBuilder {
     // A borderline match (below highConfidence) only commits once the *next*
     // window agrees on the same ayah too — one noisy window can clear
     // minConfidence by chance, two in a row on the same ayah almost never do.
+    // EXCEPTION: the mushaf-order sequential prior. Once an ayah is on the
+    // timeline, the very next ayah commits off a single window — recitation
+    // is sequential, so "previous ayah then this one" IS the corroborating
+    // evidence. Without this, any ayah recited faster than ~2 windows (most
+    // short/medium ayat) could never be committed, which is exactly the
+    // "only one ayah detected in the whole video" failure seen in testing.
     TimelineSegment? pending;
+    int? pendingIndex;
+    int? lastIndex; // corpus index of the ayah most recently on the timeline
     var chunkIndex = 0;
 
     try {
@@ -83,9 +95,11 @@ class TimelineBuilder {
           continue; // one failed window shouldn't kill the whole scan
         }
 
-        final match = matcher.match(text, minConfidence: minConfidence);
+        final match =
+            matcher.match(text, minConfidence: minConfidence, priorIndex: lastIndex);
         if (match == null) {
           pending = null;
+          pendingIndex = null;
           continue;
         }
 
@@ -95,17 +109,22 @@ class TimelineBuilder {
           last.end = t + chunkSec;
           last.confidence = max(last.confidence, match.confidence);
           pending = null;
+          pendingIndex = null;
           continue;
         }
 
-        if (match.confidence >= highConfidence) {
+        final isExpectedNext = lastIndex != null &&
+            (match.index == lastIndex + 1 || match.index == lastIndex + 2);
+        if (match.confidence >= highConfidence || isExpectedNext) {
           timeline.add(TimelineSegment(
               start: t,
               end: t + chunkSec,
               ayah: match.ayah,
               confidence: match.confidence));
+          lastIndex = match.index;
           pending = null;
-        } else if (pending != null && identical(pending.ayah, match.ayah)) {
+          pendingIndex = null;
+        } else if (pending != null && pendingIndex == match.index) {
           // second window in a row agrees — commit, backdated to where the
           // ayah first appeared
           timeline.add(TimelineSegment(
@@ -113,20 +132,43 @@ class TimelineBuilder {
               end: t + chunkSec,
               ayah: match.ayah,
               confidence: max(pending.confidence, match.confidence)));
+          lastIndex = match.index;
           pending = null;
+          pendingIndex = null;
         } else {
           pending = TimelineSegment(
               start: t,
               end: t + chunkSec,
               ayah: match.ayah,
               confidence: match.confidence);
+          pendingIndex = match.index;
         }
       }
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
     }
+    _stitch(timeline);
     return timeline;
+  }
+
+  /// Post-pass cleanup: clamp overlapping neighbors, and when two committed
+  /// segments are consecutive ayat in the mushaf with a small analysis gap
+  /// between them, extend the earlier one to meet the later — the gap is a
+  /// window-quantization artifact, not a real pause in the recitation, and
+  /// closing it keeps the typed ayah on screen until the next one starts.
+  static void _stitch(List<TimelineSegment> timeline) {
+    for (var i = 1; i < timeline.length; i++) {
+      final prev = timeline[i - 1], cur = timeline[i];
+      if (cur.start < prev.end) prev.end = cur.start;
+      final consecutive = cur.ayah.surahNum == prev.ayah.surahNum &&
+          cur.ayah.num == prev.ayah.num + 1;
+      if (consecutive &&
+          cur.start > prev.end &&
+          cur.start - prev.end <= stepSec * 2) {
+        prev.end = cur.start;
+      }
+    }
   }
 
   static double _rmsEnergy(Int16List samples) {

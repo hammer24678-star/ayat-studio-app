@@ -131,7 +131,11 @@ jobs:
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.INTERNET' "$MANIFEST" || \
-            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application|' "$MANIFEST"
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>\n    <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>\n    <application|' "$MANIFEST"
+          # Android 10 needs the legacy-storage opt-out for the public
+          # Download/AyatStudio export folder; 11+ allows it natively.
+          grep -q 'requestLegacyExternalStorage' "$MANIFEST" || \
+            sed -i 's|<application|<application android:requestLegacyExternalStorage="true"|' "$MANIFEST"
           sed -i 's|android:label="ayat_studio_app"|android:label="استوديو الآيات"|' "$MANIFEST"
           echo "-- resulting manifest:"; cat "$MANIFEST"
 

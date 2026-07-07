@@ -23,6 +23,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import 'media_saver.dart';
 import 'overlay_renderer.dart';
 
 class ExportService {
@@ -31,7 +32,7 @@ class ExportService {
   static const int overlayFps = 6; // typewriter granularity in the export
   static const int maxExportSec = 120;
 
-  static Future<String> export({
+  static Future<SavedExport> export({
     required StudioState state,
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
@@ -104,6 +105,7 @@ class ExportService {
           text: state.ayahText,
           translation: state.translationText,
           style: style,
+          reference: state.ayahReference,
         ));
       }
 
@@ -143,8 +145,9 @@ class ExportService {
       }
 
       final docs = await getApplicationDocumentsDirectory();
-      final outPath =
-          '${docs.path}/ayat_studio_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final fileName =
+          'ayat_studio_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final outPath = '${docs.path}/$fileName';
       if (parts.length == 1) {
         await File(mainMp4).copy(outPath);
       } else {
@@ -164,8 +167,10 @@ class ExportService {
           await _run(reencodeCmd, null, null);
         }
       }
+      onStatus?.call('جارٍ الحفظ في مجلد التنزيلات…');
+      final saved = await MediaSaver.saveVideo(outPath, fileName);
       onProgress?.call(1);
-      return outPath;
+      return saved;
     } finally {
       work.delete(recursive: true).ignore();
     }
@@ -200,20 +205,28 @@ class ExportService {
           break;
         }
       }
-      String text = '', trans = '';
+      String text = '', trans = '', ref = '';
       String key = 'empty';
       if (seg != null) {
         final frac =
             min(1.0, (videoT - seg.start) * 1000 / typingRevealMs);
-        final chars = (seg.ayah.ar.length * frac).round();
-        text = seg.ayah.ar.substring(0, chars);
+        text = revealWordsByFraction(seg.ayah.ar, frac);
         trans = frac >= 1 ? seg.ayah.en : '';
-        key = '${seg.ayah.surahNum}:${seg.ayah.num}:$chars:${trans.isNotEmpty}';
+        ref = frac >= 1
+            ? 'سورة ${seg.ayah.surah} — آية ${seg.ayah.num}'
+            : '';
+        key =
+            '${seg.ayah.surahNum}:${seg.ayah.num}:${text.length}:${trans.isNotEmpty}';
       }
       var bytes = cache[key];
       if (bytes == null) {
         bytes = await OverlayRenderer.renderTextOverlayPng(
-            w: w, h: h, text: text, translation: trans, style: style);
+            w: w,
+            h: h,
+            text: text,
+            translation: trans,
+            style: style,
+            reference: ref);
         cache[key] = bytes;
       }
       final name = 'ov_${i.toString().padLeft(5, '0')}.png';

@@ -34,6 +34,11 @@ const List<BgDef> kBackgrounds = [
   BgDef(radial: true, stops: [Color(0xFF233A34), Color(0xFF050F0D)]),
   BgDef(stops: [Color(0xFF1C1C1C), Color(0xFF050505), Color(0xFF111111)]),
   BgDef(stops: [Color(0xFF0E1E1A), Color(0xFF1E4B3F), Color(0xFF1B3A63)]),
+  // second wave — added on tester feedback asking for more variety
+  BgDef(stops: [Color(0xFF0E2233), Color(0xFF275B7A), Color(0xFF13394F)]),
+  BgDef(stops: [Color(0xFF231A0E), Color(0xFF6B4E1E), Color(0xFF3D2E12)]),
+  BgDef(radial: true, stops: [Color(0xFF2E1F3A), Color(0xFF0B0714)]),
+  BgDef(stops: [Color(0xFF12240F), Color(0xFF2F5D2A), Color(0xFF1B3A17)]),
 ];
 
 /// Registered font choices for the ayah text. `family` is what actually gets
@@ -48,6 +53,10 @@ class AyahFontChoice {
 const List<AyahFontChoice> kBuiltInFonts = [
   AyahFontChoice('amiri', 'أميري قرآن (كلاسيكي)'),
   AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
+  AyahFontChoice('notoNaskh', 'نسخ (Noto Naskh)'),
+  AyahFontChoice('scheherazade', 'شهرزاد (نسخ تقليدي)'),
+  AyahFontChoice('lateef', 'لطيف (نسخ رشيق)'),
+  AyahFontChoice('reemKufi', 'ريم كوفي (حديث)'),
 ];
 
 class AyahTemplate {
@@ -110,6 +119,27 @@ const List<AyahTemplate> kTemplates = [
       extra: FrameExtra.framed,
       fontKey: 'ruqaa',
       color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'نسخ مصحفي',
+      desc: 'خط نسخ واضح في منتصف الشاشة',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'notoNaskh',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'كوفي عصري علوي',
+      desc: 'خط كوفي حديث أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.none,
+      fontKey: 'reemKufi',
+      color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'لوحة ليلية مؤطرة',
+      desc: 'إطار ذهبي مع خط شهرزاد أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.framed,
+      fontKey: 'scheherazade',
+      color: Color(0xFFE8D5A8)),
 ];
 
 const List<Color> kTextColors = [
@@ -123,6 +153,10 @@ const List<Color> kTextColors = [
   Color(0xFFA8C5D6),
   Color(0xFFD9A5B0),
   Color(0xFFF2F2F2),
+  Color(0xFFEFD9A7),
+  Color(0xFF9AD1C5),
+  Color(0xFFE0B84C),
+  Color(0xFFCBD8E8),
 ];
 
 const List<String> kReciters = [

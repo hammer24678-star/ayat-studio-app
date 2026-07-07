@@ -2,6 +2,18 @@ import 'package:flutter/material.dart';
 import '../data/studio_presets.dart';
 import '../services/ayah_matcher.dart';
 
+/// Reveals [text] word-by-word for the typewriter effect. Word units look
+/// far better for Arabic than character slicing: with character slicing the
+/// glyphs of the growing word keep reshaping (connected forms change as
+/// letters arrive), which reads as flicker; whole words land fully shaped.
+String revealWordsByFraction(String text, double frac) {
+  if (frac >= 1) return text;
+  if (frac <= 0) return '';
+  final words = text.split(' ');
+  final count = (words.length * frac).ceil().clamp(0, words.length);
+  return words.take(count).join(' ');
+}
+
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
 class TimelineSegment {
@@ -29,6 +41,7 @@ class StudioState extends ChangeNotifier {
   // ---- currently displayed ayah ----
   String ayahText = '';
   String translationText = '';
+  String ayahReference = ''; // e.g. «سورة الرحمن — آية ١٣», shown on-canvas
   String detectedLabel = '';
   String matchConfidenceText = '';
   bool get hasAyah => ayahText.isNotEmpty;
@@ -87,10 +100,12 @@ class StudioState extends ChangeNotifier {
 
   List<AyahFontChoice> get allFonts => [...kBuiltInFonts, ...customFonts];
 
-  void setAyah(String ar, String en, String label, {String confidenceText = ''}) {
+  void setAyah(String ar, String en, String label,
+      {String confidenceText = '', String reference = ''}) {
     ayahText = ar;
     translationText = en;
     detectedLabel = label;
+    ayahReference = reference;
     matchConfidenceText = confidenceText;
     notifyListeners();
   }

@@ -42,7 +42,42 @@ class OverlayRenderer {
     GoogleFonts.amiriQuran();
     GoogleFonts.arefRuqaa();
     GoogleFonts.tajawal();
+    GoogleFonts.notoNaskhArabic();
+    GoogleFonts.scheherazadeNew();
+    GoogleFonts.lateef();
+    GoogleFonts.reemKufi();
     await GoogleFonts.pendingFonts();
+  }
+
+  /// The tazhib-style corner ornaments from the HTML prototype's ayah frame:
+  /// four gold quarter-arcs with a small dot, drawn just inside the edges.
+  static void paintCornerOrnaments(Canvas canvas, double w, double h,
+      double scale, Color color) {
+    final inset = 10.0 * scale;
+    final len = 24.0 * scale;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3 * scale
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    final dot = Paint()..color = color;
+
+    void corner(double ox, double oy, double sx, double sy) {
+      canvas.save();
+      canvas.translate(ox, oy);
+      canvas.scale(sx, sy);
+      final p = Path()
+        ..moveTo(0, len)
+        ..cubicTo(0, len * 0.45, len * 0.45, 0, len, 0);
+      canvas.drawPath(p, stroke);
+      canvas.drawCircle(Offset(0, len), 1.6 * scale, dot);
+      canvas.restore();
+    }
+
+    corner(inset, inset, 1, 1); // top-left
+    corner(w - inset, inset, -1, 1); // top-right
+    corner(inset, h - inset, 1, -1); // bottom-left
+    corner(w - inset, h - inset, -1, -1); // bottom-right
   }
 
   static Future<Uint8List> _picToPng(ui.Picture pic, int w, int h) async {
@@ -137,13 +172,15 @@ class OverlayRenderer {
   }
 
   /// Transparent text-overlay PNG: the (possibly partially typed) ayah and,
-  /// once fully revealed, its translation. Mirrors drawExportTextOverlay().
+  /// once fully revealed, its translation and the surah/ayah reference line.
+  /// Mirrors the live stage overlay exactly.
   static Future<Uint8List> renderTextOverlayPng({
     required int w,
     required int h,
     required String text,
     required String translation,
     required OverlayStyle style,
+    String reference = '',
   }) async {
     await ensureFontsLoaded();
     final rec = ui.PictureRecorder();
@@ -154,6 +191,8 @@ class OverlayRenderer {
       final shadows = [
         Shadow(color: const Color(0xA6000000), blurRadius: 8 * scale),
       ];
+      paintCornerOrnaments(canvas, w.toDouble(), h.toDouble(), scale,
+          const Color(0x8CC9A24B));
       final ayahPainter = TextPainter(
         text: TextSpan(
           text: text,
@@ -186,9 +225,29 @@ class OverlayRenderer {
         )..layout(maxWidth: maxWidth);
       }
 
+      TextPainter? refPainter;
+      if (reference.isNotEmpty) {
+        refPainter = TextPainter(
+          text: TextSpan(
+            text: reference,
+            style: translationTextStyle(
+              fontSize: style.transFontSize * scale * 0.82,
+              color: const Color(0xFFECC875),
+              shadows: shadows,
+            ),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.rtl,
+        )..layout(maxWidth: maxWidth);
+      }
+
       final gap = showTrans ? style.transFontSize * scale * 0.6 : 0.0;
-      final totalH =
-          ayahPainter.height + gap + (transPainter?.height ?? 0);
+      final refGap = refPainter != null ? style.transFontSize * scale * 0.5 : 0.0;
+      final totalH = ayahPainter.height +
+          gap +
+          (transPainter?.height ?? 0) +
+          refGap +
+          (refPainter?.height ?? 0);
       final centerY = switch (style.position) {
         AyahTextPosition.top => h * 0.16,
         AyahTextPosition.center => h * 0.5,
@@ -218,6 +277,15 @@ class OverlayRenderer {
           canvas,
           Offset((w - transPainter.width) / 2,
               top + ayahPainter.height + gap));
+      refPainter?.paint(
+          canvas,
+          Offset(
+              (w - refPainter.width) / 2,
+              top +
+                  ayahPainter.height +
+                  gap +
+                  (transPainter?.height ?? 0) +
+                  refGap));
     }
     return _picToPng(rec.endRecording(), w, h);
   }
