@@ -145,6 +145,11 @@ class OverlayRenderer {
     required String translation,
     required OverlayStyle style,
     double opacity = 1.0, // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out around each ayah's window
+    // PATCH_S33_KARAOKE_WORD_HIGHLIGHT: when set, [text]'s words are drawn
+    // individually — the first [litWords] bright with a glow (already
+    // recited), the rest dimmed (still coming). Mirrors the live preview.
+    List<String>? karaokeWords,
+    int litWords = 0,
   }) async {
     await ensureFontsLoaded();
     final rec = ui.PictureRecorder();
@@ -157,17 +162,48 @@ class OverlayRenderer {
       final shadows = [
         Shadow(color: Color.fromRGBO(0, 0, 0, 0.651 * opacity), blurRadius: 8 * scale),
       ];
-      final ayahPainter = TextPainter(
-        text: TextSpan(
+      final ayahFontSize =
+          style.ayahFontSize * scale * ayahAutoFontScale(text); // PATCH_S24_AUTO_SHRINK_LONG_AYAH
+      InlineSpan ayahSpan;
+      if (karaokeWords != null && karaokeWords.isNotEmpty) {
+        // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
+        final litShadows = [
+          ...shadows,
+          Shadow(
+              color: effColor.withValues(alpha: 0.55 * opacity),
+              blurRadius: 14 * scale),
+        ];
+        final dimColor =
+            style.color.withValues(alpha: style.color.a * 0.30 * opacity);
+        ayahSpan = TextSpan(
+          children: [
+            for (var i = 0; i < karaokeWords.length; i++)
+              TextSpan(
+                text: i == 0 ? karaokeWords[i] : ' ${karaokeWords[i]}',
+                style: ayahTextStyle(
+                  style.fontKey,
+                  fontSize: ayahFontSize,
+                  color: i < litWords ? effColor : dimColor,
+                  height: 1.5,
+                  shadows: i < litWords ? litShadows : shadows,
+                ),
+              ),
+          ],
+        );
+      } else {
+        ayahSpan = TextSpan(
           text: text,
           style: ayahTextStyle(
             style.fontKey,
-            fontSize: style.ayahFontSize * scale * ayahAutoFontScale(text), // PATCH_S24_AUTO_SHRINK_LONG_AYAH
+            fontSize: ayahFontSize,
             color: effColor,
             height: 1.5,
             shadows: shadows,
           ),
-        ),
+        );
+      }
+      final ayahPainter = TextPainter(
+        text: ayahSpan,
         textAlign: TextAlign.center,
         textDirection: TextDirection.rtl,
       )..layout(maxWidth: maxWidth);

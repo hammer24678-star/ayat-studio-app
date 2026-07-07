@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/studio_presets.dart';
 import '../services/ayah_matcher.dart';
 import '../services/ai_art_service.dart'; // PATCH_S32_AI_ART_NANO_BANANA
+import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -37,6 +38,23 @@ class StudioState extends ChangeNotifier {
   // ---- uploaded media ----
   String? videoPath;
   bool get hasVideo => videoPath != null;
+  // PATCH_S34_PLAYER_CONTROLS_TRIM: known once the preview player initializes;
+  // drives the seek bar and the manual-cut range slider.
+  double videoDurationSec = 0;
+
+  // ---- PATCH_S34_STAGE_EFFECTS: decorative particle overlay ----
+  StageEffect effect = StageEffect.none;
+  double effectIntensity = 0.7; // 0.2..1.0
+
+  // ---- PATCH_S34_PLAYER_CONTROLS_TRIM: manual cut (seconds, free-range) ----
+  // Unlike the ayah-boundary trim below, this cuts anywhere. -1 end = unset.
+  double trimManualStart = 0;
+  double trimManualEnd = -1;
+  bool get manualTrimSet =>
+      hasVideo &&
+      trimManualEnd > 0 &&
+      (trimManualStart > 0.05 ||
+          (videoDurationSec > 0 && trimManualEnd < videoDurationSec - 0.05));
 
   // ---- background ----
   int bgIndex = 0;
@@ -155,6 +173,10 @@ class StudioState extends ChangeNotifier {
     timelineActive = false;
     trimFromIndex = -1;
     trimToIndex = -1;
+    // PATCH_S34_PLAYER_CONTROLS_TRIM: and any manual cut from the old clip.
+    videoDurationSec = 0;
+    trimManualStart = 0;
+    trimManualEnd = -1;
     notifyListeners();
   }
 

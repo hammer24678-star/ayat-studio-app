@@ -6,8 +6,11 @@
 //     same threshold/softness sliders
 //   • the ayah text overlay rendered by Flutter's text engine (exact same
 //     fonts/wrapping as the preview) — as a PNG frame sequence when an
-//     auto-sync timeline exists, so each ayah types itself out on screen in
-//     the exported video exactly when it's recited
+//     auto-sync timeline exists, so each word lights up on screen in the
+//     exported video exactly when it's recited (karaoke-style; long ayahs
+//     split into 2-3+ sequential parts, see karaoke.dart)
+//   • optional rain/snow/light-dust particle loop composited over the
+//     video/background, under the text (see stage_effects.dart)
 //   • bismillah intro / outro title cards as standalone segments,
 //     concatenated before/after the clip (never composited over it)
 //   • audio priority: attached reciter recitation > the video's own track >
@@ -25,10 +28,13 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
+import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 
 class ExportService {
-  static const double typingRevealMs = 1100; // matches the preview animation
+  // PATCH_S33_KARAOKE_WORD_HIGHLIGHT: word-lighting pace now comes from
+  // karaoke.dart (proportional to each part's slice of the recitation).
   static const double fadeMs = 300; // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out duration
   static const double titleCardSec = 2.2;
   static const int overlayFps = 6; // typewriter granularity in the export
@@ -82,6 +88,14 @@ class ExportService {
           clipStart = state.trimStart!;
           // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more maxExportSec clamp -- full trim length.
           duration = max(0.5, state.trimEnd! - state.trimStart!);
+        } else if (state.trimManualEnd > 0 &&
+            (state.trimManualStart > 0.05 ||
+                state.trimManualEnd < full - 0.05)) {
+          // PATCH_S34_PLAYER_CONTROLS_TRIM: free manual cut from the range
+          // slider — used only when no ayah-boundary trim is chosen.
+          clipStart = state.trimManualStart.clamp(0.0, full);
+          duration =
+              max(0.5, min(state.trimManualEnd, full) - clipStart);
         } else {
           // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more maxExportSec clamp -- full source length.
           duration = full;
@@ -113,7 +127,7 @@ class ExportService {
       String? overlayPng;
       if (state.hasVideo && state.timelineActive && state.timeline.isNotEmpty) {
         final seqDir = Directory('${work.path}/seq')..createSync();
-        await _renderTypewriterSequence(
+        await _renderKaraokeSequence(
           dir: seqDir.path,
           state: state,
           style: style,
@@ -136,6 +150,32 @@ class ExportService {
         ));
       }
 
+      // ---- PATCH_S34_STAGE_EFFECTS: transparent particle loop frames ----
+      // Rendered by the exact same painter as the live preview, then tiled
+      // over the whole clip by ffmpeg with -stream_loop. Drawn at up to
+      // 1080 wide and upscaled in the filter graph — particles are soft
+      // shapes, so this keeps 4K exports fast at no visible cost.
+      String? effectSeqPattern;
+      if (state.effect != StageEffect.none) {
+        onStatus?.call('جارٍ رسم تأثير ${state.effect.label}…');
+        final fxDir = Directory('${work.path}/fx')..createSync();
+        final fxW = min(w, 1080);
+        var fxH = (h * fxW / w).round();
+        if (fxH.isOdd) fxH += 1;
+        for (var i = 0; i < StageEffects.exportFrameCount; i++) {
+          final bytes = await StageEffects.renderEffectFramePng(
+            w: fxW,
+            h: fxH,
+            effect: state.effect,
+            timeSec: i / StageEffects.exportFps,
+            intensity: state.effectIntensity,
+          );
+          final name = 'fx_${i.toString().padLeft(3, '0')}.png';
+          await File('${fxDir.path}/$name').writeAsBytes(bytes);
+        }
+        effectSeqPattern = '${fxDir.path}/fx_%03d.png';
+      }
+
       // ---- main segment ----
       onStatus?.call('جارٍ التصدير الفعلي…');
       final mainMp4 = '${work.path}/main.mp4';
@@ -149,6 +189,7 @@ class ExportService {
         bgPng: bgPng,
         overlaySeqPattern: overlaySeqPattern,
         overlayPng: overlayPng,
+        effectSeqPattern: effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
         reciterPath: reciterPath,
         videoHasAudio: videoHasAudio,
         videoHasVideoStream: videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
@@ -222,11 +263,14 @@ class ExportService {
     }
   }
 
-  // Renders the typewriter overlay as a PNG frame sequence. Frames are
-  // deduplicated: a PNG is only rendered when the visible text actually
-  // changes (during the ~1.1s reveal of each ayah); identical frames reuse
-  // the previously encoded bytes, so a 2-minute clip stays fast.
-  static Future<void> _renderTypewriterSequence({
+  // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
+  // Renders the karaoke overlay as a PNG frame sequence: each ayah part is
+  // shown whole with the already-recited words lit and the rest dimmed,
+  // exactly like the live preview (same karaoke.dart timing). Frames are
+  // deduplicated: a PNG is only rendered when the lit-word count or fade
+  // actually changes; identical frames reuse the previously encoded bytes,
+  // so a 2-minute clip stays fast.
+  static Future<void> _renderKaraokeSequence({
     required String dir,
     required StudioState state,
     required OverlayStyle style,
@@ -238,10 +282,11 @@ class ExportService {
   }) async {
     final frames = (duration * overlayFps).ceil() + 1;
     final cache = <String, List<int>>{};
+    final chunkCache = <TimelineSegment, List<KaraokeChunk>>{};
     for (var i = 0; i < frames; i++) {
       if (i % (overlayFps * 5) == 0) {
         onStatus?.call(
-            'جارٍ رسم الكتابة الحيّة للآيات… ${(i * 100 / frames).round()}٪');
+            'جارٍ رسم إضاءة الكلمات مع التلاوة… ${(i * 100 / frames).round()}٪');
       }
       final videoT = clipStart + i / overlayFps;
       TimelineSegment? seg;
@@ -252,27 +297,39 @@ class ExportService {
         }
       }
       String text = '', trans = '';
+      List<String>? words;
+      var lit = 0;
       String key = 'empty';
       double opacity = 1.0; // PATCH_S27_FADE_TEXT_ANIMATIONS
       if (seg != null) {
-        final frac =
-            min(1.0, (videoT - seg.start) * 1000 / typingRevealMs);
-        final chars = (seg.ayah.ar.length * frac).round();
-        text = seg.ayah.ar.substring(0, chars);
-        trans = frac >= 1 ? seg.ayah.en : '';
+        final cue =
+            karaokeCueAt(chunkCache[seg] ??= buildKaraokeChunks(seg), videoT);
+        final chunk = cue.chunk;
+        text = chunk.text;
+        trans = chunk.translation;
+        words = chunk.words;
+        lit = cue.litWords;
         // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in over the first 300ms and out over the
-        // last 300ms of this ayah's on-screen window.
-        final msIntoSeg = (videoT - seg.start) * 1000;
-        final msToSegEnd = (seg.end - videoT) * 1000;
-        final fadeIn = (msIntoSeg / fadeMs).clamp(0.0, 1.0);
-        final fadeOut = (msToSegEnd / fadeMs).clamp(0.0, 1.0);
+        // last 300ms of this part's on-screen window.
+        final msIntoChunk = (videoT - chunk.start) * 1000;
+        final msToChunkEnd = (chunk.end - videoT) * 1000;
+        final fadeIn = (msIntoChunk / fadeMs).clamp(0.0, 1.0);
+        final fadeOut = (msToChunkEnd / fadeMs).clamp(0.0, 1.0);
         opacity = fadeIn < fadeOut ? fadeIn : fadeOut;
-        key = '${seg.ayah.surahNum}:${seg.ayah.num}:$chars:${trans.isNotEmpty}:${(opacity * 20).round()}';
+        key =
+            '${seg.ayah.surahNum}:${seg.ayah.num}:${chunk.index}:$lit:${(opacity * 20).round()}';
       }
       var bytes = cache[key];
       if (bytes == null) {
         bytes = await OverlayRenderer.renderTextOverlayPng(
-            w: w, h: h, text: text, translation: trans, style: style, opacity: opacity);
+            w: w,
+            h: h,
+            text: text,
+            translation: trans,
+            style: style,
+            opacity: opacity,
+            karaokeWords: words,
+            litWords: lit);
         cache[key] = bytes;
       }
       final name = 'ov_${i.toString().padLeft(5, '0')}.png';
@@ -293,6 +350,7 @@ class ExportService {
     required String bgPng,
     required String? overlaySeqPattern,
     required String? overlayPng,
+    required String? effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
     required String? reciterPath,
     required bool videoHasAudio,
     required bool videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
@@ -304,9 +362,9 @@ class ExportService {
 
     String base;
     if (state.hasVideo && videoHasVideoStream) { // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
-      final trim = (state.trimStart != null && state.trimEnd != null)
-          ? '-ss ${clipStart.toStringAsFixed(3)} '
-          : '';
+      // PATCH_S34_PLAYER_CONTROLS_TRIM: seek for the ayah-boundary trim OR the manual cut.
+      final trim =
+          clipStart > 0.001 ? '-ss ${clipStart.toStringAsFixed(3)} ' : '';
       inputs.write('$trim-t ${duration.toStringAsFixed(3)} -i "${state.videoPath}" ');
       final vIdx = idx++;
       filters.add(
@@ -333,6 +391,17 @@ class ExportService {
       final bgIdx = idx++;
       filters.add('[$bgIdx:v]fps=30[base]');
       base = 'base';
+    }
+
+    // PATCH_S34_STAGE_EFFECTS: particle loop over the video/background,
+    // under the ayah text — same z-order as the live preview.
+    if (effectSeqPattern != null) {
+      inputs.write(
+          '-framerate ${StageEffects.exportFps} -stream_loop -1 -start_number 0 -i "$effectSeqPattern" ');
+      final fxIdx = idx++;
+      filters.add('[$fxIdx:v]format=rgba,scale=$w:$h[fx]');
+      filters.add('[$base][fx]overlay=0:0[basefx]');
+      base = 'basefx';
     }
 
     if (overlaySeqPattern != null) {
@@ -368,7 +437,10 @@ class ExportService {
       // recitation file -- the visual branch above used bgPng instead
       // of this input, so its audio never got wired in; pull it in
       // here the same way an attached reciter track would be.
-      inputs.write('-i "${state.videoPath}" ');
+      // PATCH_S34_PLAYER_CONTROLS_TRIM: honor the trim/cut on it too.
+      final aTrim =
+          clipStart > 0.001 ? '-ss ${clipStart.toStringAsFixed(3)} ' : '';
+      inputs.write('$aTrim-t ${duration.toStringAsFixed(3)} -i "${state.videoPath}" ');
       audioMap = '-map $idx:a';
       audioFilter = '-af apad';
       idx++;

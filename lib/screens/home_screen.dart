@@ -19,7 +19,9 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
 import '../services/export_service.dart';
+import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import '../services/media_service.dart';
+import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
 import '../services/timeline_builder.dart';
@@ -64,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const _tabs = [
     (Icons.menu_book_outlined, 'الآية'),
     (Icons.dark_mode_outlined, 'خلفيات'),
+    (Icons.water_drop_outlined, 'تأثيرات'), // PATCH_S34_STAGE_EFFECTS
     (Icons.filter_hdr_outlined, 'كروم'),
     (Icons.graphic_eq, 'قرّاء'),
     (Icons.grid_view_outlined, 'قوالب'),
@@ -169,6 +172,10 @@ class _HomeScreenState extends State<HomeScreen> {
       await controller.initialize();
       await controller.setLooping(true);
       await controller.play();
+      // PATCH_S34_PLAYER_CONTROLS_TRIM: known duration drives the seek bar
+      // and the manual-cut range slider.
+      state.update(() => state.videoDurationSec =
+          controller.value.duration.inMilliseconds / 1000.0);
     } catch (_) {
       // audio-only files still work for detection/auto-sync even if the
       // preview player refuses them
@@ -242,8 +249,11 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// 10x/sec: while an auto-sync timeline is active, type the current ayah
-  /// out in the preview in step with the playing recitation.
+  /// 10x/sec: while an auto-sync timeline is active, light the current
+  /// ayah's words up in the preview in step with the playing recitation.
+  /// PATCH_S33_KARAOKE_WORD_HIGHLIGHT: karaoke-style — the whole part is
+  /// visible dimmed and each word brightens as الشيخ reaches it; ayahs
+  /// longer than 12 words are shown as 2-3+ sequential parts.
   void _tickAutoSync() {
     final controller = _video;
     if (!state.timelineActive ||
@@ -260,19 +270,17 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     if (seg == null) return; // keep the last ayah on screen between segments
-    final frac =
-        min(1.0, (t - seg.start) * 1000 / ExportService.typingRevealMs);
-    final chars = (seg.ayah.ar.length * frac).round();
-    final typed = seg.ayah.ar.substring(0, chars);
-    final trans = frac >= 1 ? seg.ayah.en : '';
-    // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-ayah key so StagePreview only fades when
-    // the segment actually changes, not on every typed character.
-    final segmentKey = '${seg.ayah.surahNum}:${seg.ayah.num}';
+    final cue = karaokeCueAt(buildKaraokeChunks(seg), t);
+    // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-part key so StagePreview only fades when
+    // the ayah part actually changes, not on every newly lit word.
+    final segmentKey =
+        '${seg.ayah.surahNum}:${seg.ayah.num}:${cue.chunk.index}';
     final current = _liveOverlay.value;
     if (current == null ||
-        current.text != typed ||
-        current.translation != trans) {
-      _liveOverlay.value = StageOverlayText(typed, trans, segmentKey);
+        current.segmentKey != segmentKey ||
+        current.litWords != cue.litWords) {
+      _liveOverlay.value = StageOverlayText(cue.chunk.text,
+          cue.chunk.translation, segmentKey, cue.chunk.words, cue.litWords);
     }
   }
 
@@ -490,6 +498,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   videoController: _video,
                   liveOverride: _liveOverlay,
                 ),
+                // PATCH_S34_PLAYER_CONTROLS_TRIM
+                if (_video != null && _video!.value.isInitialized) ...[
+                  const SizedBox(height: 8),
+                  _transportBar(),
+                ],
+                if (state.hasVideo && state.videoDurationSec > 1) ...[
+                  const SizedBox(height: 8),
+                  _manualCutCard(),
+                ],
                 const SizedBox(height: 12),
                 _mediaButtons(),
                 if (state.detectedLabel.isNotEmpty) ...[
@@ -698,6 +715,157 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // PATCH_S34_PLAYER_CONTROLS_TRIM ------------------------------------------
+
+  static String _fmtSec(double s) {
+    final total = s.round();
+    final m = total ~/ 60;
+    final sec = total % 60;
+    return '$m:${sec.toString().padLeft(2, '0')}';
+  }
+
+  /// Play/pause + seek bar for the uploaded clip. Tapping the stage itself
+  /// also pauses/resumes (see StagePreview).
+  Widget _transportBar() {
+    final c = _video!;
+    return _card(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      child: ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: c,
+        builder: (context, v, _) {
+          final durMs = max(1, v.duration.inMilliseconds);
+          final posMs = v.position.inMilliseconds.clamp(0, durMs);
+          return Row(
+            children: [
+              IconButton(
+                onPressed: () => v.isPlaying ? c.pause() : c.play(),
+                icon: Icon(
+                  v.isPlaying
+                      ? Icons.pause_circle_outline
+                      : Icons.play_circle_outline,
+                  color: AyatColors.goldBright,
+                ),
+                tooltip: 'تشغيل/إيقاف',
+              ),
+              Text(_fmtSec(posMs / 1000),
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.parchmentDim)),
+              Expanded(
+                child: Slider(
+                  value: posMs.toDouble(),
+                  max: durMs.toDouble(),
+                  onChanged: (x) =>
+                      c.seekTo(Duration(milliseconds: x.round())),
+                ),
+              ),
+              Text(_fmtSec(durMs / 1000),
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.parchmentDim)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Free manual cut anywhere in the clip — complements the ayah-boundary
+  /// trim card that appears once an auto-sync timeline exists.
+  Widget _manualCutCard() {
+    final dur = state.videoDurationSec;
+    final end =
+        min(state.trimManualEnd < 0 ? dur : state.trimManualEnd, dur);
+    final start = min(max(0.0, state.trimManualStart), end);
+    return _card(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('قص المقطع (من — إلى)',
+                    style: Theme.of(context).textTheme.labelLarge),
+              ),
+              Text('${_fmtSec(start)} — ${_fmtSec(end)}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.goldBright)),
+              if (state.manualTrimSet)
+                IconButton(
+                  onPressed: () => state.update(() {
+                    state.trimManualStart = 0;
+                    state.trimManualEnd = -1;
+                  }),
+                  icon: const Icon(Icons.restart_alt,
+                      size: 18, color: AyatColors.parchmentDim),
+                  tooltip: 'إلغاء القص',
+                ),
+            ],
+          ),
+          RangeSlider(
+            values: RangeValues(start, end),
+            max: dur,
+            onChanged: (r) => state.update(() {
+              state.trimManualStart = r.start;
+              state.trimManualEnd = r.end;
+            }),
+          ),
+          Text(
+            state.trimFromIndex >= 0 && state.trimToIndex >= 0
+                ? 'ملاحظة: نطاق الآيات المحدد أدناه له الأولوية على هذا القص عند التصدير.'
+                : 'سيُصدَّر هذا النطاق فقط من المقطع.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------- tab: تأثيرات
+  // PATCH_S34_STAGE_EFFECTS
+
+  Widget _effectsPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _panelTitle('تأثيرات مرئية',
+            'مطر أو ثلج أو غبار ضوئي فوق الفيديو أو الخلفية — يظهر التأثير في المعاينة مباشرة ويُدمج في الفيديو المُصدَّر بنفس الشكل.'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final e in StageEffect.values)
+              ChoiceChip(
+                avatar: Icon(e.icon,
+                    size: 15,
+                    color: state.effect == e
+                        ? AyatColors.goldBright
+                        : AyatColors.parchmentDim),
+                label: Text(e.label),
+                selected: state.effect == e,
+                // tapping the already-selected effect cancels it
+                onSelected: (_) => state.update(() => state.effect =
+                    state.effect == e ? StageEffect.none : e),
+              ),
+          ],
+        ),
+        if (state.effect != StageEffect.none) ...[
+          _fieldLabel('كثافة التأثير'),
+          Slider(
+            value: state.effectIntensity,
+            min: 0.2,
+            max: 1.0,
+            onChanged: (v) => state.update(() => state.effectIntensity = v),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'لإلغاء التأثير بسرعة اضغط زر ✕ أعلى المعاينة — لمس المعاينة في أي مكان آخر يوقف/يشغّل الفيديو فقط.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _tabChips() {
     return Wrap(
       spacing: 6,
@@ -724,9 +892,10 @@ class _HomeScreenState extends State<HomeScreen> {
       child: switch (_selectedTab) {
         0 => _ayahPanel(),
         1 => _bgPanel(),
-        2 => _chromaPanel(),
-        3 => _recitersPanel(),
-        4 => _templatesPanel(),
+        2 => _effectsPanel(), // PATCH_S34_STAGE_EFFECTS
+        3 => _chromaPanel(),
+        4 => _recitersPanel(),
+        5 => _templatesPanel(),
         _ => _textPanel(),
       },
     );

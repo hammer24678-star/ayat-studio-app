@@ -1,7 +1,9 @@
 // The live stage: phone-frame preview showing the chosen background or the
 // uploaded video, with the ayah text overlaid in the selected font/color/
-// position — including the live typewriter reveal while an auto-sync
-// timeline is playing back.
+// position — including the karaoke word-lighting while an auto-sync
+// timeline is playing back, tap-to-pause, and the optional particle effect
+// (rain/snow/light-dust) layer.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,20 +11,27 @@ import 'package:video_player/video_player.dart';
 
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../theme/ayat_fonts.dart';
 import '../theme/ayat_theme.dart';
 
 /// What the overlay is currently showing. During auto-sync playback the
-/// typewriter ticker feeds partial text through here; otherwise it mirrors
-/// the statically selected ayah.
+/// karaoke ticker feeds the current ayah part through here; otherwise it
+/// mirrors the statically selected ayah.
 class StageOverlayText {
   final String text;
   final String translation;
   // PATCH_S27_FADE_TEXT_ANIMATIONS: identifies which ayah/segment this reveal belongs to,
   // so the stage can fade BETWEEN ayahs without re-fading on every
-  // character of the same ayah's typewriter reveal.
+  // word of the same ayah part's karaoke lighting.
   final String segmentKey;
-  const StageOverlayText(this.text, this.translation, [this.segmentKey = '']);
+  // PATCH_S33_KARAOKE_WORD_HIGHLIGHT: when set, [text]'s words are rendered
+  // individually — the first [litWords] bright (already recited), the
+  // rest dimmed until the reciter reaches them.
+  final List<String>? karaokeWords;
+  final int litWords;
+  const StageOverlayText(this.text, this.translation,
+      [this.segmentKey = '', this.karaokeWords, this.litWords = 0]);
 }
 
 class StagePreview extends StatefulWidget {
@@ -41,7 +50,7 @@ class StagePreview extends StatefulWidget {
 }
 
 class _StagePreviewState extends State<StagePreview>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // PATCH_S28_ANIMATED_BACKGROUND: a slow, subtle sheen sweep across the preset gradient
   // backgrounds. Purely decorative -- skipped whenever a video or a
   // custom image is actually showing (see build() below), so it never
@@ -51,10 +60,43 @@ class _StagePreviewState extends State<StagePreview>
     duration: const Duration(seconds: 7),
   )..repeat(reverse: true);
 
+  // PATCH_S34_STAGE_EFFECTS: drives one seamless particle loop; only runs
+  // while an effect is actually selected.
+  late final AnimationController _fxAnim = AnimationController(
+    vsync: this,
+    duration: Duration(
+        milliseconds: (StageEffects.loopSeconds * 1000).round()),
+  );
+
+  // PATCH_S34_PLAYER_CONTROLS_TRIM: transient ▶/⏸ flash after tapping the video.
+  IconData? _tapFlashIcon;
+  Timer? _tapFlashTimer;
+
   @override
   void dispose() {
     _bgAnim.dispose();
+    _fxAnim.dispose();
+    _tapFlashTimer?.cancel();
     super.dispose();
+  }
+
+  // PATCH_S34_PLAYER_CONTROLS_TRIM: tap anywhere on the stage to pause/resume
+  // the uploaded video, with a short feedback icon flash.
+  void _togglePlayback() {
+    final c = widget.videoController;
+    if (c == null || !c.value.isInitialized) return;
+    final nowPlaying = !c.value.isPlaying;
+    if (nowPlaying) {
+      c.play();
+    } else {
+      c.pause();
+    }
+    _tapFlashTimer?.cancel();
+    setState(() =>
+        _tapFlashIcon = nowPlaying ? Icons.play_arrow : Icons.pause);
+    _tapFlashTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _tapFlashIcon = null);
+    });
   }
 
   @override
@@ -72,6 +114,12 @@ class _StagePreviewState extends State<StagePreview>
         final videoReady = controller != null &&
             controller.value.isInitialized &&
             controller.value.size.width > 0;
+        // PATCH_S34_STAGE_EFFECTS: run the particle loop only when needed.
+        if (state.effect != StageEffect.none) {
+          if (!_fxAnim.isAnimating) _fxAnim.repeat();
+        } else if (_fxAnim.isAnimating) {
+          _fxAnim.stop();
+        }
         return ClipRRect(
           borderRadius: BorderRadius.circular(26),
           child: Container(
@@ -125,6 +173,26 @@ class _StagePreviewState extends State<StagePreview>
                       width: controller.value.size.width,
                       height: controller.value.size.height,
                       child: VideoPlayer(controller),
+                    ),
+                  ),
+                // PATCH_S34_STAGE_EFFECTS: particles over the video/background,
+                // under the ayah text so the words stay readable.
+                if (state.effect != StageEffect.none)
+                  IgnorePointer(
+                    child: CustomPaint(
+                      painter: StageEffectPainter(
+                        effect: state.effect,
+                        loop: _fxAnim,
+                        intensity: state.effectIntensity,
+                      ),
+                    ),
+                  ),
+                // PATCH_S34_PLAYER_CONTROLS_TRIM: tap the stage to pause/resume.
+                if (controller != null && controller.value.isInitialized)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _togglePlayback,
                     ),
                   ),
                 if (videoReady && state.chromaEnabled)
@@ -181,11 +249,60 @@ class _StagePreviewState extends State<StagePreview>
                       switchOutCurve: Curves.easeIn,
                       child: KeyedSubtree(
                         key: ValueKey(overlayKey),
-                        child: _overlay(context, text, trans, scale),
+                        child: _overlay(context, live, text, trans, scale),
                       ),
                     );
                   },
                 ),
+                // PATCH_S34_PLAYER_CONTROLS_TRIM: brief ▶/⏸ feedback after a tap.
+                if (_tapFlashIcon != null)
+                  Center(
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AyatColors.ink.withValues(alpha: 0.55),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(_tapFlashIcon,
+                            size: 34 * scale.clamp(0.8, 1.6),
+                            color: AyatColors.goldBright),
+                      ),
+                    ),
+                  ),
+                // PATCH_S34_STAGE_EFFECTS: deliberate ✕ chip to cancel the
+                // active effect — a plain tap elsewhere only pauses/resumes.
+                if (state.effect != StageEffect.none)
+                  PositionedDirectional(
+                    top: 10,
+                    start: 10,
+                    child: GestureDetector(
+                      onTap: () =>
+                          state.update(() => state.effect = StageEffect.none),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AyatColors.ink.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AyatColors.hairline),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.close,
+                                size: 13, color: AyatColors.goldBright),
+                            const SizedBox(width: 4),
+                            Text(
+                              'إيقاف تأثير ${state.effect.label}',
+                              style: const TextStyle(
+                                  fontSize: 10, color: AyatColors.goldBright),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -194,7 +311,8 @@ class _StagePreviewState extends State<StagePreview>
     );
   }
 
-  Widget _overlay(BuildContext context, String text, String trans, double scale) {
+  Widget _overlay(BuildContext context, StageOverlayText? live, String text,
+      String trans, double scale) {
     final state = widget.state; // PATCH_S28_ANIMATED_BACKGROUND: now a State method, not a field
     final alignY = switch (state.textPosition) {
       AyahTextPosition.top => -0.68,
@@ -204,6 +322,54 @@ class _StagePreviewState extends State<StagePreview>
     final shadows = [
       Shadow(color: const Color(0xA6000000), blurRadius: 8 * scale),
     ];
+    // PATCH_S33_KARAOKE_WORD_HIGHLIGHT: during auto-sync playback, draw each
+    // word separately — already-recited words bright with a glow, the
+    // rest dimmed until الشيخ reaches them.
+    final karaokeWords = live?.karaokeWords;
+    final ayahFontSize =
+        state.ayahFontSize * scale * ayahAutoFontScale(text); // PATCH_S24_AUTO_SHRINK_LONG_AYAH
+    Widget ayahWidget;
+    if (karaokeWords != null && karaokeWords.isNotEmpty) {
+      final litShadows = [
+        ...shadows,
+        Shadow(
+            color: state.textColor.withValues(alpha: 0.55),
+            blurRadius: 14 * scale),
+      ];
+      final dimColor = state.textColor.withValues(alpha: 0.30);
+      ayahWidget = Text.rich(
+        TextSpan(
+          children: [
+            for (var i = 0; i < karaokeWords.length; i++)
+              TextSpan(
+                text: i == 0 ? karaokeWords[i] : ' ${karaokeWords[i]}',
+                style: ayahTextStyle(
+                  state.fontKey,
+                  fontSize: ayahFontSize,
+                  color: i < live!.litWords ? state.textColor : dimColor,
+                  height: 1.5,
+                  shadows: i < live.litWords ? litShadows : shadows,
+                ),
+              ),
+          ],
+        ),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.rtl,
+      );
+    } else {
+      ayahWidget = Text(
+        text,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.rtl,
+        style: ayahTextStyle(
+          state.fontKey,
+          fontSize: ayahFontSize,
+          color: state.textColor,
+          height: 1.5,
+          shadows: shadows,
+        ),
+      );
+    }
     BoxDecoration? deco;
     if (state.extra == FrameExtra.boxed) {
       deco = BoxDecoration(
@@ -226,18 +392,7 @@ class _StagePreviewState extends State<StagePreview>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              text,
-              textAlign: TextAlign.center,
-              textDirection: TextDirection.rtl,
-              style: ayahTextStyle(
-                state.fontKey,
-                fontSize: state.ayahFontSize * scale * ayahAutoFontScale(text), // PATCH_S24_AUTO_SHRINK_LONG_AYAH
-                color: state.textColor,
-                height: 1.5,
-                shadows: shadows,
-              ),
-            ),
+            ayahWidget,
             if (state.showTranslation && trans.isNotEmpty) ...[
               SizedBox(height: 4 * scale),
               Text(
