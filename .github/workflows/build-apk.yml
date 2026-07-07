@@ -166,13 +166,21 @@ jobs:
           run {
               val keyPropsFile = rootProject.file("key.properties")
               if (keyPropsFile.exists()) {
-                  val keyProps = java.util.Properties()
-                  keyProps.load(java.io.FileInputStream(keyPropsFile))
+                  // PATCH_S22_FIX_JAVA_SHADOW -- avoid java.util.Properties/java.io.FileInputStream:
+                  // AGP's `java { }` extension shadows the top-level `java` package name
+                  // inside this script, so "java.util.Properties" resolves against that
+                  // extension instead of the java.* package and fails to compile.
+                  // Parse key.properties by hand instead -- sidesteps the name clash.
+                  val propsMap = mutableMapOf<String, String>()
+                  keyPropsFile.readLines().forEach { line ->
+                      val idx = line.indexOf('=')
+                      if (idx > 0) propsMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+                  }
                   android.signingConfigs.create("release") {
-                      storeFile = file(keyProps.getProperty("storeFile"))
-                      storePassword = keyProps.getProperty("storePassword")
-                      keyAlias = keyProps.getProperty("keyAlias")
-                      keyPassword = keyProps.getProperty("keyPassword")
+                      storeFile = file(propsMap["storeFile"] ?: "")
+                      storePassword = propsMap["storePassword"]
+                      keyAlias = propsMap["keyAlias"]
+                      keyPassword = propsMap["keyPassword"]
                   }
                   android.buildTypes.getByName("release") {
                       signingConfig = android.signingConfigs.getByName("release")
