@@ -45,10 +45,12 @@ class ExportService {
       // ---- durations & audio probing ----
       double duration;
       var videoHasAudio = false;
+      var videoHasVideoStream = true; // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
       double clipStart = 0;
       if (state.hasVideo) {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
+        videoHasVideoStream = info.hasVideo;
         final full = info.duration ?? 8;
         if (state.trimStart != null && state.trimEnd != null) {
           clipStart = state.trimStart!;
@@ -122,6 +124,7 @@ class ExportService {
         overlayPng: overlayPng,
         reciterPath: reciterPath,
         videoHasAudio: videoHasAudio,
+        videoHasVideoStream: videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
         outPath: mainMp4,
       );
       await _run(cmd, duration, (f) => onProgress?.call(f * 0.8));
@@ -236,6 +239,7 @@ class ExportService {
     required String? overlayPng,
     required String? reciterPath,
     required bool videoHasAudio,
+    required bool videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
     required String outPath,
   }) {
     final inputs = StringBuffer('-y ');
@@ -243,7 +247,7 @@ class ExportService {
     var idx = 0;
 
     String base;
-    if (state.hasVideo) {
+    if (state.hasVideo && videoHasVideoStream) { // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
       final trim = (state.trimStart != null && state.trimEnd != null)
           ? '-ss ${clipStart.toStringAsFixed(3)} '
           : '';
@@ -298,7 +302,16 @@ class ExportService {
       audioMap = '-map $idx:a';
       audioFilter = '-af apad'; // pad recitation with silence up to -t
       idx++;
-    } else if (state.hasVideo && videoHasAudio) {
+    } else if (state.hasVideo && !videoHasVideoStream && videoHasAudio) {
+      // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: the "video" upload was actually an audio-only
+      // recitation file -- the visual branch above used bgPng instead
+      // of this input, so its audio never got wired in; pull it in
+      // here the same way an attached reciter track would be.
+      inputs.write('-i "${state.videoPath}" ');
+      audioMap = '-map $idx:a';
+      audioFilter = '-af apad';
+      idx++;
+    } else if (state.hasVideo && videoHasVideoStream && videoHasAudio) {
       audioMap = '-map 0:a';
     } else {
       inputs.write(
@@ -358,17 +371,22 @@ class ExportService {
     return completer.future;
   }
 
-  static Future<({double? duration, bool hasAudio})> _probe(String path) async {
+  // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: also report whether the file actually has a video
+  // stream, since the same picker/state field is used for both real
+  // video uploads and audio-only recitation uploads.
+  static Future<({double? duration, bool hasAudio, bool hasVideo})> _probe(String path) async {
     final session = await FFprobeKit.getMediaInformation(path);
     final info = session.getMediaInformation();
     double? dur;
     var hasAudio = false;
+    var hasVideoStream = false;
     if (info != null) {
       dur = double.tryParse(info.getDuration() ?? '');
       for (final s in info.getStreams()) {
         if (s.getType() == 'audio') hasAudio = true;
+        if (s.getType() == 'video') hasVideoStream = true;
       }
     }
-    return (duration: dur, hasAudio: hasAudio);
+    return (duration: dur, hasAudio: hasAudio, hasVideo: hasVideoStream);
   }
 }
