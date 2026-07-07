@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/studio_presets.dart';
 import '../services/ayah_matcher.dart';
+import '../services/ai_art_service.dart'; // PATCH_S32_AI_ART_NANO_BANANA
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -42,6 +43,15 @@ class StudioState extends ChangeNotifier {
   bool useCustomBg = false;
   String? customBgPath;
   bool bgAnimated = true; // PATCH_S29_BG_ANIMATION_TOGGLE: animated sheen on/off (preset backgrounds only)
+
+  // ---- PATCH_S32_AI_ART_NANO_BANANA: AI art background ----
+  bool aiArtEnabled = false;
+  bool aiArtBusy = false;
+  int? _aiArtSurah;
+  int? _aiArtAyahNum;
+  String? _aiArtAyahText;
+  int _aiArtSeedOffset = 0;
+  bool get hasAiArt => useCustomBg && aiArtEnabled && _aiArtSurah != null;
 
   // ---- chroma key ----
   bool chromaEnabled = false;
@@ -88,12 +98,54 @@ class StudioState extends ChangeNotifier {
 
   List<AyahFontChoice> get allFonts => [...kBuiltInFonts, ...customFonts];
 
-  void setAyah(String ar, String en, String label, {String confidenceText = ''}) {
+  void setAyah(String ar, String en, String label,
+      {String confidenceText = '', int? surahNum, int? ayahNum}) {
     ayahText = ar;
     translationText = en;
     detectedLabel = label;
     matchConfidenceText = confidenceText;
     notifyListeners();
+    // PATCH_S32_AI_ART_NANO_BANANA: only ayat resolved against the real corpus carry a
+    // surah/ayah number -- free-typed unmatched text is skipped since
+    // there is nothing reliable to cache the art against.
+    if (aiArtEnabled && surahNum != null && ayahNum != null) {
+      _aiArtSeedOffset = 0;
+      _generateAiArt(surahNum, ayahNum, ar);
+    }
+  }
+
+  // PATCH_S32_AI_ART_NANO_BANANA
+  Future<void> _generateAiArt(int surahNum, int ayahNum, String arText) async {
+    _aiArtSurah = surahNum;
+    _aiArtAyahNum = ayahNum;
+    _aiArtAyahText = arText;
+    aiArtBusy = true;
+    notifyListeners();
+    try {
+      final path = await AiArtService.artFor(
+        surahNum: surahNum,
+        ayahNum: ayahNum,
+        ayahArabic: arText,
+        seedOffset: _aiArtSeedOffset,
+      );
+      if (path != null) {
+        useCustomBg = true;
+        customBgPath = path;
+      }
+    } finally {
+      aiArtBusy = false;
+      notifyListeners();
+    }
+  }
+
+  // PATCH_S32_AI_ART_NANO_BANANA: manual regenerate -- bumps the seed instead of touching
+  // anything paid; no-ops quietly if there is no current ayah to redo.
+  Future<void> regenerateAiArt() async {
+    if (_aiArtSurah == null || _aiArtAyahNum == null || _aiArtAyahText == null) {
+      return;
+    }
+    _aiArtSeedOffset += 1;
+    await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!);
   }
 
   void setVideo(String path) {

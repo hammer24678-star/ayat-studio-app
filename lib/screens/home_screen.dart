@@ -202,6 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
           'تم التعرف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
           confidenceText:
               'نسبة التطابق: ${(match.confidence * 100).round()}٪ — النص المسموع: "$text"',
+          surahNum: match.ayah.surahNum, // PATCH_S32_AI_ART_NANO_BANANA
+          ayahNum: match.ayah.num,
         );
       } else {
         _toast('تم تفريغ الصوت لكن لم تُطابق أي آية بثقة كافية');
@@ -291,6 +293,8 @@ class _HomeScreenState extends State<HomeScreen> {
           best.ayah.en,
           'تم التعرف: سورة ${best.ayah.surah} — آية ${best.ayah.num}',
           confidenceText: 'نسبة التطابق: ${(best.confidence * 100).round()}٪',
+          surahNum: best.ayah.surahNum, // PATCH_S32_AI_ART_NANO_BANANA
+          ayahNum: best.ayah.num,
         );
       } else {
         _toast('لم يتم العثور على آية مطابقة بثقة كافية — حاول التلاوة بوضوح أكبر');
@@ -442,7 +446,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final match = matcher?.match(ar, minConfidence: 0.28);
     if (match != null) {
       state.setAyah(match.ayah.ar, en.isNotEmpty ? en : match.ayah.en,
-          'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num}');
+          'تم التعرّف: سورة ${match.ayah.surah} — آية ${match.ayah.num}',
+          surahNum: match.ayah.surahNum, ayahNum: match.ayah.num); // PATCH_S32_AI_ART_NANO_BANANA
       _toast('تم العثور على الآية ✓ (سورة ${match.ayah.surah}:${match.ayah.num})');
     } else {
       state.setAyah(ar, en, 'نص مخصص (لم يتم العثور على تطابق في القرآن)');
@@ -796,7 +801,8 @@ class _HomeScreenState extends State<HomeScreen> {
             final a = state.ayaat[v];
             _liveOverlay.value = null;
             state.setAyah(a.ar, a.en,
-                'تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}');
+                'تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}',
+                surahNum: a.surahNum, ayahNum: a.num); // PATCH_S32_AI_ART_NANO_BANANA
           },
         ),
         _fieldLabel('أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)'),
@@ -897,7 +903,43 @@ class _HomeScreenState extends State<HomeScreen> {
           value: state.bgAnimated,
           onChanged: (v) => state.update(() => state.bgAnimated = v),
         ),
+        // PATCH_S32_AI_ART_NANO_BANANA
         const Divider(height: 32, color: AyatColors.hairline),
+        ToggleRow(
+          label: 'فن الذكاء الاصطناعي لكل آية',
+          value: state.aiArtEnabled,
+          onChanged: (v) => state.update(() => state.aiArtEnabled = v),
+        ),
+        if (state.aiArtEnabled) ...[
+          const SizedBox(height: 6),
+          Text(
+            'تُنشأ خلفية بأسلوب خطوط متوهجة أحادية اللون لكل آية تُكتشف تلقائيًا، بلا وجوه بشرية أبدًا؛ إن ذُكر نبي في الآية يظهر عمود نور واسمه بخط عربي بدل أي شخصية.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: AyatColors.goldBright),
+          ),
+          const SizedBox(height: 8),
+          if (state.aiArtBusy)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 8),
+                Text('جارٍ توليد الفن...'),
+              ]),
+            )
+          else if (state.hasAiArt)
+            OutlinedButton.icon(
+              onPressed: () => state.regenerateAiArt(),
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('إعادة توليد فن هذه الآية'),
+            ),
+        ],
+        const SizedBox(height: 10),
         ElevatedButton.icon(
           onPressed: _pickCustomBg,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
