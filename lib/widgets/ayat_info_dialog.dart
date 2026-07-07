@@ -1,3 +1,4 @@
+// PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS
 // Shared "about this app" dialog — shown from both the welcome screen's
 // «معرفة المزيد عن التطبيق» link and the studio's app-bar (i) button, so
 // the copy only lives in one place.
@@ -32,7 +33,7 @@ void showAyatInfoDialog(BuildContext context) {
           'والموضع والترجمة\n'
           '• بسملة افتتاحية وخاتمة كشاشتين مستقلتين قبل/بعد المقطع\n'
           '• قص ملتزم بحدود الآيات كما رصدها التعرّف الصوتي\n'
-          '• تصدير MP4 حقيقي حتى 1080p ولمدة تصل إلى دقيقتين، بنسبة 9:16 أو 1:1\n\n'
+          '• تصدير MP4 حقيقي بدون حد للمدة، وبدقة الفيديو المصدر نفسها (بنسبة 9:16 أو 1:1)\n\n'
           'يعمل التعرّف بنموذج Whisper على جهازك (يُنزَّل مرة واحدة عند أول '
           'استخدام)، مع محرك مطابقة عربي يقارن مع القرآن الكريم كاملاً.',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.8),

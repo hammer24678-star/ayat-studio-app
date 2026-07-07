@@ -1,3 +1,4 @@
+// PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS
 // استوديو الآيات — the full native studio screen, feature-matched to the
 // HTML prototype: ayah selection (manual / typed / mic / from-video-audio /
 // auto-sync timeline), backgrounds, chroma settings, reciters, templates,
@@ -520,7 +521,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   icon: const Icon(Icons.movie_creation_outlined, size: 18),
-                  label: const Text('تصدير المقطع (MP4 — حتى 1080p / 120 ثانية)'),
+                  label: const Text('تصدير المقطع (MP4 — بدون حد للمدة أو الدقة)'),
                 ),
                 const SizedBox(height: 24),
               ],

@@ -1,3 +1,4 @@
+// PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS
 // Preset data ported 1:1 from the HTML prototype (ayat_studio225.html):
 // canvas background gradients (BG_CANVAS_DEFS), text templates (TEMPLATES),
 // text color dots (COLORS) and reciter slot names (RECITERS).
@@ -34,6 +35,15 @@ const List<BgDef> kBackgrounds = [
   BgDef(radial: true, stops: [Color(0xFF233A34), Color(0xFF050F0D)]),
   BgDef(stops: [Color(0xFF1C1C1C), Color(0xFF050505), Color(0xFF111111)]),
   BgDef(stops: [Color(0xFF0E1E1A), Color(0xFF1E4B3F), Color(0xFF1B3A63)]),
+  // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: nature-themed additions -- kept dark/jewel-toned like the
+  // set above so gold/white ayah text stays readable; automatically get
+  // the S28/S29 animated sheen since that applies to any kBackgrounds entry.
+  BgDef(stops: [Color(0xFF0A2818), Color(0xFF1F4D2E), Color(0xFF0D3320)]), // forest canopy
+  BgDef(radial: true, stops: [Color(0xFF16324F), Color(0xFF0A1A2C)]), // night sky & clouds
+  BgDef(stops: [Color(0xFF3A1D0E), Color(0xFF7A3A1D), Color(0xFF4A1F12)]), // desert sunset
+  BgDef(stops: [Color(0xFF072421), Color(0xFF0E4A44), Color(0xFF0A3733)]), // ocean teal
+  BgDef(stops: [Color(0xFF33260A), Color(0xFF6B4E14), Color(0xFF40300C)]), // wheat field gold
+  BgDef(radial: true, stops: [Color(0xFF2A2438), Color(0xFF120F1C)]), // mountain dusk
 ];
 
 /// Registered font choices for the ayah text. `family` is what actually gets

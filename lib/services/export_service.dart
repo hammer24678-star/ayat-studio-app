@@ -1,3 +1,4 @@
+// PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS
 // REAL EXPORT — the native counterpart of the HTML prototype's canvas +
 // MediaRecorder pipeline, rebuilt on ffmpeg for an actual MP4:
 //   • background gradient / custom image, or the uploaded video (cover-fit)
@@ -31,15 +32,17 @@ class ExportService {
   static const double fadeMs = 300; // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out duration
   static const double titleCardSec = 2.2;
   static const int overlayFps = 6; // typewriter granularity in the export
-  static const int maxExportSec = 120;
+  // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more 120s cap and no more forced 1080 tier --
+  // duration follows the full trim, resolution follows the source video.
+  // This is only a safety ceiling against pathological 8K phone footage
+  // stalling ffmpeg on-device, not a feature limit.
+  static const int maxExportResolutionCap = 3840;
 
   static Future<String> export({
     required StudioState state,
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
   }) async {
-    final w = 1080;
-    final h = state.squareRatio ? 1080 : 1920;
     final work = Directory.systemTemp.createTempSync('ayat_export');
     try {
       onStatus?.call('جارٍ تجهيز الخلفية والنصوص…');
@@ -49,17 +52,39 @@ class ExportService {
       var videoHasAudio = false;
       var videoHasVideoStream = true; // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
       double clipStart = 0;
+      // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: w/h default to the static-export tier and are
+      // overridden below to follow the source video, if any.
+      var w = 1080;
+      var h = state.squareRatio ? 1080 : 1920;
       if (state.hasVideo) {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
         videoHasVideoStream = info.hasVideo;
         final full = info.duration ?? 8;
+        if (info.width != null &&
+            info.height != null &&
+            info.width! > 0 &&
+            info.height! > 0) {
+          // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: export at the source's own resolution, only
+          // downscaling if it exceeds the safety ceiling.
+          final srcW = info.width!;
+          final srcH = info.height!;
+          final longest = srcW > srcH ? srcW : srcH;
+          final scale = longest > maxExportResolutionCap
+              ? maxExportResolutionCap / longest
+              : 1.0;
+          w = (srcW * scale).round();
+          h = (srcH * scale).round();
+          if (w.isOdd) w += 1; // encoders require even dimensions
+          if (h.isOdd) h += 1;
+        }
         if (state.trimStart != null && state.trimEnd != null) {
           clipStart = state.trimStart!;
-          duration = min(state.trimEnd! - state.trimStart!, maxExportSec.toDouble());
-          duration = max(0.5, duration);
+          // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more maxExportSec clamp -- full trim length.
+          duration = max(0.5, state.trimEnd! - state.trimStart!);
         } else {
-          duration = min(full, maxExportSec.toDouble());
+          // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more maxExportSec clamp -- full source length.
+          duration = full;
         }
       } else {
         duration = state.staticDurationSec.clamp(2, 60).toDouble();
@@ -410,19 +435,33 @@ class ExportService {
   // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: also report whether the file actually has a video
   // stream, since the same picker/state field is used for both real
   // video uploads and audio-only recitation uploads.
-  static Future<({double? duration, bool hasAudio, bool hasVideo})> _probe(String path) async {
+  static Future<({double? duration, bool hasAudio, bool hasVideo, int? width, int? height})>
+      _probe(String path) async {
     final session = await FFprobeKit.getMediaInformation(path);
     final info = session.getMediaInformation();
     double? dur;
     var hasAudio = false;
     var hasVideoStream = false;
+    int? width;
+    int? height;
     if (info != null) {
       dur = double.tryParse(info.getDuration() ?? '');
       for (final s in info.getStreams()) {
         if (s.getType() == 'audio') hasAudio = true;
-        if (s.getType() == 'video') hasVideoStream = true;
+        if (s.getType() == 'video') {
+          hasVideoStream = true;
+          // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: native resolution, so export can follow it.
+          width ??= s.getWidth();
+          height ??= s.getHeight();
+        }
       }
     }
-    return (duration: dur, hasAudio: hasAudio, hasVideo: hasVideoStream);
+    return (
+      duration: dur,
+      hasAudio: hasAudio,
+      hasVideo: hasVideoStream,
+      width: width,
+      height: height,
+    );
   }
 }
