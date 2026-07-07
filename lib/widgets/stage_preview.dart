@@ -21,7 +21,7 @@ class StageOverlayText {
   const StageOverlayText(this.text, this.translation);
 }
 
-class StagePreview extends StatelessWidget {
+class StagePreview extends StatefulWidget {
   final StudioState state;
   final VideoPlayerController? videoController;
   final ValueNotifier<StageOverlayText?> liveOverride;
@@ -33,7 +33,31 @@ class StagePreview extends StatelessWidget {
   });
 
   @override
+  State<StagePreview> createState() => _StagePreviewState();
+}
+
+class _StagePreviewState extends State<StagePreview>
+    with SingleTickerProviderStateMixin {
+  // PATCH_S28_ANIMATED_BACKGROUND: a slow, subtle sheen sweep across the preset gradient
+  // backgrounds. Purely decorative -- skipped whenever a video or a
+  // custom image is actually showing (see build() below), so it never
+  // competes with real content.
+  late final AnimationController _bgAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 7),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _bgAnim.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
+    final videoController = widget.videoController;
+    final liveOverride = widget.liveOverride;
     return AspectRatio(
       aspectRatio: state.squareRatio ? 1 : 9 / 16,
       child: LayoutBuilder(builder: (context, constraints) {
@@ -62,6 +86,32 @@ class StagePreview extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
+                // PATCH_S28_ANIMATED_BACKGROUND: only over the plain preset gradient --
+                // never over real video or a custom photo background.
+                if (!videoReady &&
+                    !(state.useCustomBg && state.customBgPath != null))
+                  AnimatedBuilder(
+                    animation: _bgAnim,
+                    builder: (context, _) {
+                      final t = Curves.easeInOut.transform(_bgAnim.value);
+                      return IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment(-1 + 2 * t, -1 + t),
+                              end: Alignment(1 - t, 1 - 2 * t),
+                              colors: [
+                                Colors.white.withValues(alpha: 0),
+                                Colors.white.withValues(alpha: 0.06),
+                                Colors.white.withValues(alpha: 0),
+                              ],
+                              stops: const [0.3, 0.5, 0.7],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 if (videoReady)
                   FittedBox(
                     fit: BoxFit.cover,
@@ -124,6 +174,7 @@ class StagePreview extends StatelessWidget {
   }
 
   Widget _overlay(BuildContext context, String text, String trans, double scale) {
+    final state = widget.state; // PATCH_S28_ANIMATED_BACKGROUND: now a State method, not a field
     final alignY = switch (state.textPosition) {
       AyahTextPosition.top => -0.68,
       AyahTextPosition.center => 0.0,
