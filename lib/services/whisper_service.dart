@@ -14,7 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 
 class WhisperService {
-  static const WhisperModel _model = WhisperModel.base;
+  static const WhisperModel _model = WhisperModel.small; // PATCH_S41_UPGRADE_ASR_MODEL: base -> small, big ASR accuracy jump on tajweed-style Quranic Arabic
   static final WhisperController _controller = WhisperController();
   static bool _modelReady = false;
 
@@ -27,12 +27,13 @@ class WhisperService {
     defaultValue:
         'https://github.com/REPLACE_OWNER/ayat_studio_app/releases/download/models',
   );
-  static const String _assetName = 'ggml-base.bin';
+  static const String _assetName = 'ggml-small.bin'; // PATCH_S41_UPGRADE_ASR_MODEL
 
-  // ggml-base.bin is ~148MB; anything much smaller sitting at the target
-  // path is almost certainly a partial/failed previous download, not a
-  // real cached model, so we redo it rather than trust it.
-  static const int _minExpectedBytes = 100 * 1024 * 1024;
+  // ggml-small.bin is ~466MB (bumped from base's ~148MB by PATCH_S41_UPGRADE_ASR_MODEL);
+  // anything much smaller sitting at the target path is almost certainly
+  // a partial/failed previous download, not a real cached model, so we
+  // redo it rather than trust it.
+  static const int _minExpectedBytes = 400 * 1024 * 1024;
 
   /// Ensures the model is downloaded/cached. Safe to call repeatedly — only
   /// downloads once per app run. [onStatus] gets human-readable Arabic
