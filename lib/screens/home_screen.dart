@@ -1000,8 +1000,184 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             for (var i = 0; i < state.timeline.length; i++)
               _timelineSegmentRow(i),
+            _timelineManualAddRow(), // PATCH_S49_MANUAL_SEGMENTS_MERGE
           ],
         ),
+      ),
+    );
+  }
+
+  // PATCH_S49_MANUAL_SEGMENTS_MERGE: manual-add dialog trigger + adjacent-ayah quick-add chips,
+  // shown below the detected-segment list regardless of whether
+  // auto-sync has run yet (a manual-only timeline is valid too).
+  Widget _timelineManualAddRow() {
+    final last = state.timeline.isNotEmpty ? state.timeline.last : null;
+    final prevAyah = last == null ? null : _neighborAyah(last.ayah, -1);
+    final nextAyah = last == null ? null : _neighborAyah(last.ayah, 1);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          if (prevAyah != null)
+            OutlinedButton.icon(
+              onPressed: () => _quickAddNeighborAyah(prevAyah, last!),
+              icon: const Icon(Icons.arrow_back, size: 14),
+              label: Text('إضافة آية ${prevAyah.num} — ${prevAyah.surah}'),
+            ),
+          if (nextAyah != null)
+            OutlinedButton.icon(
+              onPressed: () => _quickAddNeighborAyah(nextAyah, last!),
+              icon: const Icon(Icons.arrow_forward, size: 14),
+              label: Text('إضافة آية ${nextAyah.num} — ${nextAyah.surah}'),
+            ),
+          OutlinedButton.icon(
+            onPressed: _addManualSegmentDialog,
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('إضافة آية يدويًا'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// PATCH_S49_MANUAL_SEGMENTS_MERGE: ayah [delta] positions away from [of] in the Quran's own
+  /// order (delta -1 = previous ayah overall, +1 = next), or null past
+  /// either end of the corpus.
+  Ayah? _neighborAyah(Ayah of, int delta) {
+    final idx = state.ayaat
+        .indexWhere((a) => a.surahNum == of.surahNum && a.num == of.num);
+    if (idx == -1) return null;
+    final j = idx + delta;
+    if (j < 0 || j >= state.ayaat.length) return null;
+    return state.ayaat[j];
+  }
+
+  void _quickAddNeighborAyah(Ayah ayah, TimelineSegment after) {
+    final start = after.end;
+    final end = state.videoDurationSec > 0
+        ? (start + 4).clamp(start + 0.3, state.videoDurationSec)
+        : start + 4;
+    state.addManualSegment(ayah, start, end.toDouble());
+    _toast('أُضيفت آية ${ayah.num} — ${ayah.surah} — عدّل توقيتها من زر الضبط');
+  }
+
+  Future<void> _addManualSegmentDialog() {
+    int dialogSurah = _selectedSurah;
+    int? dialogAyahIdx;
+    double start = state.timeline.isNotEmpty ? state.timeline.last.end : 0;
+    double end = start + 4;
+    return showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final surahs = <(int, String)>[];
+          var last = 0;
+          for (final a in state.ayaat) {
+            if (a.surahNum != last) {
+              surahs.add((a.surahNum, a.surah));
+              last = a.surahNum;
+            }
+          }
+          final ayatOfSurah = <(int, Ayah)>[
+            for (var i = 0; i < state.ayaat.length; i++)
+              if (state.ayaat[i].surahNum == dialogSurah) (i, state.ayaat[i]),
+          ];
+          Widget timeField(
+              String label, double value, void Function(double) onSet) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(child: Text('$label: ${_fmtSec(value)}')),
+                  OutlinedButton(
+                    onPressed: () =>
+                        setDialogState(() => onSet(value - 0.5)),
+                    child: const Text('-٠٫٥ث'),
+                  ),
+                  const SizedBox(width: 6),
+                  OutlinedButton(
+                    onPressed: () =>
+                        setDialogState(() => onSet(value + 0.5)),
+                    child: const Text('+٠٫٥ث'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: AyatColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: const BorderSide(color: AyatColors.hairline),
+            ),
+            title: const Text('إضافة آية يدويًا'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButton<int>(
+                    isExpanded: true,
+                    value: surahs.any((s) => s.$1 == dialogSurah)
+                        ? dialogSurah
+                        : (surahs.isEmpty ? null : surahs.first.$1),
+                    items: [
+                      for (final s in surahs)
+                        DropdownMenuItem(
+                            value: s.$1, child: Text('سورة ${s.$2}')),
+                    ],
+                    onChanged: (v) => setDialogState(() {
+                      dialogSurah = v ?? dialogSurah;
+                      dialogAyahIdx = null;
+                    }),
+                  ),
+                  DropdownButton<int>(
+                    isExpanded: true,
+                    value: dialogAyahIdx,
+                    hint: const Text('اختر الآية'),
+                    items: [
+                      for (final e in ayatOfSurah)
+                        DropdownMenuItem(
+                            value: e.$1, child: Text('آية ${e.$2.num}')),
+                    ],
+                    onChanged: (v) =>
+                        setDialogState(() => dialogAyahIdx = v),
+                  ),
+                  const SizedBox(height: 8),
+                  timeField('البداية', start,
+                      (v) => start = v.clamp(0, end - 0.3)),
+                  timeField(
+                      'النهاية',
+                      end,
+                      (v) => end = v.clamp(
+                          start + 0.3,
+                          state.videoDurationSec > 0
+                              ? state.videoDurationSec
+                              : v)),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إلغاء')),
+              FilledButton(
+                onPressed: dialogAyahIdx == null
+                    ? null
+                    : () {
+                        state.addManualSegment(
+                            state.ayaat[dialogAyahIdx!], start, end);
+                        Navigator.pop(context);
+                        _toast('أُضيفت الآية إلى الخط الزمني ✓');
+                      },
+                child: const Text('إضافة'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1048,6 +1224,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 size: 18, color: AyatColors.goldBright),
             tooltip: 'ضبط التوقيت',
           ),
+          if (i + 1 < state.timeline.length) // PATCH_S49_MANUAL_SEGMENTS_MERGE
+            IconButton(
+              onPressed: () {
+                state.mergeTimelineSegments(i);
+                _toast('تم دمج المقطعين');
+              },
+              icon: const Icon(Icons.call_merge,
+                  size: 18, color: AyatColors.goldBright),
+              tooltip: 'دمج مع التالي',
+            ),
           IconButton(
             onPressed: () {
               state.removeTimelineSegment(i);

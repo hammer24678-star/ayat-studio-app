@@ -258,6 +258,45 @@ class StudioState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // PATCH_S49_MANUAL_SEGMENTS_MERGE: append a segment the user placed by hand -- keeps
+  // [timeline] sorted by start time since playback/tick logic assumes
+  // ascending order.
+  void addManualSegment(Ayah ayah, double start, double end) {
+    final seg = TimelineSegment(
+        start: start, end: end, ayah: ayah, confidence: 1.0);
+    final idx = timeline.indexWhere((s) => s.start > start);
+    if (idx == -1) {
+      timeline.add(seg);
+    } else {
+      timeline.insert(idx, seg);
+    }
+    timelineActive = true;
+    trimFromIndex = -1;
+    trimToIndex = -1;
+    notifyListeners();
+  }
+
+  // PATCH_S49_MANUAL_SEGMENTS_MERGE: merge segment [index] with the next one -- for when
+  // auto-sync splits one continuous recited ayah (elongated/مجود
+  // recitation) across two detected windows. Keeps whichever ayah had
+  // the higher confidence; caller decides when offering this makes sense.
+  void mergeTimelineSegments(int index) {
+    if (index < 0 || index + 1 >= timeline.length) return;
+    final a = timeline[index];
+    final b = timeline[index + 1];
+    final merged = TimelineSegment(
+      start: a.start,
+      end: b.end,
+      ayah: a.confidence >= b.confidence ? a.ayah : b.ayah,
+      confidence: (a.confidence + b.confidence) / 2,
+    );
+    timeline[index] = merged;
+    timeline.removeAt(index + 1);
+    trimFromIndex = -1;
+    trimToIndex = -1;
+    notifyListeners();
+  }
+
   void applyTemplate(int index) {
     templateIndex = index;
     final t = kTemplates[index];
