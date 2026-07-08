@@ -52,6 +52,11 @@ const Map<String, String> _phoneticFold = {
   'ق': 'k', 'ك': 'k',
   'ع': 'a', 'ا': 'a',
   'غ': 'gh', 'خ': 'gh',
+  // PATCH_S45_PHONETIC_EXPANSION: two more confusions common enough in Whisper's Arabic
+  // output on fast/elongated tajweed-style recitation to fold the same
+  // way as the pairs above.
+  'ح': 'h', 'ه': 'h', // heavy vs. light h (e.g. الحمد heard as الهمد)
+  'ط': 't', 'ت': 't', // emphatic vs. plain t
 };
 
 // PATCH_S35_SMARTER_DETECTION: precomputed features of one ASR input, shared

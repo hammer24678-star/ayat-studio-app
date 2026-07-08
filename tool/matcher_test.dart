@@ -38,6 +38,8 @@ void main() {
     'ومن يتوكل على الله فهو حسبه': 'الطلاق:3',
     // ASR-style phonetic confusion (ق→ك, ذ→ز)
     'كل هو الله احد': 'الإخلاص:1',
+    // PATCH_S45_PHONETIC_EXPANSION: ح→ه and ط→ت confusions
+    'الهمد لله رب العالمين': 'الفاتحة:2', // ح -> ه (الحمد heard as الهمد)
     // partial window of a long ayah
     'يا ايها الذين امنوا اذا تداينتم بدين الى اجل مسمى': 'البقرة:282',
     // middle fragment of the longest ayah (coverage-boost path)
