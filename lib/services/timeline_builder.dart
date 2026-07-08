@@ -134,24 +134,26 @@ class TimelineBuilder {
           transcript = await WhisperService.transcribeWavWithSegments(
             chunkPath,
             audioDurationSec: windowDurationSec,
+            splitOnWord: true, // PATCH_S55_WORD_TIMESTAMPS
           );
           File(chunkPath).delete().ignore();
         } catch (_) {
           continue; // one failed window shouldn't kill the whole scan
         }
 
-        // Fall back to the whole window as a single piece if no per-phrase
-        // timestamps came back, so sync degrades to the old (still working)
-        // window-granularity behaviour instead of detecting nothing.
-        final pieces = transcript.segments.isNotEmpty
-            ? transcript.segments
-            : [TranscriptSegment(0, windowDurationSec, transcript.text)];
+        // PATCH_S55_WORD_TIMESTAMPS: per-word segments are grouped back into
+        // phrases for corpus matching (single words can't match an ayah),
+        // while each word's onset is kept to pace the karaoke lighting.
+        // Falls back to the whole window when no timestamps came back.
+        final pieces =
+            _groupWords(transcript.segments, windowDurationSec, transcript.text);
 
-        for (final piece in pieces) {
+        for (final (piece, rawOnsets) in pieces) {
           final text = piece.text.trim();
           if (text.isEmpty) continue;
           final absStart = t + piece.startSec;
           final absEnd = max(absStart + 0.2, t + piece.endSec);
+          final absOnsets = [for (final s in rawOnsets) t + s];
 
           var match = matcher.match(text, minConfidence: minConfidence);
 
@@ -191,6 +193,7 @@ class TimelineBuilder {
               absStart - p.end <= mergeGapSec) {
             p.end = max(p.end, absEnd);
             p.confidence = max(p.confidence, match.confidence);
+            _appendOnsets(p.wordStarts, absOnsets); // PATCH_S55_WORD_TIMESTAMPS
             // a close-in-time piece agrees — commit, backdated to where
             // the ayah first appeared
             flushPending();
@@ -203,6 +206,7 @@ class TimelineBuilder {
               absStart - last.end <= mergeGapSec) {
             last.end = max(last.end, absEnd);
             last.confidence = max(last.confidence, match.confidence);
+            _appendOnsets(last.wordStarts, absOnsets); // PATCH_S55_WORD_TIMESTAMPS
             continue;
           }
 
@@ -212,7 +216,8 @@ class TimelineBuilder {
                 start: absStart,
                 end: absEnd,
                 ayah: match.ayah,
-                confidence: match.confidence));
+                confidence: match.confidence,
+                wordStarts: List.of(absOnsets)));
           } else {
             // previous pending (if any) never got reconfirmed — commit it
             // as-is rather than silently dropping it, then open the new one
@@ -221,7 +226,8 @@ class TimelineBuilder {
                 start: absStart,
                 end: absEnd,
                 ayah: match.ayah,
-                confidence: match.confidence);
+                confidence: match.confidence,
+                wordStarts: List.of(absOnsets));
           }
         }
       }
@@ -302,6 +308,55 @@ class TimelineBuilder {
           confidence: candidate.confidence,
         );
       }
+    }
+  }
+
+  // PATCH_S55_WORD_TIMESTAMPS: groups Whisper's per-word segments back into
+  // matchable phrases (split on >1s pauses or every 14 words), keeping each
+  // word's onset. If splitOnWord ever returns phrase-level segments (older
+  // native builds), the same grouping still works — onsets just get coarser
+  // and karaoke pacing degrades gracefully toward the linear fallback.
+  static List<(TranscriptSegment, List<double>)> _groupWords(
+      List<TranscriptSegment> words,
+      double windowDurationSec,
+      String fullText) {
+    if (words.isEmpty) {
+      return [(TranscriptSegment(0, windowDurationSec, fullText), const [])];
+    }
+    final out = <(TranscriptSegment, List<double>)>[];
+    final buf = StringBuffer();
+    var starts = <double>[];
+    var pStart = 0.0, pEnd = 0.0;
+    void flush() {
+      if (starts.isNotEmpty) {
+        out.add(
+            (TranscriptSegment(pStart, pEnd, buf.toString().trim()), starts));
+        buf.clear();
+        starts = <double>[];
+      }
+    }
+
+    for (final w in words) {
+      if (w.text.trim().isEmpty) continue;
+      if (starts.isNotEmpty &&
+          (w.startSec - pEnd > 1.0 || starts.length >= 14)) {
+        flush();
+      }
+      if (starts.isEmpty) pStart = w.startSec;
+      starts.add(w.startSec);
+      buf.write('${w.text.trim()} ');
+      pEnd = max(w.endSec, w.startSec + 0.1);
+    }
+    flush();
+    return out;
+  }
+
+  // PATCH_S55_WORD_TIMESTAMPS: sorted-append with dedupe — overlapping scan
+  // windows re-hear the same words, so onsets within 50ms of an existing
+  // one are dropped.
+  static void _appendOnsets(List<double> into, List<double> add) {
+    for (final s in add) {
+      if (into.isEmpty || s > into.last + 0.05) into.add(s);
     }
   }
 

@@ -12,12 +12,17 @@ class TimelineSegment {
   double end;
   final Ayah ayah;
   double confidence;
+  // PATCH_S55_WORD_TIMESTAMPS: absolute onsets (seconds into the clip) of
+  // the words Whisper heard inside this segment — the karaoke lighting
+  // paces itself along these instead of assuming an even reciting speed.
+  final List<double> wordStarts;
   TimelineSegment({
     required this.start,
     required this.end,
     required this.ayah,
     required this.confidence,
-  });
+    List<double>? wordStarts,
+  }) : wordStarts = wordStarts ?? [];
 }
 
 /// Central mutable app state — the Flutter counterpart of the HTML

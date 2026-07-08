@@ -135,6 +135,7 @@ class WhisperService {
     String wavPath, {
     required double audioDurationSec,
     void Function(String status)? onStatus,
+    bool splitOnWord = false, // PATCH_S55_WORD_TIMESTAMPS
   }) async {
     await ensureReady(onStatus: onStatus);
     onStatus?.call('جارٍ التعرّف على الكلام…');
@@ -143,6 +144,7 @@ class WhisperService {
       audioPath: wavPath,
       lang: 'ar',
       withTimestamps: true,
+      splitOnWord: splitOnWord,
     );
     final text = result?.transcription.text.trim() ?? '';
     final rawSegments = result?.transcription.segments ?? const [];

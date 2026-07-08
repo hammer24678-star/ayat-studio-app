@@ -29,6 +29,11 @@ class KaraokeChunk {
   final double end;
   final int index;
   final int totalChunks;
+  // PATCH_S55_WORD_TIMESTAMPS: real word-onsets (absolute clip seconds)
+  // Whisper heard inside this part's window — lighting paces along these
+  // instead of assuming an even reciting speed, so long madd/pauses no
+  // longer make the highlight run ahead of الشيخ.
+  final List<double> onsets;
   KaraokeChunk({
     required this.words,
     required this.translation,
@@ -36,6 +41,7 @@ class KaraokeChunk {
     required this.end,
     required this.index,
     required this.totalChunks,
+    this.onsets = const [],
   });
 
   String get text => words.join(' ');
@@ -57,16 +63,36 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
       ? const <String>[]
       : seg.ayah.en.trim().split(RegExp(r'\s+'));
   final segDur = max(0.001, seg.end - seg.start);
+  // PATCH_S55_WORD_TIMESTAMPS: onsets recorded for this segment, used both
+  // to place part boundaries where words actually fall and to pace the
+  // lighting inside each part. Empty (old segments / no timestamps) means
+  // everything below falls back to the original proportional timing.
+  final onsets = [
+    for (final s in seg.wordStarts)
+      if (s >= seg.start - 0.2 && s <= seg.end + 0.2) s.clamp(seg.start, seg.end)
+  ];
+  final onsetCount = onsets.length;
   final chunks = <KaraokeChunk>[];
   var wordFrom = 0;
   var enFrom = 0;
+  var onsetFrom = 0;
   var tFrom = seg.start;
   for (var p = 0; p < parts; p++) {
     final wordTo = ((p + 1) * total / parts).round();
     final enTo = ((p + 1) * enWords.length / parts).round();
     final isLast = p == parts - 1;
-    final tTo =
-        isLast ? seg.end : tFrom + segDur * (wordTo - wordFrom) / total;
+    final onsetTo = isLast
+        ? onsetCount
+        : ((wordTo * onsetCount / total).round()).clamp(onsetFrom, onsetCount);
+    double tTo;
+    if (isLast) {
+      tTo = seg.end;
+    } else if (onsetCount >= 4 && onsetTo > 0 && onsetTo < onsetCount) {
+      // boundary = where the next part's first heard word actually starts
+      tTo = onsets[onsetTo].clamp(tFrom + 0.3, seg.end - 0.3);
+    } else {
+      tTo = tFrom + segDur * (wordTo - wordFrom) / total;
+    }
     chunks.add(KaraokeChunk(
       words: words.sublist(wordFrom, wordTo),
       translation: enWords.sublist(enFrom, enTo).join(' '),
@@ -74,9 +100,11 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
       end: tTo,
       index: p,
       totalChunks: parts,
+      onsets: onsets.sublist(onsetFrom, onsetTo),
     ));
     wordFrom = wordTo;
     enFrom = enTo;
+    onsetFrom = onsetTo;
     tFrom = tTo;
   }
   return chunks;
@@ -89,9 +117,21 @@ KaraokeCue karaokeCueAt(List<KaraokeChunk> chunks, double t) {
   for (final c in chunks) {
     if (t >= c.start && t < c.end) {
       final n = c.words.length;
-      final dur = max(0.001, c.end - c.start);
-      final frac = ((t - c.start) / (dur * kKaraokeLightingSpan)).clamp(0.0, 1.0);
-      final lit = min(n, max(1, (n * frac).ceil()));
+      int lit;
+      if (c.onsets.length >= 2) {
+        // PATCH_S55_WORD_TIMESTAMPS: light by how many heard word-onsets
+        // have passed — tracks the reciter's real pace, madd and pauses.
+        var passed = 0;
+        for (final s in c.onsets) {
+          if (t >= s - 0.05) passed++;
+        }
+        lit = min(n, max(1, (n * passed / c.onsets.length).ceil()));
+      } else {
+        final dur = max(0.001, c.end - c.start);
+        final frac =
+            ((t - c.start) / (dur * kKaraokeLightingSpan)).clamp(0.0, 1.0);
+        lit = min(n, max(1, (n * frac).ceil()));
+      }
       return KaraokeCue(c, lit);
     }
   }
