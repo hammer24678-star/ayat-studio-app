@@ -350,7 +350,8 @@ class _StagePreviewState extends State<StagePreview>
                   state.fontKey,
                   fontSize: ayahFontSize,
                   color: i < live!.litWords ? state.textColor : dimColor,
-                  height: 1.5,
+                  height: state.lineHeightMultiplier,
+                  letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
                   shadows: i < live.litWords ? litShadows : shadows,
                 ),
               ),
@@ -378,7 +379,8 @@ class _StagePreviewState extends State<StagePreview>
           state.fontKey,
           fontSize: ayahFontSize,
           color: state.textColor,
-          height: 1.5,
+          height: state.lineHeightMultiplier,
+          letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
           shadows: staticShadows,
         ),
       );

@@ -116,6 +116,9 @@ class StudioState extends ChangeNotifier {
   // and, when on, to static (non-karaoke) ayah text too.
   bool glowEnabled = true;
   double glowIntensity = 1.0; // 0..1.5
+  // PATCH_S48_TEXT_SPACING_TOGGLES
+  double letterSpacing = 0; // -1..3
+  double lineHeightMultiplier = 1.5; // 1.2..2.2, previous hardcoded value
 
   // ---- intro / outro cards ----
   bool showIntro = false;

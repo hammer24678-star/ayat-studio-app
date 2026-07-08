@@ -27,6 +27,7 @@ TextStyle ayahTextStyle(
   double? height,
   List<Shadow>? shadows,
   FontWeight? fontWeight,
+  double? letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
 }) {
   final base = TextStyle(
     fontSize: fontSize,
@@ -34,6 +35,7 @@ TextStyle ayahTextStyle(
     height: height,
     shadows: shadows,
     fontWeight: fontWeight,
+    letterSpacing: letterSpacing,
   );
   switch (fontKey) {
     case 'elgharib': // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled asset font, not google_fonts

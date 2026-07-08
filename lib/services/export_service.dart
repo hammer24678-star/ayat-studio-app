@@ -149,6 +149,8 @@ class ExportService {
         showTranslation: state.showTranslation,
         glowEnabled: state.glowEnabled, // PATCH_S46_DEFAULT_FONT_AND_GLOW
         glowIntensity: state.glowIntensity,
+        letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
+        lineHeightMultiplier: state.lineHeightMultiplier,
       );
       String? overlaySeqPattern;
       String? overlayPng;

@@ -2012,6 +2012,21 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: (v) => state.update(() => state.glowIntensity = v),
           ),
         ],
+        // PATCH_S48_TEXT_SPACING_TOGGLES
+        _fieldLabel('تباعد الأحرف'),
+        Slider(
+          value: state.letterSpacing,
+          min: -1,
+          max: 3,
+          onChanged: (v) => state.update(() => state.letterSpacing = v),
+        ),
+        _fieldLabel('تباعد الأسطر'),
+        Slider(
+          value: state.lineHeightMultiplier,
+          min: 1.2,
+          max: 2.2,
+          onChanged: (v) => state.update(() => state.lineHeightMultiplier = v),
+        ),
         _fieldLabel('حجم خط الآية'),
         Slider(
           value: state.ayahFontSize,

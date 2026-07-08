@@ -64,6 +64,12 @@ class SettingsService {
       state.glowEnabled = read<bool>('glowEnabled') ?? state.glowEnabled;
       state.glowIntensity =
           (read<double>('glowIntensity') ?? state.glowIntensity).clamp(0.0, 1.5);
+      // PATCH_S48_TEXT_SPACING_TOGGLES
+      state.letterSpacing =
+          (read<double>('letterSpacing') ?? state.letterSpacing).clamp(-1.0, 3.0);
+      state.lineHeightMultiplier =
+          (read<double>('lineHeightMultiplier') ?? state.lineHeightMultiplier)
+              .clamp(1.2, 2.2);
       final effect = read<int>('effect');
       if (effect != null && effect >= 0 && effect < StageEffect.values.length) {
         state.effect = StageEffect.values[effect];
@@ -163,6 +169,9 @@ class SettingsService {
       // PATCH_S46_DEFAULT_FONT_AND_GLOW
       p.setBool('${_prefix}glowEnabled', state.glowEnabled),
       p.setDouble('${_prefix}glowIntensity', state.glowIntensity),
+      // PATCH_S48_TEXT_SPACING_TOGGLES
+      p.setDouble('${_prefix}letterSpacing', state.letterSpacing),
+      p.setDouble('${_prefix}lineHeightMultiplier', state.lineHeightMultiplier),
       p.setInt('${_prefix}effect', state.effect.index),
       p.setDouble('${_prefix}effectIntensity', state.effectIntensity),
       p.setBool('${_prefix}showIntro', state.showIntro),

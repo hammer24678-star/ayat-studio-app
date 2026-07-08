@@ -24,6 +24,8 @@ class OverlayStyle {
   final bool showTranslation;
   final bool glowEnabled; // PATCH_S46_DEFAULT_FONT_AND_GLOW
   final double glowIntensity;
+  final double letterSpacing; // PATCH_S48_TEXT_SPACING_TOGGLES
+  final double lineHeightMultiplier;
   const OverlayStyle({
     required this.fontKey,
     required this.ayahFontSize,
@@ -34,6 +36,8 @@ class OverlayStyle {
     required this.showTranslation,
     this.glowEnabled = true,
     this.glowIntensity = 1.0,
+    this.letterSpacing = 0,
+    this.lineHeightMultiplier = 1.5,
   });
 }
 
@@ -191,7 +195,8 @@ class OverlayRenderer {
                   style.fontKey,
                   fontSize: ayahFontSize,
                   color: i < litWords ? effColor : dimColor,
-                  height: 1.5,
+                  height: style.lineHeightMultiplier,
+                  letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
                   shadows: i < litWords ? litShadows : shadows,
                 ),
               ),
@@ -215,7 +220,8 @@ class OverlayRenderer {
             style.fontKey,
             fontSize: ayahFontSize,
             color: effColor,
-            height: 1.5,
+            height: style.lineHeightMultiplier,
+            letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
             shadows: staticShadows,
           ),
         );
