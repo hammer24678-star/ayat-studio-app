@@ -151,6 +151,8 @@ class ExportService {
         glowIntensity: state.glowIntensity,
         letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
         lineHeightMultiplier: state.lineHeightMultiplier,
+        offset: state.textOffset, // PATCH_S50_DRAGGABLE_TEXT
+        userScale: state.textUserScale,
       );
       String? overlaySeqPattern;
       String? overlayPng;

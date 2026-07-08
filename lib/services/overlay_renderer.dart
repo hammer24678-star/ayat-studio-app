@@ -26,6 +26,8 @@ class OverlayStyle {
   final double glowIntensity;
   final double letterSpacing; // PATCH_S48_TEXT_SPACING_TOGGLES
   final double lineHeightMultiplier;
+  final Offset offset; // PATCH_S50_DRAGGABLE_TEXT: matches StudioState.textOffset
+  final double userScale; // matches StudioState.textUserScale
   const OverlayStyle({
     required this.fontKey,
     required this.ayahFontSize,
@@ -38,6 +40,8 @@ class OverlayStyle {
     this.glowIntensity = 1.0,
     this.letterSpacing = 0,
     this.lineHeightMultiplier = 1.5,
+    this.offset = Offset.zero,
+    this.userScale = 1.0,
   });
 }
 
@@ -170,8 +174,7 @@ class OverlayRenderer {
       final shadows = [
         Shadow(color: Color.fromRGBO(0, 0, 0, 0.651 * opacity), blurRadius: 8 * scale),
       ];
-      final ayahFontSize =
-          style.ayahFontSize * scale * ayahAutoFontScale(text); // PATCH_S24_AUTO_SHRINK_LONG_AYAH
+      final ayahFontSize = style.ayahFontSize * scale * ayahAutoFontScale(text) * style.userScale; // PATCH_S24_AUTO_SHRINK_LONG_AYAH, PATCH_S50_DRAGGABLE_TEXT
       InlineSpan ayahSpan;
       if (karaokeWords != null && karaokeWords.isNotEmpty) {
         // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
@@ -239,7 +242,7 @@ class OverlayRenderer {
           text: TextSpan(
             text: translation,
             style: translationTextStyle(
-              fontSize: style.transFontSize * scale,
+              fontSize: style.transFontSize * scale * style.userScale, // PATCH_S50_DRAGGABLE_TEXT
               color: style.color.withValues(alpha: 0.88 * opacity),
               shadows: shadows,
             ),
@@ -253,16 +256,18 @@ class OverlayRenderer {
       final totalH =
           ayahPainter.height + gap + (transPainter?.height ?? 0);
       final centerY = switch (style.position) {
-        AyahTextPosition.top => h * 0.16,
-        AyahTextPosition.center => h * 0.5,
-        AyahTextPosition.bottom => h * 0.78,
-      };
+            AyahTextPosition.top => h * 0.16,
+            AyahTextPosition.center => h * 0.5,
+            AyahTextPosition.bottom => h * 0.78,
+          } +
+          style.offset.dy * scale; // PATCH_S50_DRAGGABLE_TEXT
       final top = centerY - totalH / 2;
+      final dx = style.offset.dx * scale; // PATCH_S50_DRAGGABLE_TEXT
 
       if (style.extra != FrameExtra.none) {
         final padX = 24 * scale, padY = 18 * scale;
         final rect = Rect.fromLTWH(
-            w * 0.07 - padX * 0.2, top - padY,
+            w * 0.07 - padX * 0.2 + dx, top - padY,
             w * 0.86 + padX * 0.4, totalH + padY * 2);
         if (style.extra == FrameExtra.boxed) {
           canvas.drawRect(rect, Paint()..color = const Color(0x80050F0D));
@@ -306,10 +311,11 @@ class OverlayRenderer {
         }
       }
 
-      ayahPainter.paint(canvas, Offset((w - ayahPainter.width) / 2, top));
+      ayahPainter.paint(
+          canvas, Offset((w - ayahPainter.width) / 2 + dx, top)); // PATCH_S50_DRAGGABLE_TEXT
       transPainter?.paint(
           canvas,
-          Offset((w - transPainter.width) / 2,
+          Offset((w - transPainter.width) / 2 + dx,
               top + ayahPainter.height + gap));
     }
     return _picToPng(rec.endRecording(), w, h);

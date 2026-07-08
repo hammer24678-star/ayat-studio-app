@@ -781,24 +781,87 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // PATCH_S43_MODEL_SIZE_PICKER: model-size picker -- controls every detect/auto-sync
         // button below via WhisperService.setModelSize().
+        // PATCH_S50_MODEL_SIZE_CARDS: one full-width card per tier instead of four
+        // squeezed ChoiceChips -- clearer size/quality tradeoff, bigger tap
+        // targets, unambiguous selected state. Still drives the same
+        // WhisperService.setModelSize() as before.
         _fieldLabel('دقة التعرّف على الكلام'),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            for (final size in WhisperModelSize.values)
-              ChoiceChip(
-                label: Text(WhisperService.labelFor(size)),
-                selected: state.whisperModelSize == size,
-                onSelected: _busy
-                    ? null
-                    : (_) {
-                        state.update(() => state.whisperModelSize = size);
-                        WhisperService.setModelSize(size);
-                      },
+        for (final size in WhisperModelSize.values)
+          Builder(builder: (context) {
+            final selected = state.whisperModelSize == size;
+            final parts = WhisperService.labelFor(size).split(' — ');
+            final sizeLabel = parts.first;
+            final qualityLabel = parts.length > 1 ? parts[1] : '';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: selected
+                    ? AyatColors.gold.withValues(alpha: 0.12)
+                    : AyatColors.ink.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: _busy
+                      ? null
+                      : () {
+                          state.update(() => state.whisperModelSize = size);
+                          WhisperService.setModelSize(size);
+                        },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color:
+                            selected ? AyatColors.gold : AyatColors.hairline,
+                        width: selected ? 1.4 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                sizeLabel,
+                                style: TextStyle(
+                                  fontWeight: selected
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                  color: selected
+                                      ? AyatColors.goldBright
+                                      : Colors.white,
+                                ),
+                              ),
+                              if (qualityLabel.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  qualityLabel,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (selected)
+                          const Icon(Icons.check_circle,
+                              color: AyatColors.goldBright, size: 20)
+                        else
+                          Icon(Icons.circle_outlined,
+                              color: Colors.white.withValues(alpha: 0.3),
+                              size: 20),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-          ],
-        ),
+            );
+          }),
         const SizedBox(height: 8),
         ElevatedButton.icon(
           onPressed: _busy ? null : _pickVideo,
@@ -2227,6 +2290,21 @@ class _HomeScreenState extends State<HomeScreen> {
           max: 18,
           onChanged: (v) => state.update(() => state.transFontSize = v),
         ),
+        // PATCH_S50_DRAGGABLE_TEXT: sliders above stay as the fine-tune/reset-to-default
+        // controls; drag the ayah text directly on the preview above to
+        // reposition, pinch it to resize, or double-tap it to snap back.
+        if (state.textOffset != Offset.zero || state.textUserScale != 1.0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: OutlinedButton.icon(
+              onPressed: () => state.update(() {
+                state.textOffset = Offset.zero;
+                state.textUserScale = 1.0;
+              }),
+              icon: const Icon(Icons.restart_alt, size: 16),
+              label: const Text('إعادة موضع/حجم النص للوضع الافتراضي'),
+            ),
+          ),
         _fieldLabel('لون النص'),
         Wrap(
           spacing: 8,

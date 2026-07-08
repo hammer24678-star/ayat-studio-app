@@ -120,6 +120,14 @@ class StudioState extends ChangeNotifier {
   double letterSpacing = 0; // -1..3
   double lineHeightMultiplier = 1.5; // 1.2..2.2, previous hardcoded value
 
+  // PATCH_S50_DRAGGABLE_TEXT: user drag/pinch on the stage preview, on top of the
+  // textPosition preset + ayahFontSize/transFontSize sliders above.
+  // textOffset is stored in 270-wide reference units (same convention
+  // as ayahFontSize etc.) so preview and export can both multiply it
+  // by their own `scale = width / 270.0` and land on the same spot.
+  Offset textOffset = Offset.zero;
+  double textUserScale = 1.0; // 0.6..1.8, pinch-to-resize multiplier
+
   // ---- intro / outro cards ----
   bool showIntro = false;
   bool showOutro = false;

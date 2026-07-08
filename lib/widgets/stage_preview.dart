@@ -326,8 +326,7 @@ class _StagePreviewState extends State<StagePreview>
     // word separately — already-recited words bright with a glow, the
     // rest dimmed until الشيخ reaches them.
     final karaokeWords = live?.karaokeWords;
-    final ayahFontSize =
-        state.ayahFontSize * scale * ayahAutoFontScale(text); // PATCH_S24_AUTO_SHRINK_LONG_AYAH
+    final ayahFontSize = state.ayahFontSize * scale * ayahAutoFontScale(text) * state.textUserScale; // PATCH_S24_AUTO_SHRINK_LONG_AYAH, PATCH_S50_DRAGGABLE_TEXT
     Widget ayahWidget;
     if (karaokeWords != null && karaokeWords.isNotEmpty) {
       // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow now optional + intensity-scaled
@@ -408,31 +407,59 @@ class _StagePreviewState extends State<StagePreview>
         border: Border.all(color: const Color(0x33FFFFFF), width: 1),
       );
     }
-    return Align(
-      alignment: Alignment(0, alignY),
-      child: Container(
-        margin: EdgeInsets.symmetric(horizontal: 0.07 * 270 * scale / 2),
-        padding: deco != null
-            ? EdgeInsets.symmetric(horizontal: 14 * scale, vertical: 10 * scale)
-            : EdgeInsets.zero,
-        decoration: deco,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ayahWidget,
-            if (state.showTranslation && trans.isNotEmpty) ...[
-              SizedBox(height: 4 * scale),
-              Text(
-                trans,
-                textAlign: TextAlign.center,
-                style: translationTextStyle(
-                  fontSize: state.transFontSize * scale,
-                  color: state.textColor.withValues(alpha: 0.88),
-                  shadows: shadows,
-                ),
-              ),
-            ],
-          ],
+    // PATCH_S50_DRAGGABLE_TEXT: one GestureDetector handles both drag-to-reposition
+    // (one finger) and pinch-to-resize (two fingers) -- onScaleUpdate
+    // fires for single-finger pans too, so a separate onPanUpdate would
+    // only fight it. gestureStartUserScale is a plain local, not a
+    // field: ScaleUpdateDetails.scale is cumulative from onScaleStart,
+    // so each gesture needs its own starting snapshot, and a fresh
+    // closure over a local is enough since _overlay reruns every build.
+    double gestureStartUserScale = state.textUserScale;
+    return GestureDetector(
+      onScaleStart: (_) => gestureStartUserScale = state.textUserScale,
+      onScaleUpdate: (details) {
+        state.update(() {
+          state.textOffset += details.focalPointDelta / scale;
+          state.textUserScale =
+              (gestureStartUserScale * details.scale).clamp(0.6, 1.8);
+        });
+      },
+      onDoubleTap: () => state.update(() {
+        state.textOffset = Offset.zero;
+        state.textUserScale = 1.0;
+      }),
+      child: Transform.translate(
+        offset: Offset(
+            state.textOffset.dx * scale, state.textOffset.dy * scale),
+        child: Align(
+          alignment: Alignment(0, alignY),
+          child: Container(
+            margin: EdgeInsets.symmetric(horizontal: 0.07 * 270 * scale / 2),
+            padding: deco != null
+                ? EdgeInsets.symmetric(
+                    horizontal: 14 * scale, vertical: 10 * scale)
+                : EdgeInsets.zero,
+            decoration: deco,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ayahWidget,
+                if (state.showTranslation && trans.isNotEmpty) ...[
+                  SizedBox(height: 4 * scale),
+                  Text(
+                    trans,
+                    textAlign: TextAlign.center,
+                    style: translationTextStyle(
+                      fontSize:
+                          state.transFontSize * scale * state.textUserScale,
+                      color: state.textColor.withValues(alpha: 0.88),
+                      shadows: shadows,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

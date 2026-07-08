@@ -70,6 +70,13 @@ class SettingsService {
       state.lineHeightMultiplier =
           (read<double>('lineHeightMultiplier') ?? state.lineHeightMultiplier)
               .clamp(1.2, 2.2);
+      // PATCH_S50_DRAGGABLE_TEXT
+      state.textOffset = Offset(
+        read<double>('textOffsetDx') ?? state.textOffset.dx,
+        read<double>('textOffsetDy') ?? state.textOffset.dy,
+      );
+      state.textUserScale =
+          (read<double>('textUserScale') ?? state.textUserScale).clamp(0.6, 1.8);
       final effect = read<int>('effect');
       if (effect != null && effect >= 0 && effect < StageEffect.values.length) {
         state.effect = StageEffect.values[effect];
@@ -172,6 +179,10 @@ class SettingsService {
       // PATCH_S48_TEXT_SPACING_TOGGLES
       p.setDouble('${_prefix}letterSpacing', state.letterSpacing),
       p.setDouble('${_prefix}lineHeightMultiplier', state.lineHeightMultiplier),
+      // PATCH_S50_DRAGGABLE_TEXT
+      p.setDouble('${_prefix}textOffsetDx', state.textOffset.dx),
+      p.setDouble('${_prefix}textOffsetDy', state.textOffset.dy),
+      p.setDouble('${_prefix}textUserScale', state.textUserScale),
       p.setInt('${_prefix}effect', state.effect.index),
       p.setDouble('${_prefix}effectIntensity', state.effectIntensity),
       p.setBool('${_prefix}showIntro', state.showIntro),
