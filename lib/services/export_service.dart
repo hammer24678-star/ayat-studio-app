@@ -74,8 +74,12 @@ class ExportService {
       double clipStart = 0;
       // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: w/h default to the static-export tier and are
       // overridden below to follow the source video, if any.
-      var w = 1080;
-      var h = state.squareRatio ? 1080 : 1920;
+      // PATCH_S53_LANDSCAPE_EXPORT: canvas size for the audio-only/static-export case now
+      // comes from the 3-way ratio picker instead of a squareRatio bool.
+      final ratioSpec =
+          kAspectRatios.firstWhere((r) => r.$1 == state.aspectRatio);
+      var w = ratioSpec.$3;
+      var h = ratioSpec.$4;
       if (state.hasVideo) {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;

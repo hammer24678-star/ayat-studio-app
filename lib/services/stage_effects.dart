@@ -15,7 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-enum StageEffect { none, rain, snow, dust, sparkle }
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti } // PATCH_S52_MORE_EFFECTS
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -24,6 +24,8 @@ extension StageEffectLabel on StageEffect {
         StageEffect.snow => 'ثلج',
         StageEffect.dust => 'غبار ضوئي',
         StageEffect.sparkle => 'بريق نجمي', // PATCH_S51_MORE_EFFECTS
+        StageEffect.geometricShimmer => 'بريق زخرفي إسلامي', // PATCH_S52_MORE_EFFECTS
+        StageEffect.confetti => 'قصاصات ذهبية', // PATCH_S52_MORE_EFFECTS
       };
 
   IconData get icon => switch (this) {
@@ -32,6 +34,8 @@ extension StageEffectLabel on StageEffect {
         StageEffect.snow => Icons.ac_unit,
         StageEffect.dust => Icons.auto_awesome,
         StageEffect.sparkle => Icons.star_outline, // PATCH_S51_MORE_EFFECTS
+        StageEffect.geometricShimmer => Icons.auto_awesome_mosaic, // PATCH_S52_MORE_EFFECTS
+        StageEffect.confetti => Icons.celebration_outlined, // PATCH_S52_MORE_EFFECTS
       };
 }
 
@@ -63,6 +67,10 @@ class StageEffects {
         _paintDust(canvas, size, timeSec, intensity);
       case StageEffect.sparkle: // PATCH_S51_MORE_EFFECTS
         _paintSparkle(canvas, size, timeSec, intensity);
+      case StageEffect.geometricShimmer: // PATCH_S52_MORE_EFFECTS
+        _paintGeometricShimmer(canvas, size, timeSec, intensity);
+      case StageEffect.confetti: // PATCH_S52_MORE_EFFECTS
+        _paintConfetti(canvas, size, timeSec, intensity);
     }
   }
 
@@ -172,6 +180,109 @@ class StageEffects {
         canvas.drawLine(
             Offset(x, y - flareLen), Offset(x, y + flareLen), paint);
       }
+    }
+  }
+
+  // PATCH_S52_MORE_EFFECTS: a grid of 8-pointed star motifs (two overlapping squares
+  // rotated 45° apart -- the classic Islamic geometric-pattern building
+  // block) that gently counter-rotate and catch a soft diagonal shimmer
+  // sweep. Whole rotations and whole sweep cycles per loop keep the
+  // export tile seamless, same convention as every other effect here.
+  static void _paintGeometricShimmer(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final cell = w / 6; // roughly 6 motifs across regardless of canvas size
+    final cols = (w / cell).ceil() + 1;
+    final rows = (h / cell).ceil() + 1;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.0, w / 540);
+    for (var row = -1; row < rows; row++) {
+      for (var col = -1; col < cols; col++) {
+        final i = row * 1000 + col; // unique deterministic index per cell
+        final cx = (col + 0.5) * cell;
+        final cy = (row + 0.5) * cell;
+        // a soft band of brightness sweeps diagonally across the grid once
+        // per loop -- whole-cycle, so the wrap is seamless.
+        final diag = (cx + cy) / (w + h); // 0..1 position along the sweep
+        final phase = _rand(i, 5) * 2 * pi;
+        final sweep = 0.5 +
+            0.5 * sin(2 * pi * (t / loopSeconds - diag) + phase * 0.15);
+        final glow = pow(sweep, 4).toDouble();
+        if (glow < 0.03) continue;
+        // gentle whole-rotation per loop, alternating direction and staggered
+        // per cell so the lattice doesn't spin in lockstep.
+        final spinDir = (i.abs() % 2 == 0) ? 1 : -1;
+        final angle =
+            spinDir * 2 * pi * t / loopSeconds + _rand(i, 6) * 2 * pi;
+        paint.color = const Color(0xFFECC875)
+            .withValues(alpha: glow * 0.55 * intensity);
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.rotate(angle);
+        _drawEightPointStar(canvas, paint, cell * 0.30);
+        canvas.restore();
+      }
+    }
+  }
+
+  // PATCH_S52_MORE_EFFECTS: two squares 45° apart, the simplest way to draw an
+  // 8-pointed star outline (rub el hizb style) without needing an asset.
+  static void _drawEightPointStar(Canvas canvas, Paint paint, double r) {
+    Path square(double rot) {
+      final path = Path();
+      for (var k = 0; k < 4; k++) {
+        final a = rot + k * pi / 2;
+        final pt = Offset(cos(a) * r, sin(a) * r);
+        if (k == 0) {
+          path.moveTo(pt.dx, pt.dy);
+        } else {
+          path.lineTo(pt.dx, pt.dy);
+        }
+      }
+      path.close();
+      return path;
+    }
+
+    canvas.drawPath(square(pi / 4), paint);
+    canvas.drawPath(square(0), paint);
+  }
+
+  // PATCH_S52_MORE_EFFECTS: small rotating gold rectangles falling and tumbling in a
+  // light shower -- a festive alternative to the plain `dust` effect.
+  // Same seamless-loop conventions as _paintRain/_paintSnow: whole
+  // traversals for the fall and whole spin/sway cycles for the tumble.
+  static void _paintConfetti(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final count = (60 * intensity).round();
+    final paint = Paint();
+    for (var i = 0; i < count; i++) {
+      final depth = _rand(i, 1);
+      final pw = (2.5 + 4.5 * depth) * w / 1080;
+      final ph = pw * 0.5;
+      final range = h + ph * 2;
+      final kLoops = 1 + (i % 2); // whole traversals per loop
+      final v = kLoops * range / loopSeconds;
+      final y = ((_rand(i, 2) * range + v * t) % range) - ph;
+      final swayCycles = 1 + (i % 3);
+      final phase = _rand(i, 4) * 2 * pi;
+      final sway =
+          sin(2 * pi * swayCycles * t / loopSeconds + phase) * w * 0.04;
+      final x = (_rand(i, 3) * w + sway + w) % w;
+      // whole spin cycles per loop keeps the tumble seamless too
+      final spinCycles = 2 + (i % 3);
+      final angle = 2 * pi * spinCycles * t / loopSeconds + phase;
+      final hueMix = _rand(i, 5);
+      final color = Color.lerp(
+          const Color(0xFFECC875), const Color(0xFFFFF3D6), hueMix)!;
+      paint.color = color.withValues(alpha: (0.35 + 0.5 * depth) * intensity);
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(angle);
+      canvas.drawRect(
+          Rect.fromCenter(center: Offset.zero, width: pw, height: ph), paint);
+      canvas.restore();
     }
   }
 

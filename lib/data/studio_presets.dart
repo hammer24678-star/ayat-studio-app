@@ -6,6 +6,18 @@ import 'package:flutter/material.dart';
 
 enum AyahTextPosition { top, center, bottom }
 
+// PATCH_S53_LANDSCAPE_EXPORT: the three export/preview canvas shapes. Width/height here
+// are the audio-only/static-export canvas AND the source of truth for
+// the live-preview frame's AspectRatio -- see export_service.dart and
+// stage_preview.dart.
+enum AyatAspectRatio { story916, square11, landscape169 }
+
+const List<(AyatAspectRatio, String, int, int)> kAspectRatios = [
+  (AyatAspectRatio.story916, '9:16 قصة', 1080, 1920),
+  (AyatAspectRatio.square11, '1:1 مربع', 1080, 1080),
+  (AyatAspectRatio.landscape169, '16:9 عريض', 1920, 1080), // PATCH_S53_LANDSCAPE_EXPORT
+];
+
 enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass = frosted-panel look
 
 // PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see

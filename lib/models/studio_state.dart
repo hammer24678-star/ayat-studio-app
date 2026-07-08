@@ -153,7 +153,9 @@ class StudioState extends ChangeNotifier {
       (trimFromIndex >= 0 && trimToIndex >= 0) ? timeline[trimToIndex].end : null;
 
   // ---- output ----
-  bool squareRatio = false; // false = 9:16, true = 1:1
+  // PATCH_S53_LANDSCAPE_EXPORT: was `bool squareRatio` (9:16 vs. 1:1 only); story916 is the
+  // same default the old `false` gave.
+  AyatAspectRatio aspectRatio = AyatAspectRatio.story916;
   int staticDurationSec = 6; // export length when no video is loaded (2..60)
 
   List<AyahFontChoice> get allFonts => [...kBuiltInFonts, ...customFonts];

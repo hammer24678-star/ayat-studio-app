@@ -33,7 +33,12 @@ class SettingsService {
       state.bgIndex =
           (read<int>('bgIndex') ?? state.bgIndex).clamp(0, kBackgrounds.length - 1);
       state.bgAnimated = read<bool>('bgAnimated') ?? state.bgAnimated;
-      state.squareRatio = read<bool>('squareRatio') ?? state.squareRatio;
+      // PATCH_S53_LANDSCAPE_EXPORT: was a bool key; a stale 'squareRatio' bool from before
+      // this patch is simply never read again (harmless orphan pref).
+      final ratio = read<int>('aspectRatio');
+      if (ratio != null && ratio >= 0 && ratio < AyatAspectRatio.values.length) {
+        state.aspectRatio = AyatAspectRatio.values[ratio];
+      }
       state.templateIndex = (read<int>('templateIndex') ?? state.templateIndex)
           .clamp(0, kTemplates.length - 1);
       // PATCH_S39_PERSISTENT_FONTS: uploaded fonts are re-registered at
@@ -167,7 +172,7 @@ class SettingsService {
     await Future.wait([
       p.setInt('${_prefix}bgIndex', state.bgIndex),
       p.setBool('${_prefix}bgAnimated', state.bgAnimated),
-      p.setBool('${_prefix}squareRatio', state.squareRatio),
+      p.setInt('${_prefix}aspectRatio', state.aspectRatio.index), // PATCH_S53_LANDSCAPE_EXPORT
       p.setInt('${_prefix}templateIndex', state.templateIndex),
       p.setString('${_prefix}fontKey', state.fontKey),
       p.setDouble('${_prefix}ayahFontSize', state.ayahFontSize),

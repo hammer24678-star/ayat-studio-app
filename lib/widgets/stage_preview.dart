@@ -105,7 +105,12 @@ class _StagePreviewState extends State<StagePreview>
     final videoController = widget.videoController;
     final liveOverride = widget.liveOverride;
     return AspectRatio(
-      aspectRatio: state.squareRatio ? 1 : 9 / 16,
+      // PATCH_S53_LANDSCAPE_EXPORT: covers all three shapes now instead of just 9:16/1:1.
+      aspectRatio: switch (state.aspectRatio) {
+        AyatAspectRatio.square11 => 1.0,
+        AyatAspectRatio.landscape169 => 16 / 9,
+        AyatAspectRatio.story916 => 9 / 16,
+      },
       child: LayoutBuilder(builder: (context, constraints) {
         final scale = constraints.maxWidth / 270; // HTML preview design width
         final controller = videoController;

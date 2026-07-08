@@ -763,20 +763,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _ratioToggle() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    // PATCH_S53_LANDSCAPE_EXPORT: renders all three shapes from kAspectRatios instead of
+    // two hardcoded chips.
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        ChoiceChip(
-          label: const Text('9:16 قصة'),
-          selected: !state.squareRatio,
-          onSelected: (_) => state.update(() => state.squareRatio = false),
-        ),
-        const SizedBox(width: 8),
-        ChoiceChip(
-          label: const Text('1:1 مربع'),
-          selected: state.squareRatio,
-          onSelected: (_) => state.update(() => state.squareRatio = true),
-        ),
+        for (final entry in kAspectRatios)
+          ChoiceChip(
+            label: Text(entry.$2),
+            selected: state.aspectRatio == entry.$1,
+            onSelected: (_) =>
+                state.update(() => state.aspectRatio = entry.$1),
+          ),
       ],
     );
   }
