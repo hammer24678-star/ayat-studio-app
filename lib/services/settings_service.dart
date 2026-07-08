@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import 'stage_effects.dart';
+import 'whisper_service.dart'; // PATCH_S47_SETTINGS_WHISPER_IMPORT_FIX: WhisperModelSize lives here
 
 class SettingsService {
   static const _prefix = 'ayat_studio.';
