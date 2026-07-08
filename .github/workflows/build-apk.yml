@@ -21,7 +21,7 @@ jobs:
         run: |
           set -e
           TAG=models
-          ASSET=ggml-base.bin
+          ASSET=ggml-small.bin # PATCH_S41_UPGRADE_ASR_MODEL: was ggml-base.bin
           URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$ASSET"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "ASR model assets" \
