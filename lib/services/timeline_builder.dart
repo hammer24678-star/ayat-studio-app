@@ -37,6 +37,11 @@ class TimelineBuilder {
   static const double stepSec = 5; // window stride
   static const double minConfidence = 0.32;
   static const double highConfidence = 0.55; // commit off a single window
+  // PATCH_S44_CONFIDENCE_RETRANSCRIBE: segments that committed but stayed below this bar get a
+  // focused second look once their real (refined) boundaries are known --
+  // a tight, single-ayah-sized window often transcribes more cleanly than
+  // the original coarse 6s scan window did.
+  static const double reTranscribeBelowConfidence = 0.45;
   static const double vadSilenceRms = 0.008; // ~-42 dBFS
   static const int sampleRate = 16000;
   // PATCH_S35_SMARTER_DETECTION: thresholds for the expected-next re-score.
@@ -227,11 +232,77 @@ class TimelineBuilder {
       // ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
       _refineBoundaries(timeline, pcm);
+      // PATCH_S44_CONFIDENCE_RETRANSCRIBE: give low-confidence segments one more focused look now
+      // that their real boundaries are known.
+      await _reTranscribeWeakSegments(timeline, pcm, matcher, tempDir,
+          onStatus: onStatus);
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
     }
     return timeline;
+  }
+
+  // PATCH_S44_CONFIDENCE_RETRANSCRIBE: re-transcribes each committed segment that stayed below
+  // [reTranscribeBelowConfidence], using its own refined (tight,
+  // single-ayah-sized) boundaries instead of the original coarse scan
+  // window. Replaces the segment in place only if the new pass scores
+  // strictly higher -- never makes a confident match worse, and any
+  // failure on an individual segment (transcription error, empty text,
+  // no better candidate) just leaves that segment exactly as it was.
+  static Future<void> _reTranscribeWeakSegments(
+    List<TimelineSegment> timeline,
+    Int16List pcm,
+    AyahMatcher matcher,
+    Directory tempDir, {
+    void Function(String status)? onStatus,
+  }) async {
+    for (var i = 0; i < timeline.length; i++) {
+      if (_cancelRequested) return;
+      final seg = timeline[i];
+      if (seg.confidence >= reTranscribeBelowConfidence) continue;
+      final durSec = seg.end - seg.start;
+      if (durSec < 0.6) continue; // too short to bother re-transcribing
+
+      final startSample =
+          (seg.start * sampleRate).floor().clamp(0, pcm.length);
+      final endSample =
+          (seg.end * sampleRate).floor().clamp(startSample, pcm.length);
+      if (endSample - startSample < (sampleRate * 0.5).round()) continue;
+
+      onStatus?.call(
+          'تحسين دقة آية ذات ثقة منخفضة (${i + 1}/${timeline.length})…');
+      final slice = Int16List.sublistView(pcm, startSample, endSample);
+      final chunkPath = '${tempDir.path}/retrans_$i.wav';
+      String text;
+      try {
+        _writeWavMono16(chunkPath, slice);
+        text = await WhisperService.transcribeWav(chunkPath);
+      } catch (_) {
+        continue; // a failed re-pass just keeps the original segment
+      } finally {
+        File(chunkPath).delete().ignore();
+      }
+      if (text.trim().isEmpty) continue;
+
+      // Prefer testing against the mushaf-order neighbourhood first (same
+      // prior used during the main scan) -- a weak match is often just a
+      // slightly-off boundary on the SAME or an ADJACENT ayah, not a wild
+      // miss -- falling back to a corpus-wide search so a genuinely
+      // different ayah can still win if the neighbourhood check fails.
+      final neighbours = _expectedNext(matcher.ayaat, seg.ayah);
+      var candidate = matcher.matchAmong(text, neighbours,
+          minConfidence: contextMinConfidence);
+      candidate ??= matcher.match(text, minConfidence: minConfidence);
+      if (candidate != null && candidate.confidence > seg.confidence) {
+        timeline[i] = TimelineSegment(
+          start: seg.start,
+          end: seg.end,
+          ayah: candidate.ayah,
+          confidence: candidate.confidence,
+        );
+      }
+    }
   }
 
   // PATCH_S35_SMARTER_DETECTION: the ayat mushaf order predicts after
