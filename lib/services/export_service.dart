@@ -127,6 +127,17 @@ class ExportService {
         customBgPath: state.useCustomBg ? state.customBgPath : null,
       ));
 
+      // ---- PATCH_S40_MULTI_BG_CYCLE: optional cycling-background timeline
+      // (null when inactive — _buildMainCommand then uses the single bgPng)
+      final bgSegments = await _buildBgCycleSegments(
+        state: state,
+        work: work,
+        w: w,
+        h: h,
+        clipStart: clipStart,
+        duration: duration,
+      );
+
       // ---- text overlay: animated sequence (auto-sync) or single PNG ----
       final style = OverlayStyle(
         fontKey: state.fontKey,
@@ -202,6 +213,7 @@ class ExportService {
         duration: duration,
         clipStart: clipStart,
         bgPng: bgPng,
+        bgSegments: bgSegments, // PATCH_S40_MULTI_BG_CYCLE
         overlaySeqPattern: overlaySeqPattern,
         overlayPng: overlayPng,
         effectSeqPattern: effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
@@ -353,6 +365,216 @@ class ExportService {
     }
   }
 
+  // PATCH_S38_VIDEO_EFFECTS: export-time video effects. All ffmpeg-side, all
+  // optional/off-by-default except softTransitions — none touch the audio.
+
+  // Background-image-only Ken Burns: pre-scales the still image up, then
+  // zoompan()s slowly into it. d=1 makes zoompan advance exactly one output
+  // frame per input frame it consumes — the robust pattern for a single
+  // -loop 1 image input (no total frame count to precompute; it just keeps
+  // pace with however many frames -t/-loop end up producing). Never applied
+  // to the uploaded recitation video itself, only to generated backgrounds.
+  static String _staticImageFilterChain(int w, int h, bool kenBurns) {
+    if (!kenBurns) return 'scale=$w:$h,fps=30';
+    final bigW = (w * 1.28).round();
+    final bigH = (h * 1.28).round();
+    return 'scale=$bigW:$bigH,'
+        "zoompan=z='min(zoom+0.0007,1.16)':d=1:s=${w}x$h:fps=30";
+  }
+
+  static String _colorGradeFilter(ColorGrade g) => switch (g) {
+        ColorGrade.none => '',
+        // warm gold: lift saturation/contrast a touch, push red up, blue down
+        ColorGrade.warmGold =>
+          'eq=saturation=1.15:gamma=1.05:contrast=1.05,'
+              'colorbalance=rs=0.12:gs=0.02:bs=-0.12:rm=0.08:bm=-0.08',
+        // night teal: slightly desaturated and darker, push blue up
+        ColorGrade.nightTeal =>
+          'eq=saturation=0.9:contrast=1.08:brightness=-0.02,'
+              'colorbalance=rs=-0.10:bs=0.15:rm=-0.06:bm=0.10',
+        // classic sepia via a fixed channel-mix matrix
+        ColorGrade.sepia =>
+          'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131',
+        // soft mono: desaturated, not harsh pure B&W, small contrast lift
+        ColorGrade.softMono => 'hue=s=0,eq=contrast=1.06:brightness=0.01',
+      };
+
+  static String _vignetteFilter(int intensity) {
+    // ffmpeg's vignette angle: smaller angle = stronger/darker corners.
+    // The 0..100 slider maps onto a mild..strong range computed here in
+    // Dart, so no ffmpeg-side expression parsing is needed.
+    final angle =
+        (1.35 - intensity.clamp(0, 100) / 100 * 1.0).clamp(0.30, 1.35);
+    return 'vignette=angle=${angle.toStringAsFixed(3)}';
+  }
+
+  static String _grainFilter(int intensity) {
+    final amt = (intensity.clamp(0, 100) / 100 * 26 + 4).round();
+    return 'noise=alls=$amt:allf=t+u';
+  }
+
+  // Combined color-grade + vignette + grain chain, shared by the main clip
+  // and the bismillah/outro title cards so a chosen look stays consistent
+  // across all exported segments. Empty string when nothing is enabled.
+  static String _postFilterChain(StudioState state) {
+    final parts = <String>[];
+    final grade = _colorGradeFilter(state.colorGrade);
+    if (grade.isNotEmpty) parts.add(grade);
+    if (state.vignetteEnabled) {
+      parts.add(_vignetteFilter(state.vignetteIntensity));
+    }
+    if (state.grainEnabled) parts.add(_grainFilter(state.grainIntensity));
+    return parts.join(',');
+  }
+
+  // PATCH_S40_MULTI_BG_CYCLE: the ordered (backgroundPngPath, seconds)
+  // timeline behind the cycling background. Returns null when cycling isn't
+  // active (fewer than 2 backgrounds chosen, or a custom/AI-art background
+  // is in use — those stay single-background), in which case callers fall
+  // back to the plain bgPng.
+  static Future<List<({String path, double dur})>?> _buildBgCycleSegments({
+    required StudioState state,
+    required Directory work,
+    required int w,
+    required int h,
+    required double clipStart,
+    required double duration,
+  }) async {
+    if (!state.multiBgEnabled ||
+        state.useCustomBg ||
+        state.multiBgIndexes.length < 2 ||
+        duration <= 0) {
+      return null;
+    }
+
+    // One PNG per selected background, rendered once — reused by every
+    // cycle slot that comes back around to it.
+    final pngs = <String>[];
+    for (var i = 0; i < state.multiBgIndexes.length; i++) {
+      _checkCancel();
+      final p = '${work.path}/bg_multi_$i.png';
+      await File(p).writeAsBytes(await OverlayRenderer.renderBackgroundPng(
+        w: w,
+        h: h,
+        bgIndex: state.multiBgIndexes[i],
+      ));
+      pngs.add(p);
+    }
+
+    // ---- boundary times, seconds into the export (0..duration) ----
+    final bounds = <double>[0];
+    if (state.bgSwitchTrigger == BgSwitchTrigger.ayahs &&
+        state.timelineActive &&
+        state.timeline.isNotEmpty) {
+      final n = state.bgSwitchAyahs.clamp(1, 10);
+      var count = 0;
+      for (final seg in state.timeline) {
+        final segEnd = (seg.end - clipStart).clamp(0.0, duration);
+        if (segEnd <= 0) continue; // ayah lies entirely before the trim
+        count++;
+        if (count % n == 0 && segEnd < duration) bounds.add(segEnd);
+      }
+    } else {
+      // No active auto-sync timeline (or seconds explicitly chosen) — fall
+      // back to a fixed-interval switch.
+      final step = state.bgSwitchSeconds.clamp(3, 30).toDouble();
+      var t = step;
+      while (t < duration) {
+        bounds.add(t);
+        t += step;
+      }
+    }
+    bounds.add(duration);
+
+    // Safety cap — a pathological combo (3s interval on a very long export)
+    // would otherwise build an unwieldy filter_complex graph.
+    const maxSegments = 40;
+    if (bounds.length - 1 > maxSegments) {
+      final step = duration / maxSegments;
+      bounds
+        ..clear()
+        ..add(0);
+      var t = step;
+      while (t < duration) {
+        bounds.add(t);
+        t += step;
+      }
+      bounds.add(duration);
+    }
+
+    final segs = <({String path, double dur})>[];
+    for (var i = 0; i < bounds.length - 1; i++) {
+      final d = bounds[i + 1] - bounds[i];
+      if (d < 0.05) continue; // drop rounding-noise slivers
+      segs.add((path: pngs[i % pngs.length], dur: d));
+    }
+    if (segs.length < 2) return null; // not enough runway to actually cycle
+    return segs;
+  }
+
+  // PATCH_S40_MULTI_BG_CYCLE: ffmpeg inputs + filter fragment turning N
+  // looped stills into one background stream, joined by a hard-cut concat
+  // or a pairwise xfade chain. Ken Burns is intentionally skipped here —
+  // zoompan's frame math assumes one continuous still, which breaks across
+  // a cut/crossfade boundary.
+  static ({String inputs, List<String> filters, String outLabel, int count})
+      _bgCycleChain({
+    required int startIdx,
+    required int w,
+    required int h,
+    required List<({String path, double dur})> segments,
+    required BgTransitionStyle transition,
+    required double crossfadeDur,
+  }) {
+    var idx = startIdx;
+    final inputsBuf = StringBuffer();
+    final filters = <String>[];
+    final segLabels = <String>[];
+    for (var i = 0; i < segments.length; i++) {
+      final seg = segments[i];
+      inputsBuf
+          .write('-loop 1 -t ${seg.dur.toStringAsFixed(3)} -i "${seg.path}" ');
+      final segIdx = idx++;
+      final lbl = 'bgseg$i';
+      filters.add('[$segIdx:v]scale=$w:$h,fps=30,format=yuv420p[$lbl]');
+      segLabels.add(lbl);
+    }
+
+    if (transition == BgTransitionStyle.hardCut) {
+      final ins = segLabels.map((l) => '[$l]').join();
+      filters.add('${ins}concat=n=${segLabels.length}:v=1:a=0[bgv]');
+      return (
+        inputs: inputsBuf.toString(),
+        filters: filters,
+        outLabel: 'bgv',
+        count: idx - startIdx,
+      );
+    }
+
+    // Crossfade: chain xfade pairwise. Each transition's duration is clamped
+    // to whichever neighbouring slot is shorter, so a short switch interval
+    // can never ask xfade for more overlap than a slot actually has.
+    var running = segLabels[0];
+    var elapsed = segments[0].dur;
+    for (var i = 1; i < segLabels.length; i++) {
+      final safeDur =
+          min(crossfadeDur, min(segments[i - 1].dur, segments[i].dur) * 0.9)
+              .clamp(0.05, crossfadeDur);
+      final offset = max(0.0, elapsed - safeDur);
+      final outLbl = i == segLabels.length - 1 ? 'bgv' : 'bgx$i';
+      filters.add('[$running][${segLabels[i]}]xfade=transition=fade:'
+          'duration=${safeDur.toStringAsFixed(3)}:offset=${offset.toStringAsFixed(3)}[$outLbl]');
+      running = outLbl;
+      elapsed += segments[i].dur - safeDur;
+    }
+    return (
+      inputs: inputsBuf.toString(),
+      filters: filters,
+      outLabel: 'bgv',
+      count: idx - startIdx,
+    );
+  }
+
   static String _encodeParams() =>
       '-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p '
       '-c:a aac -ar 44100 -ac 2 -b:a 160k -movflags +faststart';
@@ -364,6 +586,7 @@ class ExportService {
     required double duration,
     required double clipStart,
     required String bgPng,
+    required List<({String path, double dur})>? bgSegments, // PATCH_S40_MULTI_BG_CYCLE
     required String? overlaySeqPattern,
     required String? overlayPng,
     required String? effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
@@ -387,8 +610,30 @@ class ExportService {
           '[$vIdx:v]scale=$w:$h:force_original_aspect_ratio=increase,'
           'crop=$w:$h,fps=30[v0]');
       if (state.chromaEnabled) {
-        inputs.write('-loop 1 -i "$bgPng" ');
-        final bgIdx = idx++;
+        // PATCH_S40_MULTI_BG_CYCLE: single bgPng (optionally Ken Burns —
+        // PATCH_S38_VIDEO_EFFECTS) or the cycling multi-bg chain, either way
+        // one [bgv] label to composite the keyed foreground onto.
+        String bgLabel;
+        if (bgSegments != null) {
+          final chain = _bgCycleChain(
+            startIdx: idx,
+            w: w,
+            h: h,
+            segments: bgSegments,
+            transition: state.bgTransitionStyle,
+            crossfadeDur: state.bgCrossfadeDuration,
+          );
+          inputs.write(chain.inputs);
+          idx += chain.count;
+          filters.addAll(chain.filters);
+          bgLabel = chain.outLabel;
+        } else {
+          inputs.write('-loop 1 -i "$bgPng" ');
+          final bgIdx = idx++;
+          filters.add(
+              '[$bgIdx:v]${_staticImageFilterChain(w, h, state.kenBurnsEnabled)}[bgv]');
+          bgLabel = 'bgv';
+        }
         final keyHex = _hex(state.chromaColor);
         final sim = (0.45 - (state.chromaThreshold - 40) / 100 * 0.30)
             .clamp(0.10, 0.45)
@@ -396,17 +641,35 @@ class ExportService {
         final blend =
             (state.chromaSoftness / 300).clamp(0.02, 0.30).toStringAsFixed(3);
         filters.add('[v0]chromakey=0x$keyHex:$sim:$blend[fg]');
-        filters.add('[$bgIdx:v]scale=$w:$h[bgv]');
-        filters.add('[bgv][fg]overlay=shortest=1[base]');
+        filters.add('[$bgLabel][fg]overlay=shortest=1[base]');
         base = 'base';
       } else {
         base = 'v0';
       }
     } else {
-      inputs.write('-loop 1 -t ${duration.toStringAsFixed(3)} -i "$bgPng" ');
-      final bgIdx = idx++;
-      filters.add('[$bgIdx:v]fps=30[base]');
-      base = 'base';
+      // PATCH_S40_MULTI_BG_CYCLE: same single-vs-cycling split for the
+      // no-video (static background) export.
+      if (bgSegments != null) {
+        final chain = _bgCycleChain(
+          startIdx: idx,
+          w: w,
+          h: h,
+          segments: bgSegments,
+          transition: state.bgTransitionStyle,
+          crossfadeDur: state.bgCrossfadeDuration,
+        );
+        inputs.write(chain.inputs);
+        idx += chain.count;
+        filters.addAll(chain.filters);
+        base = chain.outLabel;
+      } else {
+        inputs.write('-loop 1 -t ${duration.toStringAsFixed(3)} -i "$bgPng" ');
+        final bgIdx = idx++;
+        // PATCH_S38_VIDEO_EFFECTS: was a plain fps=30 — now optionally Ken Burns.
+        filters.add(
+            '[$bgIdx:v]${_staticImageFilterChain(w, h, state.kenBurnsEnabled)}[base]');
+        base = 'base';
+      }
     }
 
     // PATCH_S34_STAGE_EFFECTS: particle loop over the video/background,
@@ -469,8 +732,30 @@ class ExportService {
       idx++;
     }
 
+    // PATCH_S38_VIDEO_EFFECTS: color grade / vignette / grain, plus soft
+    // fades toward the bismillah/outro cards (which live in separate
+    // segments concatenated before/after this one — see export()), applied
+    // to the composited [outv] before mapping. Audio is untouched by all of
+    // this.
+    final post = _postFilterChain(state);
+    var outLabel = 'outv';
+    if (post.isNotEmpty) {
+      filters.add('[outv]$post[outv2]');
+      outLabel = 'outv2';
+    }
+    if (state.softTransitions && (state.showIntro || state.showOutro)) {
+      final fades = <String>[];
+      if (state.showIntro) fades.add('fade=t=in:st=0:d=0.4');
+      if (state.showOutro) {
+        final fadeOutStart = (duration - 0.4).clamp(0.0, double.infinity);
+        fades.add('fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.4');
+      }
+      filters.add('[$outLabel]${fades.join(',')}[outv3]');
+      outLabel = 'outv3';
+    }
+
     return '$inputs-filter_complex "${filters.join(';')}" '
-        '-map "[outv]" $audioMap $audioFilter '
+        '-map "[$outLabel]" $audioMap $audioFilter '
         '-t ${duration.toStringAsFixed(3)} ${_encodeParams()} "$outPath"';
   }
 
@@ -485,9 +770,21 @@ class ExportService {
       customBgPath: state.useCustomBg ? state.customBgPath : null,
     ));
     final mp4 = '${work.path}/$name.mp4';
+    // PATCH_S38_VIDEO_EFFECTS: same Ken Burns + color grade/vignette/grain
+    // as the main clip, plus a gentle fade in/out of its own when soft
+    // transitions are on — keeps the bismillah/outro consistent with the
+    // chosen look and less abrupt.
+    final vf = <String>[_staticImageFilterChain(w, h, state.kenBurnsEnabled)];
+    final post = _postFilterChain(state);
+    if (post.isNotEmpty) vf.add(post);
+    if (state.softTransitions) {
+      final fadeOutStart = (titleCardSec - 0.35).clamp(0.0, double.infinity);
+      vf.add('fade=t=in:st=0:d=0.35');
+      vf.add('fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.35');
+    }
     final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
         '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
-        '-vf fps=30 -map 0:v -map 1:a ${_encodeParams()} "$mp4"';
+        '-vf "${vf.join(',')}" -map 0:v -map 1:a ${_encodeParams()} "$mp4"';
     await _run(cmd, titleCardSec, null);
     return mp4;
   }

@@ -44,6 +44,14 @@ class TimelineBuilder {
   // bonus lets an expected ayah win a near-tie against an unrelated one.
   static const double contextMinConfidence = 0.22;
   static const double contextPriorBonus = 0.08;
+  // PATCH_S31_ACCURATE_SYNC: max gap (seconds) between two same-ayah pieces
+  // for them to be merged into one segment — keeps a repeated ayah heard
+  // much later in the clip from stretching a stale segment across the gap.
+  static const double mergeGapSec = 2.0;
+  // PATCH_S31_ACCURATE_SYNC: with real phrase timestamps the segments are no
+  // longer quantized to the 5s scan grid, so only genuinely small gaps
+  // (breath pauses / one garbled phrase) get bridged in normalization.
+  static const double bridgeGapSec = 3.0;
 
   // PATCH_S37_CANCEL_LONG_JOBS: lets the UI abort a long scan; checked once
   // per window so cancellation lands within ~1 window's processing time.
@@ -71,11 +79,23 @@ class TimelineBuilder {
 
     final tempDir = Directory.systemTemp.createTempSync('ayat_timeline');
     final timeline = <TimelineSegment>[];
-    // A borderline match (below highConfidence) only commits once the *next*
-    // window agrees on the same ayah too — one noisy window can clear
-    // minConfidence by chance, two in a row on the same ayah almost never do.
+    // PATCH_S31_ACCURATE_SYNC: a borderline match is held as `pending` and
+    // merged into one segment once a close-in-time piece agrees on the same
+    // ayah — but `pending` is never just discarded. It's flushed (committed
+    // as-is) on a real silence gap, when the recitation clearly moves to
+    // something else, and always at the end of the scan, so a partial ayah
+    // that never gets a confirming second piece still ends up in the
+    // timeline instead of silently vanishing.
     TimelineSegment? pending;
     var chunkIndex = 0;
+
+    void flushPending() {
+      final p = pending;
+      if (p != null) {
+        timeline.add(p);
+        pending = null;
+      }
+    }
 
     try {
       for (double t = 0; t < totalSec; t += stepSec) {
@@ -93,82 +113,118 @@ class TimelineBuilder {
 
         final slice = Int16List.sublistView(pcm, startSample, endSample);
         if (_rmsEnergy(slice) < vadSilenceRms) {
-          pending = null; // near-silent window — nothing to transcribe
+          flushPending(); // real gap in speech — whatever was pending is done
           continue;
         }
 
-        String text;
+        // PATCH_S31_ACCURATE_SYNC: ask Whisper for its own phrase-level
+        // timestamps within this window instead of treating the window as
+        // one opaque blob — this is what makes the on-screen timing track
+        // the real audio instead of drifting ahead of الشيخ.
+        final windowDurationSec = (endSample - startSample) / sampleRate;
+        WhisperTranscript transcript;
         try {
           final chunkPath = '${tempDir.path}/chunk_$chunkIndex.wav';
           _writeWavMono16(chunkPath, slice);
-          text = await WhisperService.transcribeWav(chunkPath);
+          transcript = await WhisperService.transcribeWavWithSegments(
+            chunkPath,
+            audioDurationSec: windowDurationSec,
+          );
           File(chunkPath).delete().ignore();
         } catch (_) {
           continue; // one failed window shouldn't kill the whole scan
         }
 
-        var match = matcher.match(text, minConfidence: minConfidence);
+        // Fall back to the whole window as a single piece if no per-phrase
+        // timestamps came back, so sync degrades to the old (still working)
+        // window-granularity behaviour instead of detecting nothing.
+        final pieces = transcript.segments.isNotEmpty
+            ? transcript.segments
+            : [TranscriptSegment(0, windowDurationSec, transcript.text)];
 
-        // PATCH_S35_SMARTER_DETECTION: when the corpus-wide search failed or
-        // stayed below the single-window commit bar, re-score just the ayat
-        // the mushaf order predicts here (current ayah continuing, next,
-        // next-after) with a relaxed threshold and a small prior bonus.
-        final anchor = timeline.isEmpty ? null : timeline.last.ayah;
-        if (anchor != null &&
-            (match == null || match.confidence < highConfidence)) {
-          final expected = _expectedNext(matcher.ayaat, anchor);
-          final ctx = matcher.matchAmong(text, expected,
-              minConfidence: contextMinConfidence);
-          if (ctx != null &&
-              (match == null ||
-                  identical(ctx.ayah, match.ayah) ||
-                  ctx.confidence + contextPriorBonus >= match.confidence)) {
-            match = ctx.confidence >= (match?.confidence ?? 0)
-                ? ctx
-                : AyahMatch(ctx.ayah, match!.confidence);
+        for (final piece in pieces) {
+          final text = piece.text.trim();
+          if (text.isEmpty) continue;
+          final absStart = t + piece.startSec;
+          final absEnd = max(absStart + 0.2, t + piece.endSec);
+
+          var match = matcher.match(text, minConfidence: minConfidence);
+
+          // PATCH_S35_SMARTER_DETECTION: when the corpus-wide search failed
+          // or stayed below the single-piece commit bar, re-score just the
+          // ayat the mushaf order predicts here (current ayah continuing,
+          // next, next-after) with a relaxed threshold and a prior bonus.
+          final anchor =
+              pending?.ayah ?? (timeline.isEmpty ? null : timeline.last.ayah);
+          if (anchor != null &&
+              (match == null || match.confidence < highConfidence)) {
+            final expected = _expectedNext(matcher.ayaat, anchor);
+            final ctx = matcher.matchAmong(text, expected,
+                minConfidence: contextMinConfidence);
+            if (ctx != null &&
+                (match == null ||
+                    identical(ctx.ayah, match.ayah) ||
+                    ctx.confidence + contextPriorBonus >= match.confidence)) {
+              match = ctx.confidence >= (match?.confidence ?? 0)
+                  ? ctx
+                  : AyahMatch(ctx.ayah, match!.confidence);
+            }
+          }
+
+          if (match == null) {
+            flushPending();
+            continue;
+          }
+
+          // Same ayah continuing close in time — extend the open segment.
+          // (The time bound keeps a repeated ayah heard much later in the
+          // clip from stretching a stale segment across the gap; using max()
+          // absorbs re-hearings from the overlapping scan windows.)
+          final p = pending;
+          if (p != null &&
+              identical(p.ayah, match.ayah) &&
+              absStart - p.end <= mergeGapSec) {
+            p.end = max(p.end, absEnd);
+            p.confidence = max(p.confidence, match.confidence);
+            // a close-in-time piece agrees — commit, backdated to where
+            // the ayah first appeared
+            flushPending();
+            continue;
+          }
+          final last = timeline.isEmpty ? null : timeline.last;
+          if (p == null &&
+              last != null &&
+              identical(last.ayah, match.ayah) &&
+              absStart - last.end <= mergeGapSec) {
+            last.end = max(last.end, absEnd);
+            last.confidence = max(last.confidence, match.confidence);
+            continue;
+          }
+
+          if (match.confidence >= highConfidence) {
+            flushPending();
+            timeline.add(TimelineSegment(
+                start: absStart,
+                end: absEnd,
+                ayah: match.ayah,
+                confidence: match.confidence));
+          } else {
+            // previous pending (if any) never got reconfirmed — commit it
+            // as-is rather than silently dropping it, then open the new one
+            flushPending();
+            pending = TimelineSegment(
+                start: absStart,
+                end: absEnd,
+                ayah: match.ayah,
+                confidence: match.confidence);
           }
         }
-
-        if (match == null) {
-          pending = null;
-          continue;
-        }
-
-        final last = timeline.isEmpty ? null : timeline.last;
-        if (last != null && identical(last.ayah, match.ayah)) {
-          // same ayah still being recited — extend the segment
-          last.end = t + chunkSec;
-          last.confidence = max(last.confidence, match.confidence);
-          pending = null;
-          continue;
-        }
-
-        if (match.confidence >= highConfidence) {
-          timeline.add(TimelineSegment(
-              start: t,
-              end: t + chunkSec,
-              ayah: match.ayah,
-              confidence: match.confidence));
-          pending = null;
-        } else if (pending != null && identical(pending.ayah, match.ayah)) {
-          // second window in a row agrees — commit, backdated to where the
-          // ayah first appeared
-          timeline.add(TimelineSegment(
-              start: pending.start,
-              end: t + chunkSec,
-              ayah: match.ayah,
-              confidence: max(pending.confidence, match.confidence)));
-          pending = null;
-        } else {
-          pending = TimelineSegment(
-              start: t,
-              end: t + chunkSec,
-              ayah: match.ayah,
-              confidence: match.confidence);
-        }
       }
-      // PATCH_S35_SMARTER_DETECTION: clean the step-grid quantization up and
-      // snap ayah boundaries to the reciter's breath pauses.
+      // PATCH_S31_ACCURATE_SYNC: a partial ayah still pending at the very
+      // end of the scan is real — commit it instead of dropping it.
+      flushPending();
+      // PATCH_S35_SMARTER_DETECTION: resolve overlaps/small gaps and snap
+      // ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
       _refineBoundaries(timeline, pcm);
     } finally {
@@ -186,18 +242,17 @@ class TimelineBuilder {
     return ayaat.sublist(i, min(ayaat.length, i + 3));
   }
 
-  /// PATCH_S35_SMARTER_DETECTION: resolves the 6s-window/5s-step grid
-  /// artifacts. Consecutive segments that overlap (the previous window
-  /// reached past where the next ayah was first heard) get split at the
-  /// midpoint of the overlap; small gaps (≤ one step — recitation is
-  /// continuous, the gap is just a window that matched nothing) are bridged
-  /// the same way. Public and pure so it's unit-testable.
+  /// PATCH_S35_SMARTER_DETECTION: consecutive segments that overlap (the
+  /// same audio re-heard by two overlapping scan windows) get split at the
+  /// midpoint of the overlap; small gaps (≤ [bridgeGapSec] — a breath pause
+  /// or one garbled phrase in a continuous recitation) are bridged the same
+  /// way. Public and pure so it's unit-testable.
   static void normalizeTimeline(
       List<TimelineSegment> timeline, double totalSec) {
     if (timeline.isEmpty) return;
     for (var i = 0; i + 1 < timeline.length; i++) {
       final a = timeline[i], b = timeline[i + 1];
-      if (a.end > b.start || b.start - a.end <= stepSec + 0.01) {
+      if (a.end > b.start || b.start - a.end <= bridgeGapSec + 0.01) {
         final mid = (a.end + b.start) / 2;
         a.end = mid;
         b.start = mid;

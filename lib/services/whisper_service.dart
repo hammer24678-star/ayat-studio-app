@@ -82,4 +82,55 @@ class WhisperService {
     );
     return result?.transcription.text.trim() ?? '';
   }
+
+  // PATCH_S31_ACCURATE_SYNC: same as transcribeWav, but also returns
+  // Whisper's own natural phrase-level segments with real timestamps, so
+  // the caller can time each detected ayah to when it was actually spoken
+  // instead of guessing from an outer scan window's fixed boundaries.
+  // whisper_ggml_plus types fromTs/toTs as Duration built from whisper.cpp's
+  // centisecond ticks (Duration(milliseconds: ts * 10) in the package
+  // source), i.e. real audio time — used directly, only clamped to the WAV
+  // we actually fed it.
+  static Future<WhisperTranscript> transcribeWavWithSegments(
+    String wavPath, {
+    required double audioDurationSec,
+    void Function(String status)? onStatus,
+  }) async {
+    await ensureReady(onStatus: onStatus);
+    onStatus?.call('جارٍ التعرّف على الكلام…');
+    final result = await _controller.transcribe(
+      model: _model,
+      audioPath: wavPath,
+      lang: 'ar',
+      withTimestamps: true,
+    );
+    final text = result?.transcription.text.trim() ?? '';
+    final rawSegments = result?.transcription.segments ?? const [];
+    final segments = <TranscriptSegment>[
+      for (final s in rawSegments)
+        if (s.text.trim().isNotEmpty)
+          TranscriptSegment(
+            (s.fromTs.inMilliseconds / 1000.0).clamp(0.0, audioDurationSec),
+            (s.toTs.inMilliseconds / 1000.0).clamp(0.0, audioDurationSec),
+            s.text.trim(),
+          ),
+    ];
+    return WhisperTranscript(text, segments);
+  }
+}
+
+// PATCH_S31_ACCURATE_SYNC: one of Whisper's own natural phrase-level
+// segments, with timestamps in seconds relative to the start of the WAV it
+// was given.
+class TranscriptSegment {
+  final double startSec;
+  final double endSec;
+  final String text;
+  TranscriptSegment(this.startSec, this.endSec, this.text);
+}
+
+class WhisperTranscript {
+  final String text;
+  final List<TranscriptSegment> segments;
+  WhisperTranscript(this.text, this.segments);
 }

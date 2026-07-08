@@ -68,7 +68,7 @@ void main() {
     test('bridges small gaps but leaves real silence gaps alone', () {
       final t = [
         seg(corpus[0], 0, 6),
-        seg(corpus[1], 9, 15), // 3s gap (< step) — bridged
+        seg(corpus[1], 9, 15), // 3s gap (≤ bridgeGapSec) — bridged
         seg(corpus[2], 30, 36), // 15s gap — real pause, untouched
       ];
       TimelineBuilder.normalizeTimeline(t, 60);

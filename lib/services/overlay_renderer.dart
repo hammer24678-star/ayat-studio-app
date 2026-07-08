@@ -242,6 +242,36 @@ class OverlayRenderer {
             w * 0.86 + padX * 0.4, totalH + padY * 2);
         if (style.extra == FrameExtra.boxed) {
           canvas.drawRect(rect, Paint()..color = const Color(0x80050F0D));
+        } else if (style.extra == FrameExtra.glass) {
+          // PATCH_S38_VIDEO_EFFECTS: simulated frosted-glass panel — no real
+          // blur (that would need the background pixels, which this headless
+          // overlay renderer never sees), just layered translucency + a thin
+          // top highlight, which reads as glass at these sizes for free.
+          final rrect =
+              RRect.fromRectAndRadius(rect, Radius.circular(14 * scale));
+          canvas.drawRRect(
+              rrect,
+              Paint()
+                ..shader = LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.fromRGBO(255, 255, 255, 0.10 * opacity),
+                    Color.fromRGBO(255, 255, 255, 0.03 * opacity),
+                  ],
+                ).createShader(rect));
+          canvas.drawRRect(
+              rrect,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 1 * scale
+                ..color = Color.fromRGBO(255, 255, 255, 0.20 * opacity));
+          canvas.drawLine(
+              Offset(rect.left + 10 * scale, rect.top + 1 * scale),
+              Offset(rect.right - 10 * scale, rect.top + 1 * scale),
+              Paint()
+                ..strokeWidth = 1 * scale
+                ..color = Color.fromRGBO(255, 255, 255, 0.35 * opacity));
         } else {
           canvas.drawRect(
               rect,

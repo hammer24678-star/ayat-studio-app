@@ -46,6 +46,24 @@ class StudioState extends ChangeNotifier {
   StageEffect effect = StageEffect.none;
   double effectIntensity = 0.7; // 0.2..1.0
 
+  // ---- PATCH_S38_VIDEO_EFFECTS: export-time video effects (never audio) ----
+  ColorGrade colorGrade = ColorGrade.none;
+  bool vignetteEnabled = false;
+  int vignetteIntensity = 50; // 0..100
+  bool grainEnabled = false;
+  int grainIntensity = 30; // 0..100
+  bool kenBurnsEnabled = false; // slow zoom on background images only, never on uploaded video
+  bool softTransitions = true; // fade in/out around bismillah/outro cards instead of a hard cut
+
+  // ---- PATCH_S40_MULTI_BG_CYCLE: cycling 2+ preset backgrounds, export-time only ----
+  bool multiBgEnabled = false;
+  List<int> multiBgIndexes = []; // indexes into kBackgrounds, cycle order = selection order
+  BgSwitchTrigger bgSwitchTrigger = BgSwitchTrigger.seconds;
+  int bgSwitchAyahs = 3; // 1..10, needs an active auto-sync timeline
+  int bgSwitchSeconds = 8; // 3..30
+  BgTransitionStyle bgTransitionStyle = BgTransitionStyle.hardCut;
+  double bgCrossfadeDuration = 0.6; // 0.2..3.0s, only used when transition is crossfade
+
   // ---- PATCH_S34_PLAYER_CONTROLS_TRIM: manual cut (seconds, free-range) ----
   // Unlike the ayah-boundary trim below, this cuts anywhere. -1 end = unset.
   double trimManualStart = 0;

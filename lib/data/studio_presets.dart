@@ -6,7 +6,37 @@ import 'package:flutter/material.dart';
 
 enum AyahTextPosition { top, center, bottom }
 
-enum FrameExtra { none, boxed, framed }
+enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass = frosted-panel look
+
+// PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see
+// ExportService._colorGradeFilter for the ffmpeg filter each one maps to.
+// Purely visual, never touches audio.
+enum ColorGrade { none, warmGold, nightTeal, sepia, softMono }
+
+const List<(ColorGrade, String)> kColorGrades = [
+  (ColorGrade.none, 'بدون تدرّج لوني'),
+  (ColorGrade.warmGold, 'ذهبي دافئ'),
+  (ColorGrade.nightTeal, 'ليلي هادئ'),
+  (ColorGrade.sepia, 'سيبيا كلاسيكي'),
+  (ColorGrade.softMono, 'أبيض وأسود ناعم'),
+];
+
+// PATCH_S40_MULTI_BG_CYCLE: user-editable auto-switching multi-background
+// export. Purely export-time, exactly like the S38 effects above — see
+// ExportService for the ffmpeg concat/xfade chain this drives.
+enum BgSwitchTrigger { ayahs, seconds }
+
+enum BgTransitionStyle { hardCut, crossfade }
+
+const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
+  (BgSwitchTrigger.ayahs, 'كل عدد آيات'),
+  (BgSwitchTrigger.seconds, 'كل عدد ثوانٍ'),
+];
+
+const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
+  (BgTransitionStyle.hardCut, 'قطع مباشر'),
+  (BgTransitionStyle.crossfade, 'تلاشٍ متداخل'),
+];
 
 class BgDef {
   final bool radial;
@@ -120,6 +150,14 @@ const List<AyahTemplate> kTemplates = [
       extra: FrameExtra.framed,
       fontKey: 'ruqaa',
       color: Color(0xFFECC875)),
+  // PATCH_S38_VIDEO_EFFECTS
+  AyahTemplate(
+      name: 'زجاج مصنفر أنيق',
+      desc: 'لوحة شبه شفافة بلمسة زجاجية عصرية أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.glass,
+      fontKey: 'amiri',
+      color: Color(0xFFFFFFFF)),
 ];
 
 const List<Color> kTextColors = [

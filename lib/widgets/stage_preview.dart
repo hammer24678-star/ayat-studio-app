@@ -380,6 +380,18 @@ class _StagePreviewState extends State<StagePreview>
       deco = BoxDecoration(
         border: Border.all(color: const Color(0xE6C9A24B), width: 1.5),
       );
+    } else if (state.extra == FrameExtra.glass) {
+      // PATCH_S38_VIDEO_EFFECTS: live-preview twin of the export renderer's
+      // frosted-glass panel (layered translucency, no real blur).
+      deco = BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x1AFFFFFF), Color(0x08FFFFFF)],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0x33FFFFFF), width: 1),
+      );
     }
     return Align(
       alignment: Alignment(0, alignY),

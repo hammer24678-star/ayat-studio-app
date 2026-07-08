@@ -35,9 +35,12 @@ class SettingsService {
       state.squareRatio = read<bool>('squareRatio') ?? state.squareRatio;
       state.templateIndex = (read<int>('templateIndex') ?? state.templateIndex)
           .clamp(0, kTemplates.length - 1);
-      // only built-in fonts survive a restart (uploaded ones need re-loading)
+      // PATCH_S39_PERSISTENT_FONTS: uploaded fonts are re-registered at
+      // startup (FontService.loadSavedFonts, before restore() is called),
+      // so any font the app currently knows — built-in or imported — is a
+      // valid persisted choice.
       final fontKey = read<String>('fontKey');
-      if (fontKey != null && kBuiltInFonts.any((f) => f.key == fontKey)) {
+      if (fontKey != null && state.allFonts.any((f) => f.key == fontKey)) {
         state.fontKey = fontKey;
       }
       state.ayahFontSize =
@@ -71,6 +74,56 @@ class SettingsService {
           (read<int>('staticDurationSec') ?? state.staticDurationSec)
               .clamp(2, 60);
       state.aiArtEnabled = read<bool>('aiArtEnabled') ?? state.aiArtEnabled;
+      // PATCH_S38_VIDEO_EFFECTS
+      final grade = read<int>('colorGrade');
+      if (grade != null && grade >= 0 && grade < ColorGrade.values.length) {
+        state.colorGrade = ColorGrade.values[grade];
+      }
+      state.vignetteEnabled =
+          read<bool>('vignetteEnabled') ?? state.vignetteEnabled;
+      state.vignetteIntensity =
+          (read<int>('vignetteIntensity') ?? state.vignetteIntensity)
+              .clamp(0, 100);
+      state.grainEnabled = read<bool>('grainEnabled') ?? state.grainEnabled;
+      state.grainIntensity =
+          (read<int>('grainIntensity') ?? state.grainIntensity).clamp(0, 100);
+      state.kenBurnsEnabled =
+          read<bool>('kenBurnsEnabled') ?? state.kenBurnsEnabled;
+      state.softTransitions =
+          read<bool>('softTransitions') ?? state.softTransitions;
+      // PATCH_S40_MULTI_BG_CYCLE
+      state.multiBgEnabled =
+          read<bool>('multiBgEnabled') ?? state.multiBgEnabled;
+      final multiBg = read<List<Object?>>('multiBgIndexes');
+      if (multiBg != null) {
+        state.multiBgIndexes = [
+          for (final v in multiBg)
+            if (v is String &&
+                int.tryParse(v) != null &&
+                int.parse(v) >= 0 &&
+                int.parse(v) < kBackgrounds.length)
+              int.parse(v),
+        ];
+      }
+      final trigger = read<int>('bgSwitchTrigger');
+      if (trigger != null &&
+          trigger >= 0 &&
+          trigger < BgSwitchTrigger.values.length) {
+        state.bgSwitchTrigger = BgSwitchTrigger.values[trigger];
+      }
+      state.bgSwitchAyahs =
+          (read<int>('bgSwitchAyahs') ?? state.bgSwitchAyahs).clamp(1, 10);
+      state.bgSwitchSeconds =
+          (read<int>('bgSwitchSeconds') ?? state.bgSwitchSeconds).clamp(3, 30);
+      final transition = read<int>('bgTransitionStyle');
+      if (transition != null &&
+          transition >= 0 &&
+          transition < BgTransitionStyle.values.length) {
+        state.bgTransitionStyle = BgTransitionStyle.values[transition];
+      }
+      state.bgCrossfadeDuration =
+          (read<double>('bgCrossfadeDuration') ?? state.bgCrossfadeDuration)
+              .clamp(0.2, 3.0);
     });
   }
 
@@ -102,6 +155,23 @@ class SettingsService {
       p.setString('${_prefix}outroText', state.outroText),
       p.setInt('${_prefix}staticDurationSec', state.staticDurationSec),
       p.setBool('${_prefix}aiArtEnabled', state.aiArtEnabled),
+      // PATCH_S38_VIDEO_EFFECTS
+      p.setInt('${_prefix}colorGrade', state.colorGrade.index),
+      p.setBool('${_prefix}vignetteEnabled', state.vignetteEnabled),
+      p.setInt('${_prefix}vignetteIntensity', state.vignetteIntensity),
+      p.setBool('${_prefix}grainEnabled', state.grainEnabled),
+      p.setInt('${_prefix}grainIntensity', state.grainIntensity),
+      p.setBool('${_prefix}kenBurnsEnabled', state.kenBurnsEnabled),
+      p.setBool('${_prefix}softTransitions', state.softTransitions),
+      // PATCH_S40_MULTI_BG_CYCLE
+      p.setBool('${_prefix}multiBgEnabled', state.multiBgEnabled),
+      p.setStringList('${_prefix}multiBgIndexes',
+          [for (final i in state.multiBgIndexes) '$i']),
+      p.setInt('${_prefix}bgSwitchTrigger', state.bgSwitchTrigger.index),
+      p.setInt('${_prefix}bgSwitchAyahs', state.bgSwitchAyahs),
+      p.setInt('${_prefix}bgSwitchSeconds', state.bgSwitchSeconds),
+      p.setInt('${_prefix}bgTransitionStyle', state.bgTransitionStyle.index),
+      p.setDouble('${_prefix}bgCrossfadeDuration', state.bgCrossfadeDuration),
     ]);
   }
 }

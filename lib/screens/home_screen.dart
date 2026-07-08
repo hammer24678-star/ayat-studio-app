@@ -6,11 +6,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data' show ByteData;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -19,6 +17,7 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
 import '../services/export_service.dart';
+import '../services/font_service.dart'; // PATCH_S39_PERSISTENT_FONTS
 import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import '../services/media_service.dart';
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
@@ -60,7 +59,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _settingsRestored = false;
 
   int _selectedTab = 0;
-  int _customFontCounter = 0;
   int _selectedSurah = 1;
 
   final _customArCtrl = TextEditingController();
@@ -93,9 +91,17 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _syncTimer = Timer.periodic(
         const Duration(milliseconds: 100), (_) => _tickAutoSync());
-    // PATCH_S37_PERSISTENT_SETTINGS: reopen the studio the way it was left,
-    // then start auto-saving style changes (debounced).
-    SettingsService.restore(state).then((_) {
+    // PATCH_S39_PERSISTENT_FONTS: re-register previously imported fonts
+    // FIRST, so a persisted fontKey pointing at one of them validates —
+    // PATCH_S37_PERSISTENT_SETTINGS then reopens the studio the way it was
+    // left and starts auto-saving style changes (debounced).
+    FontService.loadSavedFonts().then((fonts) async {
+      if (!mounted) return;
+      if (fonts.isNotEmpty) {
+        state.customFonts.addAll(fonts
+            .where((f) => state.allFonts.every((e) => e.key != f.key)));
+      }
+      await SettingsService.restore(state);
       if (!mounted) return;
       _settingsRestored = true;
       _outroCtrl.text = state.outroText;
@@ -496,17 +502,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final file = res?.files.single;
     if (file?.path == null) return;
     try {
-      final bytes = await File(file!.path!).readAsBytes();
-      _customFontCounter++;
-      final family = 'CustomAyahFont$_customFontCounter';
-      final loader = FontLoader(family)
-        ..addFont(Future.value(ByteData.view(bytes.buffer)));
-      await loader.load();
+      // PATCH_S39_PERSISTENT_FONTS: the font is copied into app storage and
+      // re-registered on every launch — pick Elgharib-NoonHafs.ttf (or any
+      // Quran font) once and it stays the selected font permanently.
+      final choice = await FontService.importFont(file!.path!, file.name);
       state.update(() {
-        state.customFonts.add(AyahFontChoice(family, 'خط مخصص: ${file.name}'));
-        state.fontKey = family;
+        state.customFonts.removeWhere((f) => f.key == choice.key);
+        state.customFonts.add(choice);
+        state.fontKey = choice.key;
       });
-      _toast('تم رفع الخط وتطبيقه على الآية ✓');
+      _toast('تم حفظ الخط وتطبيقه — سيبقى متاحًا بعد إغلاق التطبيق ✓');
     } catch (_) {
       _toast('تعذّر تحميل هذا الملف كخط — تأكد أنه TTF أو OTF صالح');
     }
@@ -1224,6 +1229,70 @@ class _HomeScreenState extends State<HomeScreen> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
+        // PATCH_S38_VIDEO_EFFECTS
+        const Divider(height: 32, color: AyatColors.hairline),
+        _panelTitle('تأثيرات التصدير',
+            'كل ما هنا يُطبَّق أثناء التصدير فقط (لا يبطئ المعاينة المباشرة)، وهو بصري بحت — لا يغيّر صوت التلاوة إطلاقًا.'),
+        _fieldLabel('تدرّج لوني'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in kColorGrades)
+              ChoiceChip(
+                label: Text(entry.$2),
+                selected: state.colorGrade == entry.$1,
+                onSelected: (_) =>
+                    state.update(() => state.colorGrade = entry.$1),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ToggleRow(
+          label: 'تظليل الحواف (فينيت)',
+          value: state.vignetteEnabled,
+          onChanged: (v) => state.update(() => state.vignetteEnabled = v),
+        ),
+        if (state.vignetteEnabled)
+          Slider(
+            value: state.vignetteIntensity.toDouble(),
+            min: 0,
+            max: 100,
+            onChanged: (v) =>
+                state.update(() => state.vignetteIntensity = v.round()),
+          ),
+        ToggleRow(
+          label: 'حبيبات سينمائية',
+          value: state.grainEnabled,
+          onChanged: (v) => state.update(() => state.grainEnabled = v),
+        ),
+        if (state.grainEnabled)
+          Slider(
+            value: state.grainIntensity.toDouble(),
+            min: 0,
+            max: 100,
+            onChanged: (v) =>
+                state.update(() => state.grainIntensity = v.round()),
+          ),
+        ToggleRow(
+          label: 'تكبير بطيء للخلفية (كين برنز)',
+          value: state.kenBurnsEnabled,
+          onChanged: (v) => state.update(() => state.kenBurnsEnabled = v),
+        ),
+        Text(
+          'يُطبَّق على الخلفية فقط (جاهزة، طبيعية، فن ذكاء اصطناعي، أو مخصّصة) — لا يُطبَّق أبدًا على فيديو التلاوة المرفوع نفسه.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        ToggleRow(
+          label: 'انتقالات ناعمة حول البسملة والخاتمة',
+          value: state.softTransitions,
+          onChanged: (v) => state.update(() => state.softTransitions = v),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'ملاحظة: قالب «زجاج مصنفر أنيق» الجديد (تبويب قوالب) يستخدم لوحة نص زجاجية — جرّبه مع هذه التأثيرات.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
       ],
     );
   }
@@ -1434,6 +1503,146 @@ class _HomeScreenState extends State<HomeScreen> {
           value: state.bgAnimated,
           onChanged: (v) => state.update(() => state.bgAnimated = v),
         ),
+        // PATCH_S40_MULTI_BG_CYCLE
+        const Divider(height: 32, color: AyatColors.hairline),
+        ToggleRow(
+          label: 'خلفيات متعددة (تبديل تلقائي أثناء التصدير)',
+          value: state.multiBgEnabled,
+          onChanged: (v) => state.update(() => state.multiBgEnabled = v),
+        ),
+        if (state.multiBgEnabled) ...[
+          const SizedBox(height: 6),
+          Text(
+            'اضغط على خلفيتين أو أكثر بالترتيب الذي تريد التبديل بينه؛ الرقم على كل خلفية مختارة هو ترتيبها في الدورة. يظهر التبديل في الفيديو المُصدَّر فقط — المعاينة المباشرة تعرض الخلفية المحددة أعلاه. الخلفيات المخصصة/فن الذكاء الاصطناعي تبقى خلفية واحدة.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: AyatColors.goldBright),
+          ),
+          const SizedBox(height: 10),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 11,
+            crossAxisSpacing: 11,
+            childAspectRatio: 9 / 13,
+            children: [
+              for (var i = 0; i < kBackgrounds.length; i++)
+                GestureDetector(
+                  onTap: () => state.update(() {
+                    if (state.multiBgIndexes.contains(i)) {
+                      state.multiBgIndexes.remove(i);
+                    } else {
+                      state.multiBgIndexes.add(i);
+                    }
+                  }),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: kBackgrounds[i].gradient,
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(
+                        color: state.multiBgIndexes.contains(i)
+                            ? AyatColors.goldBright
+                            : Colors.white.withValues(alpha: 0.05),
+                        width: state.multiBgIndexes.contains(i) ? 2 : 1,
+                      ),
+                    ),
+                    alignment: Alignment.topLeft,
+                    padding: const EdgeInsets.all(8),
+                    child: state.multiBgIndexes.contains(i)
+                        ? CircleAvatar(
+                            radius: 11,
+                            backgroundColor: AyatColors.goldBright,
+                            child: Text(
+                              '${state.multiBgIndexes.indexOf(i) + 1}',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+            ],
+          ),
+          if (state.multiBgIndexes.length < 2) ...[
+            const SizedBox(height: 6),
+            Text('اختر خلفيتين على الأقل ليعمل التبديل.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: AyatColors.parchmentDim)),
+          ],
+          const SizedBox(height: 12),
+          _fieldLabel('التبديل'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in kBgSwitchTriggers)
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: state.bgSwitchTrigger == entry.$1,
+                  onSelected: (_) =>
+                      state.update(() => state.bgSwitchTrigger = entry.$1),
+                ),
+            ],
+          ),
+          if (state.bgSwitchTrigger == BgSwitchTrigger.ayahs) ...[
+            const SizedBox(height: 8),
+            _fieldLabel(
+                'كل ${state.bgSwitchAyahs} آية/آيات (يتطلب مزامنة تلقائية، وإلا يُستخدم التبديل بالثواني)'),
+            Slider(
+              value: state.bgSwitchAyahs.toDouble(),
+              min: 1,
+              max: 10,
+              divisions: 9,
+              onChanged: (v) =>
+                  state.update(() => state.bgSwitchAyahs = v.round()),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            _fieldLabel('كل ${state.bgSwitchSeconds} ثانية'),
+            Slider(
+              value: state.bgSwitchSeconds.toDouble(),
+              min: 3,
+              max: 30,
+              divisions: 27,
+              onChanged: (v) =>
+                  state.update(() => state.bgSwitchSeconds = v.round()),
+            ),
+          ],
+          const SizedBox(height: 8),
+          _fieldLabel('طريقة الانتقال'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in kBgTransitionStyles)
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: state.bgTransitionStyle == entry.$1,
+                  onSelected: (_) =>
+                      state.update(() => state.bgTransitionStyle = entry.$1),
+                ),
+            ],
+          ),
+          if (state.bgTransitionStyle == BgTransitionStyle.crossfade) ...[
+            const SizedBox(height: 8),
+            _fieldLabel(
+                'مدة التلاشي: ${state.bgCrossfadeDuration.toStringAsFixed(1)} ثانية'),
+            Slider(
+              value: state.bgCrossfadeDuration,
+              min: 0.2,
+              max: 3.0,
+              divisions: 28,
+              onChanged: (v) =>
+                  state.update(() => state.bgCrossfadeDuration = v),
+            ),
+          ],
+        ],
         // PATCH_S32_AI_ART_NANO_BANANA
         const Divider(height: 32, color: AyatColors.hairline),
         ToggleRow(
@@ -1755,6 +1964,12 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: _pickCustomFont,
           icon: const Icon(Icons.font_download_outlined, size: 18),
           label: const Text('رفع خط مخصص (TTF/OTF)'),
+        ),
+        const SizedBox(height: 6),
+        // PATCH_S39_PERSISTENT_FONTS
+        Text(
+          'الخطوط المرفوعة تُحفظ داخل التطبيق وتبقى متاحة ومحددة بعد إغلاقه — ارفع خط المصحف المفضل لديك (مثل الغريب نون حفص) مرة واحدة فقط.',
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
         _fieldLabel('حجم خط الآية'),
         Slider(
