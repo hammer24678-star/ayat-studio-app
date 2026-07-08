@@ -56,6 +56,16 @@ class StudioState extends ChangeNotifier {
   bool kenBurnsEnabled = false; // slow zoom on background images only, never on uploaded video
   bool softTransitions = true; // fade in/out around bismillah/outro cards instead of a hard cut
 
+  // ---- PATCH_S54_PRO_EXPORT_CONTROLS ----
+  VideoFitMode videoFit = VideoFitMode.source;
+  int videoRotationQuarterTurns = 0; // 0..3, clockwise
+  bool videoMirror = false;
+  ExportQuality exportQuality = ExportQuality.high;
+  ExportResolutionCap exportResolution = ExportResolutionCap.source;
+  double audioVolume = 1.0; // 0.0..2.0, applied to whichever track is exported
+  bool audioFadeIn = false;
+  bool audioFadeOut = false;
+
   // ---- PATCH_S40_MULTI_BG_CYCLE: cycling 2+ preset backgrounds, export-time only ----
   bool multiBgEnabled = false;
   List<int> multiBgIndexes = []; // indexes into kBackgrounds, cycle order = selection order
@@ -235,6 +245,9 @@ class StudioState extends ChangeNotifier {
     videoDurationSec = 0;
     trimManualStart = 0;
     trimManualEnd = -1;
+    // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror are per-clip fixes.
+    videoRotationQuarterTurns = 0;
+    videoMirror = false;
     notifyListeners();
   }
 

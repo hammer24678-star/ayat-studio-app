@@ -157,6 +157,27 @@ class SettingsService {
       state.bgCrossfadeDuration =
           (read<double>('bgCrossfadeDuration') ?? state.bgCrossfadeDuration)
               .clamp(0.2, 3.0);
+      // PATCH_S54_PRO_EXPORT_CONTROLS (rotation/mirror are per-clip — not saved)
+      final fit = read<int>('videoFit');
+      if (fit != null && fit >= 0 && fit < VideoFitMode.values.length) {
+        state.videoFit = VideoFitMode.values[fit];
+      }
+      final quality = read<int>('exportQuality');
+      if (quality != null &&
+          quality >= 0 &&
+          quality < ExportQuality.values.length) {
+        state.exportQuality = ExportQuality.values[quality];
+      }
+      final res = read<int>('exportResolution');
+      if (res != null &&
+          res >= 0 &&
+          res < ExportResolutionCap.values.length) {
+        state.exportResolution = ExportResolutionCap.values[res];
+      }
+      state.audioVolume =
+          (read<double>('audioVolume') ?? state.audioVolume).clamp(0.0, 2.0);
+      state.audioFadeIn = read<bool>('audioFadeIn') ?? state.audioFadeIn;
+      state.audioFadeOut = read<bool>('audioFadeOut') ?? state.audioFadeOut;
     });
   }
 
@@ -219,6 +240,13 @@ class SettingsService {
       p.setInt('${_prefix}bgSwitchSeconds', state.bgSwitchSeconds),
       p.setInt('${_prefix}bgTransitionStyle', state.bgTransitionStyle.index),
       p.setDouble('${_prefix}bgCrossfadeDuration', state.bgCrossfadeDuration),
+      // PATCH_S54_PRO_EXPORT_CONTROLS
+      p.setInt('${_prefix}videoFit', state.videoFit.index),
+      p.setInt('${_prefix}exportQuality', state.exportQuality.index),
+      p.setInt('${_prefix}exportResolution', state.exportResolution.index),
+      p.setDouble('${_prefix}audioVolume', state.audioVolume),
+      p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
+      p.setBool('${_prefix}audioFadeOut', state.audioFadeOut),
     ]);
   }
 }

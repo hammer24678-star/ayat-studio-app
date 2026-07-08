@@ -50,6 +50,37 @@ const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
   (BgTransitionStyle.crossfade, 'تلاشٍ متداخل'),
 ];
 
+// PATCH_S54_PRO_EXPORT_CONTROLS: how an uploaded video maps onto the chosen
+// aspect-ratio canvas. `source` keeps the old behaviour (export at the
+// video's own size); the other two export at the ratio picker's canvas —
+// fillCrop center-crops to fill it, fitBlur letterboxes the whole frame
+// over a blurred, darkened copy of itself (the classic reels look).
+enum VideoFitMode { source, fillCrop, fitBlur }
+
+const List<(VideoFitMode, String)> kVideoFitModes = [
+  (VideoFitMode.source, 'بحجم الفيديو الأصلي'),
+  (VideoFitMode.fillCrop, 'ملء الإطار (قص)'),
+  (VideoFitMode.fitBlur, 'احتواء + خلفية ضبابية'),
+];
+
+// PATCH_S54_PRO_EXPORT_CONTROLS: encoder quality tiers (x264 CRF + AAC
+// bitrate) and an optional output resolution cap.
+enum ExportQuality { high, balanced, compact }
+
+const List<(ExportQuality, String)> kExportQualities = [
+  (ExportQuality.high, 'جودة قصوى'),
+  (ExportQuality.balanced, 'متوازن'),
+  (ExportQuality.compact, 'حجم أصغر'),
+];
+
+enum ExportResolutionCap { source, hd1080, hd720 }
+
+const List<(ExportResolutionCap, String)> kExportResolutions = [
+  (ExportResolutionCap.source, 'دقة المصدر'),
+  (ExportResolutionCap.hd1080, '1080p'),
+  (ExportResolutionCap.hd720, '720p'),
+];
+
 class BgDef {
   final bool radial;
   final List<Color> stops;

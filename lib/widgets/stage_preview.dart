@@ -198,13 +198,24 @@ class _StagePreviewState extends State<StagePreview>
                     },
                   ),
                 if (videoReady)
+                  // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror preview,
+                  // and contain-fit when «احتواء + خلفية ضبابية» is chosen
+                  // (the blurred fill itself is rendered in the export).
                   FittedBox(
-                    fit: BoxFit.cover,
+                    fit: state.videoFit == VideoFitMode.fitBlur
+                        ? BoxFit.contain
+                        : BoxFit.cover,
                     clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: controller.value.size.width,
-                      height: controller.value.size.height,
-                      child: VideoPlayer(controller),
+                    child: RotatedBox(
+                      quarterTurns: state.videoRotationQuarterTurns,
+                      child: Transform.flip(
+                        flipX: state.videoMirror,
+                        child: SizedBox(
+                          width: controller.value.size.width,
+                          height: controller.value.size.height,
+                          child: VideoPlayer(controller),
+                        ),
+                      ),
                     ),
                   ),
                 // PATCH_S34_STAGE_EFFECTS: particles over the video/background,

@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
     (Icons.graphic_eq, 'قرّاء'),
     (Icons.grid_view_outlined, 'قوالب'),
     (Icons.text_fields, 'النص'),
+    (Icons.video_settings_outlined, 'تصدير'), // PATCH_S54_PRO_EXPORT_CONTROLS
   ];
 
   @override
@@ -1606,8 +1607,121 @@ class _HomeScreenState extends State<HomeScreen> {
         3 => _chromaPanel(),
         4 => _recitersPanel(),
         5 => _templatesPanel(),
-        _ => _textPanel(),
+        6 => _textPanel(),
+        _ => _exportPanel(), // PATCH_S54_PRO_EXPORT_CONTROLS
       },
+    );
+  }
+
+  // ------------------------------------------------------------ tab: تصدير
+  // PATCH_S54_PRO_EXPORT_CONTROLS
+
+  Widget _exportPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _panelTitle('إعدادات التصدير',
+            'تحكّم احترافي في الإخراج النهائي — وبلا أي شعار أو علامة مائية أبدًا.'),
+        if (state.hasVideo) ...[
+          _fieldLabel(
+              'ملاءمة الفيديو مع إطار ${kAspectRatios.firstWhere((r) => r.$1 == state.aspectRatio).$2}'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in kVideoFitModes)
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: state.videoFit == entry.$1,
+                  onSelected: (_) =>
+                      state.update(() => state.videoFit = entry.$1),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '«احتواء + خلفية ضبابية» يعرض الفيديو كاملًا فوق نسخة ضبابية منه تملأ الإطار (مظهر الريلز الشهير). المعاينة تعرض الاحتواء، والضبابية تُرسم في الفيديو المُصدَّر.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          _fieldLabel('تدوير وقلب الفيديو'),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => state.update(() =>
+                    state.videoRotationQuarterTurns =
+                        (state.videoRotationQuarterTurns + 1) % 4),
+                icon:
+                    const Icon(Icons.rotate_90_degrees_cw_outlined, size: 18),
+                label: Text(state.videoRotationQuarterTurns == 0
+                    ? 'تدوير 90°'
+                    : 'تدوير: ${state.videoRotationQuarterTurns * 90}°'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    state.update(() => state.videoMirror = !state.videoMirror),
+                icon: const Icon(Icons.flip, size: 18),
+                label: Text(state.videoMirror ? 'مقلوب ✓' : 'قلب أفقي'),
+              ),
+            ],
+          ),
+          const Divider(height: 32, color: AyatColors.hairline),
+        ],
+        _fieldLabel('جودة الترميز'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in kExportQualities)
+              ChoiceChip(
+                label: Text(entry.$2),
+                selected: state.exportQuality == entry.$1,
+                onSelected: (_) =>
+                    state.update(() => state.exportQuality = entry.$1),
+              ),
+          ],
+        ),
+        _fieldLabel('دقة الإخراج'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in kExportResolutions)
+              ChoiceChip(
+                label: Text(entry.$2),
+                selected: state.exportResolution == entry.$1,
+                onSelected: (_) =>
+                    state.update(() => state.exportResolution = entry.$1),
+              ),
+          ],
+        ),
+        const Divider(height: 32, color: AyatColors.hairline),
+        Text('صوت التلاوة في المقطع المُصدَّر',
+            style: Theme.of(context).textTheme.headlineMedium),
+        _fieldLabel('مستوى الصوت: ${(state.audioVolume * 100).round()}٪'),
+        Slider(
+          value: state.audioVolume,
+          min: 0.0,
+          max: 2.0,
+          divisions: 40,
+          onChanged: (v) => state.update(() => state.audioVolume = v),
+        ),
+        ToggleRow(
+          label: 'دخول تدريجي للصوت (ثانية واحدة)',
+          value: state.audioFadeIn,
+          onChanged: (v) => state.update(() => state.audioFadeIn = v),
+        ),
+        ToggleRow(
+          label: 'خفوت تدريجي في نهاية المقطع',
+          value: state.audioFadeOut,
+          onChanged: (v) => state.update(() => state.audioFadeOut = v),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'تُطبَّق هذه الإعدادات على المسار الصوتي المُصدَّر أيًّا كان مصدره (تلاوة مرفقة أو صوت الفيديو نفسه) — التلاوة نفسها لا تُسرَّع ولا تُبطَّأ أبدًا.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
     );
   }
 

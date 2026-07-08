@@ -91,16 +91,26 @@ class ExportService {
             info.height! > 0) {
           // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: export at the source's own resolution, only
           // downscaling if it exceeds the safety ceiling.
-          final srcW = info.width!;
-          final srcH = info.height!;
+          // PATCH_S54_PRO_EXPORT_CONTROLS: with a fit mode selected the
+          // canvas is the aspect-ratio picker's frame instead of the
+          // source size (rotation swaps the source dims first).
+          int srcW = info.width!;
+          int srcH = info.height!;
+          if (state.videoRotationQuarterTurns.isOdd) {
+            final t = srcW;
+            srcW = srcH;
+            srcH = t;
+          }
+          if (state.videoFit != VideoFitMode.source) {
+            srcW = ratioSpec.$3;
+            srcH = ratioSpec.$4;
+          }
           final longest = srcW > srcH ? srcW : srcH;
           final scale = longest > maxExportResolutionCap
               ? maxExportResolutionCap / longest
               : 1.0;
           w = (srcW * scale).round();
           h = (srcH * scale).round();
-          if (w.isOdd) w += 1; // encoders require even dimensions
-          if (h.isOdd) h += 1;
         }
         if (state.trimStart != null && state.trimEnd != null) {
           clipStart = state.trimStart!;
@@ -121,6 +131,21 @@ class ExportService {
       } else {
         duration = state.staticDurationSec.clamp(2, 60).toDouble();
       }
+      // PATCH_S54_PRO_EXPORT_CONTROLS: optional user resolution cap on top
+      // of the safety ceiling, applied to video and static exports alike.
+      final userCap = switch (state.exportResolution) {
+        ExportResolutionCap.source => maxExportResolutionCap,
+        ExportResolutionCap.hd1080 => 1920,
+        ExportResolutionCap.hd720 => 1280,
+      };
+      final longestSide = max(w, h);
+      if (longestSide > userCap) {
+        final s = userCap / longestSide;
+        w = (w * s).round();
+        h = (h * s).round();
+      }
+      if (w.isOdd) w += 1; // encoders require even dimensions
+      if (h.isOdd) h += 1;
 
       // ---- background PNG (needed for chroma, static export, title cards) ----
       final bgPng = '${work.path}/bg.png';
@@ -268,7 +293,7 @@ class ExportService {
           await _run(copyCmd, null, null);
         } catch (_) {
           final reencodeCmd =
-              '-y -f concat -safe 0 -i "${listFile.path}" ${_encodeParams()} "$outPath"';
+              '-y -f concat -safe 0 -i "${listFile.path}" ${_encodeParams(state.exportQuality)} "$outPath"';
           await _run(reencodeCmd, null, null);
         }
       }
@@ -588,9 +613,34 @@ class ExportService {
     );
   }
 
-  static String _encodeParams() =>
-      '-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p '
-      '-c:a aac -ar 44100 -ac 2 -b:a 160k -movflags +faststart';
+  // PATCH_S54_PRO_EXPORT_CONTROLS: user-selectable encoder tier.
+  static String _encodeParams([ExportQuality q = ExportQuality.high]) {
+    final (crf, abr) = switch (q) {
+      ExportQuality.high => (18, 192),
+      ExportQuality.balanced => (21, 160),
+      ExportQuality.compact => (26, 128),
+    };
+    return '-c:v libx264 -preset veryfast -crf $crf -pix_fmt yuv420p '
+        '-c:a aac -ar 44100 -ac 2 -b:a ${abr}k -movflags +faststart';
+  }
+
+  // PATCH_S54_PRO_EXPORT_CONTROLS: audio chain for the exported track —
+  // optional apad, volume and gentle fades. Empty when nothing applies.
+  static String _audioFilterArgs(StudioState state,
+      {required bool needsPad, required double duration}) {
+    final parts = <String>[];
+    if (needsPad) parts.add('apad');
+    if ((state.audioVolume - 1.0).abs() > 0.01) {
+      parts.add(
+          'volume=${state.audioVolume.clamp(0.0, 2.0).toStringAsFixed(2)}');
+    }
+    if (state.audioFadeIn) parts.add('afade=t=in:st=0:d=1.0');
+    if (state.audioFadeOut) {
+      final st = max(0.0, duration - 1.5);
+      parts.add('afade=t=out:st=${st.toStringAsFixed(3)}:d=1.5');
+    }
+    return parts.isEmpty ? '' : '-af "${parts.join(',')}"';
+  }
 
   static String _buildMainCommand({
     required StudioState state,
@@ -619,9 +669,28 @@ class ExportService {
           clipStart > 0.001 ? '-ss ${clipStart.toStringAsFixed(3)} ' : '';
       inputs.write('$trim-t ${duration.toStringAsFixed(3)} -i "${state.videoPath}" ');
       final vIdx = idx++;
-      filters.add(
-          '[$vIdx:v]scale=$w:$h:force_original_aspect_ratio=increase,'
-          'crop=$w:$h,fps=30[v0]');
+      // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror first, then fit the
+      // frame onto the canvas — fill-crop (default look) or letterboxed
+      // over a blurred, darkened copy of itself.
+      final rot = switch (state.videoRotationQuarterTurns % 4) {
+        1 => 'transpose=1,',
+        2 => 'transpose=1,transpose=1,',
+        3 => 'transpose=2,',
+        _ => '',
+      };
+      final mir = state.videoMirror ? 'hflip,' : '';
+      if (state.videoFit == VideoFitMode.fitBlur) {
+        filters.add('[$vIdx:v]$rot${mir}split=2[vfa][vfb]');
+        filters.add('[vfa]scale=$w:$h:force_original_aspect_ratio=increase,'
+            'crop=$w:$h,boxblur=20:2,eq=brightness=-0.08[vbg]');
+        filters.add(
+            '[vfb]scale=$w:$h:force_original_aspect_ratio=decrease[vfg]');
+        filters.add('[vbg][vfg]overlay=(W-w)/2:(H-h)/2,fps=30[v0]');
+      } else {
+        filters.add(
+            '[$vIdx:v]$rot${mir}scale=$w:$h:force_original_aspect_ratio=increase,'
+            'crop=$w:$h,fps=30[v0]');
+      }
       if (state.chromaEnabled) {
         // PATCH_S40_MULTI_BG_CYCLE: single bgPng (optionally Ken Burns —
         // PATCH_S38_VIDEO_EFFECTS) or the cycling multi-bg chain, either way
@@ -722,7 +791,10 @@ class ExportService {
     if (reciterPath != null) {
       inputs.write('-i "$reciterPath" ');
       audioMap = '-map $idx:a';
-      audioFilter = '-af apad'; // pad recitation with silence up to -t
+      // pad recitation with silence up to -t
+      // PATCH_S54_PRO_EXPORT_CONTROLS: + volume/fades
+      audioFilter =
+          _audioFilterArgs(state, needsPad: true, duration: duration);
       idx++;
     } else if (state.hasVideo && !videoHasVideoStream && videoHasAudio) {
       // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: the "video" upload was actually an audio-only
@@ -734,10 +806,14 @@ class ExportService {
           clipStart > 0.001 ? '-ss ${clipStart.toStringAsFixed(3)} ' : '';
       inputs.write('$aTrim-t ${duration.toStringAsFixed(3)} -i "${state.videoPath}" ');
       audioMap = '-map $idx:a';
-      audioFilter = '-af apad';
+      audioFilter =
+          _audioFilterArgs(state, needsPad: true, duration: duration);
       idx++;
     } else if (state.hasVideo && videoHasVideoStream && videoHasAudio) {
       audioMap = '-map 0:a';
+      // PATCH_S54_PRO_EXPORT_CONTROLS: volume/fades on the clip's own track
+      audioFilter =
+          _audioFilterArgs(state, needsPad: false, duration: duration);
     } else {
       inputs.write(
           '-f lavfi -t ${duration.toStringAsFixed(3)} -i anullsrc=channel_layout=stereo:sample_rate=44100 ');
@@ -769,7 +845,7 @@ class ExportService {
 
     return '$inputs-filter_complex "${filters.join(';')}" '
         '-map "[$outLabel]" $audioMap $audioFilter '
-        '-t ${duration.toStringAsFixed(3)} ${_encodeParams()} "$outPath"';
+        '-t ${duration.toStringAsFixed(3)} ${_encodeParams(state.exportQuality)} "$outPath"';
   }
 
   static Future<String> _renderTitleSegment(Directory work, String name,
@@ -797,7 +873,7 @@ class ExportService {
     }
     final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
         '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
-        '-vf "${vf.join(',')}" -map 0:v -map 1:a ${_encodeParams()} "$mp4"';
+        '-vf "${vf.join(',')}" -map 0:v -map 1:a ${_encodeParams(state.exportQuality)} "$mp4"';
     await _run(cmd, titleCardSec, null);
     return mp4;
   }
