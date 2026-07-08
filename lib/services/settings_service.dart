@@ -74,6 +74,13 @@ class SettingsService {
           (read<int>('staticDurationSec') ?? state.staticDurationSec)
               .clamp(2, 60);
       state.aiArtEnabled = read<bool>('aiArtEnabled') ?? state.aiArtEnabled;
+      // PATCH_S43_MODEL_SIZE_PICKER
+      final modelSize = read<int>('whisperModelSize');
+      if (modelSize != null &&
+          modelSize >= 0 &&
+          modelSize < WhisperModelSize.values.length) {
+        state.whisperModelSize = WhisperModelSize.values[modelSize];
+      }
       // PATCH_S38_VIDEO_EFFECTS
       final grade = read<int>('colorGrade');
       if (grade != null && grade >= 0 && grade < ColorGrade.values.length) {
@@ -155,6 +162,8 @@ class SettingsService {
       p.setString('${_prefix}outroText', state.outroText),
       p.setInt('${_prefix}staticDurationSec', state.staticDurationSec),
       p.setBool('${_prefix}aiArtEnabled', state.aiArtEnabled),
+      // PATCH_S43_MODEL_SIZE_PICKER
+      p.setInt('${_prefix}whisperModelSize', state.whisperModelSize.index),
       // PATCH_S38_VIDEO_EFFECTS
       p.setInt('${_prefix}colorGrade', state.colorGrade.index),
       p.setBool('${_prefix}vignetteEnabled', state.vignetteEnabled),

@@ -13,10 +13,52 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 
+// PATCH_S43_MODEL_SIZE_PICKER: selectable accuracy/speed tiers. `small` stays the default
+// (matches S41's baseline), `tiny`/`base` trade accuracy for a much faster
+// scan on older devices or quick previews, `medium` is a further accuracy
+// step up for users who want the best possible sync and don't mind the
+// extra download size + scan time.
+enum WhisperModelSize { tiny, base, small, medium }
+
+class _ModelSpec {
+  final WhisperModel model;
+  final String assetName;
+  final int minExpectedBytes;
+  final String labelAr;
+  const _ModelSpec(this.model, this.assetName, this.minExpectedBytes, this.labelAr);
+}
+
+const Map<WhisperModelSize, _ModelSpec> _modelSpecs = {
+  WhisperModelSize.tiny: _ModelSpec(
+      WhisperModel.tiny, 'ggml-tiny.bin', 50 * 1024 * 1024, 'سريع جدًا (~75MB) — أقل دقة'),
+  WhisperModelSize.base: _ModelSpec(
+      WhisperModel.base, 'ggml-base.bin', 100 * 1024 * 1024, 'سريع (~148MB) — دقة متوسطة'),
+  WhisperModelSize.small: _ModelSpec(
+      WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (الافتراضي، ~466MB)'),
+  WhisperModelSize.medium: _ModelSpec(
+      WhisperModel.medium, 'ggml-medium.bin', 1300 * 1024 * 1024, 'الأدق (~1.5GB) — أبطأ'),
+};
+
 class WhisperService {
-  static const WhisperModel _model = WhisperModel.small; // PATCH_S41_UPGRADE_ASR_MODEL: base -> small, big ASR accuracy jump on tajweed-style Quranic Arabic
+  // PATCH_S43_MODEL_SIZE_PICKER: mutable (was a S41 const) so the user can switch tiers at
+  // runtime; setModelSize() below is the only writer.
+  static WhisperModelSize _size = WhisperModelSize.small;
   static final WhisperController _controller = WhisperController();
   static bool _modelReady = false;
+
+  static WhisperModel get _model => _modelSpecs[_size]!.model;
+  static WhisperModelSize get currentSize => _size; // PATCH_S43_MODEL_SIZE_PICKER
+  static String labelFor(WhisperModelSize size) => _modelSpecs[size]!.labelAr; // PATCH_S43_MODEL_SIZE_PICKER
+
+  /// PATCH_S43_MODEL_SIZE_PICKER: switch model tier. Safe to call any time (including
+  /// mid-session); forces the next ensureReady() call to re-verify/
+  /// re-download the newly selected tier's model file instead of trusting
+  /// the previous tier's "ready" flag.
+  static void setModelSize(WhisperModelSize size) {
+    if (size == _size) return;
+    _size = size;
+    _modelReady = false;
+  }
 
   // Filled in automatically at CI build time via --dart-define (see the
   // "Build release APK" step), using the `${{ github.repository }}` GitHub
@@ -27,13 +69,10 @@ class WhisperService {
     defaultValue:
         'https://github.com/REPLACE_OWNER/ayat_studio_app/releases/download/models',
   );
-  static const String _assetName = 'ggml-small.bin'; // PATCH_S41_UPGRADE_ASR_MODEL
-
-  // ggml-small.bin is ~466MB (bumped from base's ~148MB by PATCH_S41_UPGRADE_ASR_MODEL);
-  // anything much smaller sitting at the target path is almost certainly
-  // a partial/failed previous download, not a real cached model, so we
-  // redo it rather than trust it.
-  static const int _minExpectedBytes = 400 * 1024 * 1024;
+  // PATCH_S43_MODEL_SIZE_PICKER: derived from the selected tier instead of a fixed S41 const --
+  // each tier's own expected size gates its own partial-download check.
+  static String get _assetName => _modelSpecs[_size]!.assetName;
+  static int get _minExpectedBytes => _modelSpecs[_size]!.minExpectedBytes;
 
   /// Ensures the model is downloaded/cached. Safe to call repeatedly — only
   /// downloads once per app run. [onStatus] gets human-readable Arabic

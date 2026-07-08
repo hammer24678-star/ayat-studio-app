@@ -3,6 +3,7 @@ import '../data/studio_presets.dart';
 import '../services/ayah_matcher.dart';
 import '../services/ai_art_service.dart'; // PATCH_S32_AI_ART_NANO_BANANA
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import '../services/whisper_service.dart'; // PATCH_S43_MODEL_SIZE_PICKER
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -115,6 +116,9 @@ class StudioState extends ChangeNotifier {
   bool showIntro = false;
   bool showOutro = false;
   String outroText = kDefaultOutro;
+
+  // ---- PATCH_S43_MODEL_SIZE_PICKER: which Whisper tier drives detection/auto-sync ----
+  WhisperModelSize whisperModelSize = WhisperModelSize.small;
 
   // ---- auto-sync timeline ----
   List<TimelineSegment> timeline = [];

@@ -102,6 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .where((f) => state.allFonts.every((e) => e.key != f.key)));
       }
       await SettingsService.restore(state);
+      WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
       if (!mounted) return;
       _settingsRestored = true;
       _outroCtrl.text = state.outroText;
@@ -305,6 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _detectFromVideo() async {
+    WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
     final matcher = state.matcher;
     if (!state.hasVideo || matcher == null) {
       _toast('ارفع فيديو أولًا');
@@ -339,6 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _autoSync() async {
+    WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
     final matcher = state.matcher;
     if (!state.hasVideo || matcher == null) {
       _toast('ارفع فيديو أولًا');
@@ -776,6 +779,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // PATCH_S43_MODEL_SIZE_PICKER: model-size picker -- controls every detect/auto-sync
+        // button below via WhisperService.setModelSize().
+        _fieldLabel('دقة التعرّف على الكلام'),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final size in WhisperModelSize.values)
+              ChoiceChip(
+                label: Text(WhisperService.labelFor(size)),
+                selected: state.whisperModelSize == size,
+                onSelected: _busy
+                    ? null
+                    : (_) {
+                        state.update(() => state.whisperModelSize = size);
+                        WhisperService.setModelSize(size);
+                      },
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
         ElevatedButton.icon(
           onPressed: _busy ? null : _pickVideo,
           icon: const Icon(Icons.upload_file, size: 18),

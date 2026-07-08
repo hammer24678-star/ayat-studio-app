@@ -21,18 +21,22 @@ jobs:
         run: |
           set -e
           TAG=models
-          ASSET=ggml-small.bin # PATCH_S41_UPGRADE_ASR_MODEL: was ggml-base.bin
-          URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$ASSET"
+          # PATCH_S43_MODEL_SIZE_PICKER: re-host every selectable tier, not just small, so
+          # switching tiers on-device always has an asset to download.
+          ASSETS="ggml-tiny.bin ggml-base.bin ggml-small.bin ggml-medium.bin"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "ASR model assets" \
               --notes "Whisper GGML models re-hosted here so the on-device app fetches from github.com instead of huggingface.co. Source: https://huggingface.co/ggerganov/whisper.cpp"
           fi
-          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ASSET"; then
-            echo "$ASSET already attached to release $TAG — skipping re-upload"
-          else
-            curl -fL -o "$ASSET" "$URL"
-            gh release upload "$TAG" "$ASSET"
-          fi
+          for ASSET in $ASSETS; do
+            URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$ASSET"
+            if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ASSET"; then
+              echo "$ASSET already attached to release $TAG — skipping re-upload"
+            else
+              curl -fL -o "$ASSET" "$URL"
+              gh release upload "$TAG" "$ASSET"
+            fi
+          done
 
       - uses: subosito/flutter-action@v2
         with:
