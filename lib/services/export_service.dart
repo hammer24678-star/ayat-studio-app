@@ -341,8 +341,11 @@ class ExportService {
         final chunk = cue.chunk;
         text = chunk.text;
         trans = chunk.translation;
-        words = chunk.words;
-        lit = cue.litWords;
+        // PATCH_S51_KARAOKE_TOGGLE: burn in plain static text instead of
+        // per-word lighting when the toggle is off -- renderTextOverlayPng
+        // already renders static text whenever karaokeWords is null/empty.
+        words = state.karaokeEnabled ? chunk.words : null;
+        lit = state.karaokeEnabled ? cue.litWords : 0;
         // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in over the first 300ms and out over the
         // last 300ms of this part's on-screen window.
         final msIntoChunk = (videoT - chunk.start) * 1000;

@@ -139,6 +139,10 @@ class StudioState extends ChangeNotifier {
   // ---- auto-sync timeline ----
   List<TimelineSegment> timeline = [];
   bool timelineActive = false;
+  // PATCH_S51_KARAOKE_TOGGLE: word-by-word highlight while الشيخ recites,
+  // on by default (matches previous always-on behavior). Off falls back
+  // to showing each ayah part as plain static text.
+  bool karaokeEnabled = true;
 
   // ---- trim (ayah-boundary indexes into [timeline], -1 = whole clip) ----
   int trimFromIndex = -1;
@@ -202,6 +206,20 @@ class StudioState extends ChangeNotifier {
     }
     _aiArtSeedOffset += 1;
     await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!);
+  }
+
+  // PATCH_S51_AI_ART_DELETE: wipes every cached file for this ayah from
+  // disk (so a later visit regenerates fresh instead of silently reusing
+  // the deleted one) and drops the current custom background back to the
+  // preset gradients. Leaves aiArtEnabled untouched -- this deletes what
+  // was made, it doesn't turn the feature off (use the switch for that).
+  Future<void> deleteAiArt() async {
+    if (_aiArtSurah == null || _aiArtAyahNum == null) return;
+    await AiArtService.deleteCached(_aiArtSurah!, _aiArtAyahNum!);
+    useCustomBg = false;
+    customBgPath = null;
+    _aiArtSeedOffset = 0;
+    notifyListeners();
   }
 
   void setVideo(String path) {

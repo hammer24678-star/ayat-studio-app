@@ -92,6 +92,9 @@ class SettingsService {
           (read<int>('staticDurationSec') ?? state.staticDurationSec)
               .clamp(2, 60);
       state.aiArtEnabled = read<bool>('aiArtEnabled') ?? state.aiArtEnabled;
+      // PATCH_S51_KARAOKE_TOGGLE
+      state.karaokeEnabled =
+          read<bool>('karaokeEnabled') ?? state.karaokeEnabled;
       // PATCH_S43_MODEL_SIZE_PICKER
       final modelSize = read<int>('whisperModelSize');
       if (modelSize != null &&
@@ -190,6 +193,8 @@ class SettingsService {
       p.setString('${_prefix}outroText', state.outroText),
       p.setInt('${_prefix}staticDurationSec', state.staticDurationSec),
       p.setBool('${_prefix}aiArtEnabled', state.aiArtEnabled),
+      // PATCH_S51_KARAOKE_TOGGLE
+      p.setBool('${_prefix}karaokeEnabled', state.karaokeEnabled),
       // PATCH_S43_MODEL_SIZE_PICKER
       p.setInt('${_prefix}whisperModelSize', state.whisperModelSize.index),
       // PATCH_S38_VIDEO_EFFECTS

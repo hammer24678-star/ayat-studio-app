@@ -15,7 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-enum StageEffect { none, rain, snow, dust }
+enum StageEffect { none, rain, snow, dust, sparkle }
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -23,6 +23,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.rain => 'مطر',
         StageEffect.snow => 'ثلج',
         StageEffect.dust => 'غبار ضوئي',
+        StageEffect.sparkle => 'بريق نجمي', // PATCH_S51_MORE_EFFECTS
       };
 
   IconData get icon => switch (this) {
@@ -30,6 +31,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.rain => Icons.water_drop_outlined,
         StageEffect.snow => Icons.ac_unit,
         StageEffect.dust => Icons.auto_awesome,
+        StageEffect.sparkle => Icons.star_outline, // PATCH_S51_MORE_EFFECTS
       };
 }
 
@@ -59,6 +61,8 @@ class StageEffects {
         _paintSnow(canvas, size, timeSec, intensity);
       case StageEffect.dust:
         _paintDust(canvas, size, timeSec, intensity);
+      case StageEffect.sparkle: // PATCH_S51_MORE_EFFECTS
+        _paintSparkle(canvas, size, timeSec, intensity);
     }
   }
 
@@ -130,6 +134,44 @@ class StageEffects {
       paint.color = const Color(0xFFECC875)
           .withValues(alpha: (0.10 + 0.55 * twinkle) * (0.4 + 0.6 * depth));
       canvas.drawCircle(Offset(x, y), r, paint);
+    }
+  }
+
+  // PATCH_S51_MORE_EFFECTS: quick white twinkling glints -- fixed points
+  // that flash on and off fast, unlike the slow drifting golden dust.
+  // Whole twinkle cycles per loop keep the export tile seamless, same
+  // convention as the other effects.
+  static void _paintSparkle(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final count = (90 * intensity).round();
+    final paint = Paint();
+    for (var i = 0; i < count; i++) {
+      final x = _rand(i, 1) * w;
+      final y = _rand(i, 2) * h;
+      final twinkleCycles = 3 + (i % 4);
+      final phase = _rand(i, 3) * 2 * pi;
+      final twinkle =
+          0.5 + 0.5 * sin(2 * pi * twinkleCycles * t / loopSeconds + phase);
+      // most of the cycle stays dim/off; only a brief peak actually
+      // flashes, so sparkles read as scattered quick glints rather than
+      // a steady field
+      final flash = pow(twinkle, 6).toDouble();
+      if (flash < 0.02) continue;
+      final r = (0.8 + 1.6 * _rand(i, 4)) * w / 1080;
+      paint.color = Colors.white.withValues(alpha: flash * 0.9);
+      canvas.drawCircle(Offset(x, y), r, paint);
+      // a thin cross flare on the brightest sparkles sells the glint look
+      if (flash > 0.6) {
+        final flareLen = r * 5;
+        paint
+          ..color = Colors.white.withValues(alpha: (flash - 0.6) * 2 * 0.7)
+          ..strokeWidth = r * 0.5;
+        canvas.drawLine(
+            Offset(x - flareLen, y), Offset(x + flareLen, y), paint);
+        canvas.drawLine(
+            Offset(x, y - flareLen), Offset(x, y + flareLen), paint);
+      }
     }
   }
 

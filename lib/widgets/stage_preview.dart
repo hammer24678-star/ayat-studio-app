@@ -127,17 +127,44 @@ class _StagePreviewState extends State<StagePreview>
               gradient: state.useCustomBg && state.customBgPath != null
                   ? null
                   : kBackgrounds[state.bgIndex].gradient,
-              image: state.useCustomBg && state.customBgPath != null
-                  ? DecorationImage(
-                      image: FileImage(File(state.customBgPath!)),
-                      fit: BoxFit.cover)
-                  : null,
               border: Border.all(color: AyatColors.hairline),
               borderRadius: BorderRadius.circular(26),
             ),
             child: Stack(
               fit: StackFit.expand,
               children: [
+                // PATCH_S51_BG_CROSSFADE: the AI-art/custom-photo background
+                // used to hard-cut via DecorationImage, so a new per-ayah AI
+                // art image popped in instantly between ayat. This crossfades
+                // using the same transition setting the export already
+                // respects (state.bgTransitionStyle / bgCrossfadeDuration),
+                // keyed on the file path so it only re-animates when the
+                // actual image changes.
+                if (state.useCustomBg && state.customBgPath != null)
+                  Positioned.fill(
+                    child: AnimatedSwitcher(
+                      duration: state.bgTransitionStyle ==
+                              BgTransitionStyle.crossfade
+                          ? Duration(
+                              milliseconds:
+                                  (state.bgCrossfadeDuration * 1000).round())
+                          : Duration.zero,
+                      switchInCurve: Curves.easeInOut,
+                      switchOutCurve: Curves.easeInOut,
+                      layoutBuilder: (current, previous) => Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ...previous,
+                          if (current != null) current,
+                        ],
+                      ),
+                      child: Image.file(
+                        File(state.customBgPath!),
+                        key: ValueKey(state.customBgPath),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
                 // PATCH_S28_ANIMATED_BACKGROUND: only over the plain preset gradient --
                 // never over real video or a custom photo background.
                 if (!videoReady &&

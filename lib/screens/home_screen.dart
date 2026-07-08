@@ -400,12 +400,18 @@ class _HomeScreenState extends State<HomeScreen> {
     // the ayah part actually changes, not on every newly lit word.
     final segmentKey =
         '${seg.ayah.surahNum}:${seg.ayah.num}:${cue.chunk.index}';
+    // PATCH_S51_KARAOKE_TOGGLE: with the toggle off, drop the per-word
+    // list entirely -- StagePreview already falls back to plain static
+    // text whenever karaokeWords is null, so this reuses that path
+    // instead of adding a second rendering branch.
+    final words = state.karaokeEnabled ? cue.chunk.words : null;
+    final litWords = state.karaokeEnabled ? cue.litWords : 0;
     final current = _liveOverlay.value;
     if (current == null ||
         current.segmentKey != segmentKey ||
-        current.litWords != cue.litWords) {
-      _liveOverlay.value = StageOverlayText(cue.chunk.text,
-          cue.chunk.translation, segmentKey, cue.chunk.words, cue.litWords);
+        current.litWords != litWords) {
+      _liveOverlay.value = StageOverlayText(
+          cue.chunk.text, cue.chunk.translation, segmentKey, words, litWords);
     }
   }
 
@@ -1945,12 +1951,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('جارٍ توليد الفن...'),
               ]),
             )
-          else if (state.hasAiArt)
+          else if (state.hasAiArt) ...[
             OutlinedButton.icon(
               onPressed: () => state.regenerateAiArt(),
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('إعادة توليد فن هذه الآية'),
             ),
+            const SizedBox(height: 6),
+            // PATCH_S51_AI_ART_DELETE: distinct from regenerate -- wipes
+            // the cached image from disk and drops back to the preset
+            // background instead of making a new one.
+            OutlinedButton.icon(
+              onPressed: () => state.deleteAiArt(),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('حذف الفن المولّد لهذه الآية'),
+            ),
+          ],
         ],
         const SizedBox(height: 10),
         ElevatedButton.icon(
@@ -2261,6 +2277,17 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: (v) => state.update(() => state.glowIntensity = v),
           ),
         ],
+        // PATCH_S51_KARAOKE_TOGGLE: on by default; off shows each ayah
+        // part as plain static text instead of lighting up word-by-word
+        // in step with الشيخ's recitation.
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('تظليل الكلمات مع التلاوة (كاريوكي)'),
+          subtitle: const Text(
+              'عند الإيقاف: تُعرض الآية كاملة دون إضاءة كل كلمة على حدة'),
+          value: state.karaokeEnabled,
+          onChanged: (v) => state.update(() => state.karaokeEnabled = v),
+        ),
         // PATCH_S48_TEXT_SPACING_TOGGLES
         _fieldLabel('تباعد الأحرف'),
         Slider(

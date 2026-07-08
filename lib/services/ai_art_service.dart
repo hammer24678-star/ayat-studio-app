@@ -139,4 +139,25 @@ class AiArtService {
       return null;
     }
   }
+
+  // PATCH_S51_AI_ART_DELETE: removes the base cached image AND every
+  // regenerate-bumped seed variant (_v1, _v2, ...) for this ayah, so
+  // "delete" actually clears the disk cache instead of only detaching
+  // the currently-displayed path. Silently ignores files already gone.
+  static Future<void> deleteCached(int surahNum, int ayahNum) async {
+    final dir = await _cacheDir();
+    if (!await dir.exists()) return;
+    final prefix = '${surahNum}_$ayahNum';
+    await for (final entry in dir.list()) {
+      if (entry is! File) continue;
+      final name = entry.uri.pathSegments.last;
+      if (name == '$prefix.png' || name.startsWith('${prefix}_v')) {
+        try {
+          await entry.delete();
+        } catch (_) {
+          // best-effort; a locked/already-deleted file shouldn't block the rest
+        }
+      }
+    }
+  }
 }
