@@ -22,6 +22,8 @@ class OverlayStyle {
   final AyahTextPosition position;
   final FrameExtra extra;
   final bool showTranslation;
+  final bool glowEnabled; // PATCH_S46_DEFAULT_FONT_AND_GLOW
+  final double glowIntensity;
   const OverlayStyle({
     required this.fontKey,
     required this.ayahFontSize,
@@ -30,6 +32,8 @@ class OverlayStyle {
     required this.position,
     required this.extra,
     required this.showTranslation,
+    this.glowEnabled = true,
+    this.glowIntensity = 1.0,
   });
 }
 
@@ -167,11 +171,14 @@ class OverlayRenderer {
       InlineSpan ayahSpan;
       if (karaokeWords != null && karaokeWords.isNotEmpty) {
         // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
+        // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow now optional + intensity-scaled
         final litShadows = [
           ...shadows,
-          Shadow(
-              color: effColor.withValues(alpha: 0.55 * opacity),
-              blurRadius: 14 * scale),
+          if (style.glowEnabled)
+            Shadow(
+                color: effColor.withValues(
+                    alpha: 0.55 * opacity * style.glowIntensity.clamp(0, 1.5)),
+                blurRadius: 14 * scale * style.glowIntensity),
         ];
         final dimColor =
             style.color.withValues(alpha: style.color.a * 0.30 * opacity);
@@ -191,6 +198,17 @@ class OverlayRenderer {
           ],
         );
       } else {
+        // PATCH_S46_DEFAULT_FONT_AND_GLOW: static (non-karaoke) ayah text also gets the glow
+        // when enabled, per plan 2.2 (previously karaoke-only).
+        final staticShadows = style.glowEnabled
+            ? [
+                ...shadows,
+                Shadow(
+                    color: effColor.withValues(
+                        alpha: 0.55 * opacity * style.glowIntensity.clamp(0, 1.5)),
+                    blurRadius: 14 * scale * style.glowIntensity),
+              ]
+            : shadows;
         ayahSpan = TextSpan(
           text: text,
           style: ayahTextStyle(
@@ -198,7 +216,7 @@ class OverlayRenderer {
             fontSize: ayahFontSize,
             color: effColor,
             height: 1.5,
-            shadows: shadows,
+            shadows: staticShadows,
           ),
         );
       }

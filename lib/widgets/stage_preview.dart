@@ -330,11 +330,14 @@ class _StagePreviewState extends State<StagePreview>
         state.ayahFontSize * scale * ayahAutoFontScale(text); // PATCH_S24_AUTO_SHRINK_LONG_AYAH
     Widget ayahWidget;
     if (karaokeWords != null && karaokeWords.isNotEmpty) {
+      // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow now optional + intensity-scaled
       final litShadows = [
         ...shadows,
-        Shadow(
-            color: state.textColor.withValues(alpha: 0.55),
-            blurRadius: 14 * scale),
+        if (state.glowEnabled)
+          Shadow(
+              color: state.textColor
+                  .withValues(alpha: 0.55 * state.glowIntensity.clamp(0, 1.5)),
+              blurRadius: 14 * scale * state.glowIntensity),
       ];
       final dimColor = state.textColor.withValues(alpha: 0.30);
       ayahWidget = Text.rich(
@@ -357,6 +360,16 @@ class _StagePreviewState extends State<StagePreview>
         textDirection: TextDirection.rtl,
       );
     } else {
+      // PATCH_S46_DEFAULT_FONT_AND_GLOW: static ayah text also gets the glow when enabled.
+      final staticShadows = state.glowEnabled
+          ? [
+              ...shadows,
+              Shadow(
+                  color: state.textColor.withValues(
+                      alpha: 0.55 * state.glowIntensity.clamp(0, 1.5)),
+                  blurRadius: 14 * scale * state.glowIntensity),
+            ]
+          : shadows;
       ayahWidget = Text(
         text,
         textAlign: TextAlign.center,
@@ -366,7 +379,7 @@ class _StagePreviewState extends State<StagePreview>
           fontSize: ayahFontSize,
           color: state.textColor,
           height: 1.5,
-          shadows: shadows,
+          shadows: staticShadows,
         ),
       );
     }

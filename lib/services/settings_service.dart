@@ -59,6 +59,10 @@ class SettingsService {
       }
       state.showTranslation =
           read<bool>('showTranslation') ?? state.showTranslation;
+      // PATCH_S46_DEFAULT_FONT_AND_GLOW
+      state.glowEnabled = read<bool>('glowEnabled') ?? state.glowEnabled;
+      state.glowIntensity =
+          (read<double>('glowIntensity') ?? state.glowIntensity).clamp(0.0, 1.5);
       final effect = read<int>('effect');
       if (effect != null && effect >= 0 && effect < StageEffect.values.length) {
         state.effect = StageEffect.values[effect];
@@ -155,6 +159,9 @@ class SettingsService {
       p.setInt('${_prefix}textPosition', state.textPosition.index),
       p.setInt('${_prefix}frameExtra', state.extra.index),
       p.setBool('${_prefix}showTranslation', state.showTranslation),
+      // PATCH_S46_DEFAULT_FONT_AND_GLOW
+      p.setBool('${_prefix}glowEnabled', state.glowEnabled),
+      p.setDouble('${_prefix}glowIntensity', state.glowIntensity),
       p.setInt('${_prefix}effect', state.effect.index),
       p.setDouble('${_prefix}effectIntensity', state.effectIntensity),
       p.setBool('${_prefix}showIntro', state.showIntro),

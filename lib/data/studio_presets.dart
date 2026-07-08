@@ -86,6 +86,8 @@ class AyahFontChoice {
 }
 
 const List<AyahFontChoice> kBuiltInFonts = [
+  // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled Quran font, now the app default.
+  AyahFontChoice('elgharib', 'الغريب نون حفص (افتراضي)'),
   AyahFontChoice('amiri', 'أميري قرآن (كلاسيكي)'),
   AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
 ];

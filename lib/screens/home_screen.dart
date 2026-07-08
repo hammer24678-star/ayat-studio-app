@@ -1972,16 +1972,17 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _panelTitle('تنسيق النص'),
         _fieldLabel('خط الآية'),
+        // PATCH_S46_DEFAULT_FONT_AND_GLOW: default fallback is now the bundled elgharib font.
         DropdownButton<String>(
           isExpanded: true,
           value: state.allFonts.any((f) => f.key == state.fontKey)
               ? state.fontKey
-              : 'amiri',
+              : 'elgharib',
           items: [
             for (final f in state.allFonts)
               DropdownMenuItem(value: f.key, child: Text(f.label)),
           ],
-          onChanged: (v) => state.update(() => state.fontKey = v ?? 'amiri'),
+          onChanged: (v) => state.update(() => state.fontKey = v ?? 'elgharib'),
         ),
         const SizedBox(height: 6),
         ElevatedButton.icon(
@@ -1995,6 +1996,22 @@ class _HomeScreenState extends State<HomeScreen> {
           'الخطوط المرفوعة تُحفظ داخل التطبيق وتبقى متاحة ومحددة بعد إغلاقه — ارفع خط المصحف المفضل لديك (مثل الغريب نون حفص) مرة واحدة فقط.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow on/off + intensity (plan 2.2)
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('توهّج النص'),
+          value: state.glowEnabled,
+          onChanged: (v) => state.update(() => state.glowEnabled = v),
+        ),
+        if (state.glowEnabled) ...[
+          _fieldLabel('شدة التوهّج'),
+          Slider(
+            value: state.glowIntensity,
+            min: 0,
+            max: 1.5,
+            onChanged: (v) => state.update(() => state.glowIntensity = v),
+          ),
+        ],
         _fieldLabel('حجم خط الآية'),
         Slider(
           value: state.ayahFontSize,

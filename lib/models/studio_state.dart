@@ -103,7 +103,8 @@ class StudioState extends ChangeNotifier {
 
   // ---- text formatting ----
   int templateIndex = 0;
-  String fontKey = 'amiri';
+  // PATCH_S46_DEFAULT_FONT_AND_GLOW: Elgharib-NoonHafs is now the bundled default font.
+  String fontKey = 'elgharib';
   final List<AyahFontChoice> customFonts = [];
   double ayahFontSize = 20; // 14..30, preview-relative like the HTML slider
   double transFontSize = 12; // 9..18
@@ -111,6 +112,10 @@ class StudioState extends ChangeNotifier {
   AyahTextPosition textPosition = AyahTextPosition.bottom;
   FrameExtra extra = FrameExtra.none;
   bool showTranslation = true;
+  // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow on/off + intensity, applies to karaoke lit words
+  // and, when on, to static (non-karaoke) ayah text too.
+  bool glowEnabled = true;
+  double glowIntensity = 1.0; // 0..1.5
 
   // ---- intro / outro cards ----
   bool showIntro = false;

@@ -36,6 +36,8 @@ TextStyle ayahTextStyle(
     fontWeight: fontWeight,
   );
   switch (fontKey) {
+    case 'elgharib': // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled asset font, not google_fonts
+      return base.copyWith(fontFamily: 'ElgharibNoonHafs');
     case 'amiri':
       return GoogleFonts.amiriQuran(textStyle: base);
     case 'ruqaa':
