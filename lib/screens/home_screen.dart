@@ -1815,8 +1815,11 @@ class _HomeScreenState extends State<HomeScreen> {
         OutlinedButton.icon(
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute(
-                builder: (_) => MushafScreen(ayaat: state.ayaat)),
+            MaterialPageRoute( // PATCH_S63_MUSHAF_FONT_FIX: pass the user's selected ayah font
+                builder: (_) => MushafScreen(
+                      ayaat: state.ayaat,
+                      fontKey: state.fontKey,
+                    )),
           ),
           icon: const Icon(Icons.auto_stories_outlined, size: 18),
           label: const Text('فتح المصحف كاملاً للقراءة'),

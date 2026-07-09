@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/ayah_matcher.dart';
 import '../theme/ayat_theme.dart';
+import '../theme/ayat_fonts.dart'; // PATCH_S63_MUSHAF_FONT_FIX
 
 // PATCH_S62_MUSHAF_READER: standalone full mushaf reading screen. Browse any surah and
 // read it in full, completely separate from the video-editing workflow.
@@ -9,8 +10,14 @@ import '../theme/ayat_theme.dart';
 class MushafScreen extends StatefulWidget {
   final List<Ayah> ayaat;
   final int initialSurah;
+  final String fontKey; // PATCH_S63_MUSHAF_FONT_FIX: read the user's chosen ayah font
 
-  const MushafScreen({super.key, required this.ayaat, this.initialSurah = 1});
+  const MushafScreen({
+    super.key,
+    required this.ayaat,
+    required this.fontKey,
+    this.initialSurah = 1,
+  });
 
   @override
   State<MushafScreen> createState() => _MushafScreenState();
@@ -112,7 +119,15 @@ class _MushafScreenState extends State<MushafScreen> {
                                 for (final a in ayat) ...[
                                   TextSpan(
                                     text: '${a.ar} ',
-                                    style: Theme.of(context).textTheme.displayLarge,
+                                    // PATCH_S63_MUSHAF_FONT_FIX: was Theme.of(context).textTheme.displayLarge
+                                    // (hardcoded Amiri Quran) -- now respects the font picked
+                                    // under 'خط الآية', same as the editor/export preview.
+                                    style: ayahTextStyle(
+                                      widget.fontKey,
+                                      fontSize: 22,
+                                      height: 1.8,
+                                      color: AyatColors.parchment,
+                                    ),
                                   ),
                                   WidgetSpan(
                                     alignment: PlaceholderAlignment.middle,
