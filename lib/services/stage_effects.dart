@@ -88,9 +88,10 @@ class StageEffects {
     }
   }
 
-  static void _paintRain(
-      Canvas canvas, Size size, double t, double intensity) {
-    // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the 3-band depth-simulated rain
+  // PATCH_S73B_FIX_DUPLICATE_PAINT_RAIN: S73 left a duplicate/orphaned signature here (see
+  // this patch's docstring) that broke the whole file's parse -- removed,
+  // only the correct signature below (as part of S73's own block) remains.
+  // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the 3-band depth-simulated rain
   // (far/mid/near blur + wind-gust slant drift + motion-blur trails) with a
   // single uniform layer -- the plain, flat "rain overlay" look used in
   // most recitation-video edits, not a simulated rain shower.
