@@ -9,6 +9,7 @@ import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart'; // PATCH_S64_BG_UPLOAD_PERSIST
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -498,13 +499,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pickCustomBg() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.image);
-    final path = res?.files.single.path;
-    if (path == null) return;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null) return;
+    // PATCH_S64_BG_UPLOAD_PERSIST: the picker's path is often a transient
+    // cache/content-resolver path the OS can clear at any time (that's why
+    // the background used to vanish). Copy it into the app's own permanent
+    // documents dir first -- same pattern ai_art_service.dart already uses
+    // for AI-art backgrounds -- and store THAT path instead.
+    final permanentPath = await _copyToPermanentBgStorage(pickedPath);
     state.update(() {
       state.useCustomBg = true;
-      state.customBgPath = path;
+      state.customBgPath = permanentPath;
     });
     _toast('تم رفع الخلفية ✓');
+  }
+
+  // PATCH_S64_BG_UPLOAD_PERSIST
+  Future<String> _copyToPermanentBgStorage(String pickedPath) async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory('${docs.path}/custom_backgrounds');
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final ext = pickedPath.contains('.') ? pickedPath.split('.').last : 'img';
+      final dest = File(
+          '${dir.path}/${DateTime.now().millisecondsSinceEpoch}.$ext');
+      await File(pickedPath).copy(dest.path);
+      return dest.path;
+    } catch (_) {
+      // Copy failed (e.g. source already gone) -- fall back to the
+      // original path; better than crashing, even if it may not survive.
+      return pickedPath;
+    }
   }
 
   Future<void> _pickCustomFont() async {

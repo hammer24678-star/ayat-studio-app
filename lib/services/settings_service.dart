@@ -4,6 +4,8 @@
 // background, effect, intro/outro, ratio… Deliberately NOT persisted:
 // anything tied to a session's files (video path, custom background/fonts,
 // reciter audio, timeline) — those files may no longer exist next launch.
+import 'dart:io'; // PATCH_S64_BG_UPLOAD_PERSIST
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -178,6 +180,21 @@ class SettingsService {
           (read<double>('audioVolume') ?? state.audioVolume).clamp(0.0, 2.0);
       state.audioFadeIn = read<bool>('audioFadeIn') ?? state.audioFadeIn;
       state.audioFadeOut = read<bool>('audioFadeOut') ?? state.audioFadeOut;
+      // PATCH_S64_BG_UPLOAD_PERSIST: only trust a saved custom background if it was on AND
+      // the file still actually exists on disk (survives a normal relaunch,
+      // but not e.g. the user clearing app storage) -- otherwise fall back
+      // to the default preset background instead of a broken image.
+      final savedUseCustomBg = read<bool>('useCustomBg') ?? false;
+      final savedBgPath = read<String>('customBgPath');
+      if (savedUseCustomBg &&
+          savedBgPath != null &&
+          savedBgPath.isNotEmpty &&
+          File(savedBgPath).existsSync()) {
+        state.useCustomBg = true;
+        state.customBgPath = savedBgPath;
+      } else if (savedUseCustomBg) {
+        state.useCustomBg = false;
+      }
     });
   }
 
@@ -247,6 +264,9 @@ class SettingsService {
       p.setDouble('${_prefix}audioVolume', state.audioVolume),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
       p.setBool('${_prefix}audioFadeOut', state.audioFadeOut),
+      // PATCH_S64_BG_UPLOAD_PERSIST
+      p.setString('${_prefix}customBgPath', state.customBgPath ?? ''),
+      p.setBool('${_prefix}useCustomBg', state.useCustomBg),
     ]);
   }
 }
