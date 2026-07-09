@@ -13,6 +13,7 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import 'stage_effects.dart';
 import 'whisper_service.dart'; // PATCH_S47_SETTINGS_WHISPER_IMPORT_FIX: WhisperModelSize lives here
+import 'ai_art_service.dart'; // PATCH_S69_AI_ART_FIX: AiArtService.apiKey
 
 class SettingsService {
   static const _prefix = 'ayat_studio.';
@@ -99,6 +100,10 @@ class SettingsService {
           (read<int>('staticDurationSec') ?? state.staticDurationSec)
               .clamp(2, 60);
       state.aiArtEnabled = read<bool>('aiArtEnabled') ?? state.aiArtEnabled;
+      // PATCH_S69_AI_ART_FIX
+      state.pollinationsApiKey =
+          read<String>('pollinationsApiKey') ?? state.pollinationsApiKey;
+      AiArtService.apiKey = state.pollinationsApiKey;
       // PATCH_S51_KARAOKE_TOGGLE
       state.karaokeEnabled =
           read<bool>('karaokeEnabled') ?? state.karaokeEnabled;
@@ -236,6 +241,8 @@ class SettingsService {
       p.setString('${_prefix}outroText', state.outroText),
       p.setInt('${_prefix}staticDurationSec', state.staticDurationSec),
       p.setBool('${_prefix}aiArtEnabled', state.aiArtEnabled),
+      // PATCH_S69_AI_ART_FIX
+      p.setString('${_prefix}pollinationsApiKey', state.pollinationsApiKey),
       // PATCH_S51_KARAOKE_TOGGLE
       p.setBool('${_prefix}karaokeEnabled', state.karaokeEnabled),
       // PATCH_S43_MODEL_SIZE_PICKER

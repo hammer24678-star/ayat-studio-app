@@ -104,6 +104,20 @@ class StudioState extends ChangeNotifier {
   String? _aiArtAyahText;
   int _aiArtSeedOffset = 0;
   bool get hasAiArt => useCustomBg && aiArtEnabled && _aiArtSurah != null;
+  // PATCH_S69_AI_ART_FIX: surfaced to the UI instead of failing silently.
+  String? aiArtError;
+  // Tracked on EVERY match regardless of aiArtEnabled, so a manual
+  // generate works even if the toggle was flipped on after the match
+  // already happened (previously: no context, silent no-op).
+  int? _lastMatchedSurah;
+  int? _lastMatchedAyahNum;
+  String? _lastMatchedAyahText;
+  // PATCH_S69B_HARDCODE_POLLINATIONS_KEY: hardcoded default so a fresh install doesn't start
+  // with an empty key -- see this patch's module docstring for the
+  // security tradeoff this accepts (committed to git history + baked
+  // into the compiled APK). Still overridable via Settings, which
+  // persists any change through SharedPreferences as before.
+  String pollinationsApiKey = 'sk_7WOpFiSmdUD4TtS2Zk07bBLfoxYeVaTr';
 
   // ---- chroma key ----
   bool chromaEnabled = false;
@@ -185,6 +199,14 @@ class StudioState extends ChangeNotifier {
     // PATCH_S32_AI_ART_NANO_BANANA: only ayat resolved against the real corpus carry a
     // surah/ayah number -- free-typed unmatched text is skipped since
     // there is nothing reliable to cache the art against.
+    // PATCH_S69_AI_ART_FIX: track the match UNCONDITIONALLY (not just when
+    // aiArtEnabled happened to already be on) so a later manual
+    // generateAiArtNow() always has something to work from.
+    if (surahNum != null && ayahNum != null) {
+      _lastMatchedSurah = surahNum;
+      _lastMatchedAyahNum = ayahNum;
+      _lastMatchedAyahText = ar;
+    }
     if (aiArtEnabled && surahNum != null && ayahNum != null) {
       _aiArtSeedOffset = 0;
       _generateAiArt(surahNum, ayahNum, ar);
@@ -197,6 +219,7 @@ class StudioState extends ChangeNotifier {
     _aiArtAyahNum = ayahNum;
     _aiArtAyahText = arText;
     aiArtBusy = true;
+    aiArtError = null; // PATCH_S69_AI_ART_FIX
     notifyListeners();
     try {
       final path = await AiArtService.artFor(
@@ -209,6 +232,10 @@ class StudioState extends ChangeNotifier {
         useCustomBg = true;
         customBgPath = path;
       }
+    } on AiArtException catch (e) {
+      aiArtError = e.message;
+    } catch (e) {
+      aiArtError = 'تعذر توليد الفن: $e';
     } finally {
       aiArtBusy = false;
       notifyListeners();
@@ -223,6 +250,22 @@ class StudioState extends ChangeNotifier {
     }
     _aiArtSeedOffset += 1;
     await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!);
+  }
+
+  // PATCH_S69_AI_ART_FIX: standalone manual entry point -- works from whatever ayah
+  // was last matched, with a real, visible error instead of the old
+  // silent no-op when there's no context yet.
+  Future<void> generateAiArtNow() async {
+    if (_lastMatchedSurah == null ||
+        _lastMatchedAyahNum == null ||
+        _lastMatchedAyahText == null) {
+      aiArtError = 'اختر آية أولًا (بالتعرف التلقائي أو من المصحف) قبل توليد الفن';
+      notifyListeners();
+      return;
+    }
+    _aiArtSeedOffset = 0;
+    await _generateAiArt(
+        _lastMatchedSurah!, _lastMatchedAyahNum!, _lastMatchedAyahText!);
   }
 
   // PATCH_S51_AI_ART_DELETE: wipes every cached file for this ayah from

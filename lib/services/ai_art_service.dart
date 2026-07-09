@@ -16,8 +16,22 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+// PATCH_S69_AI_ART_FIX: Pollinations retired free/keyless image generation --
+// GET /image/{prompt} now requires a Bearer key or ?key= param (401
+// otherwise). Get a free publishable (pk_...) key at
+// https://enter.pollinations.ai -- pk_ keys are explicitly documented
+// as safe to ship inside a mobile app, unlike secret sk_ keys. Set via
+// Settings; wired in from studio_state.pollinationsApiKey.
+class AiArtException implements Exception {
+  final String message;
+  AiArtException(this.message);
+  @override
+  String toString() => message;
+}
+
 class AiArtService {
   static const String _base = 'https://gen.pollinations.ai/image/';
+  static String apiKey = '';
 
   static Future<Directory> _cacheDir() async {
     final docs = await getApplicationDocumentsDirectory();
@@ -127,17 +141,34 @@ class AiArtService {
     // reproduces the same art; a regenerate tap bumps the offset for a
     // genuinely different result.
     final seed = (surahNum * 1000 + ayahNum) * 97 + seedOffset;
+    // PATCH_S69_AI_ART_FIX: current Pollinations API requires ?key=
+    // (pk_/sk_) for this endpoint; empty apiKey will 401 with a clear
+    // error below instead of silently failing like before.
+    final keyParam = apiKey.trim().isEmpty ? '' : '&key=${Uri.encodeComponent(apiKey.trim())}';
     final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
-        '?width=1080&height=1920&seed=$seed&nologo=true&model=flux');
+        '?width=1080&height=1920&seed=$seed&model=flux$keyParam');
 
+    http.Response res;
     try {
-      final res = await http.get(url).timeout(const Duration(seconds: 45));
-      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
-      await cached.writeAsBytes(res.bodyBytes);
-      return cached.path;
-    } catch (_) {
-      return null;
+      res = await http.get(url).timeout(const Duration(seconds: 45));
+    } on Exception catch (e) {
+      throw AiArtException('تعذر الاتصال بخدمة توليد الفن: $e');
     }
+    if (res.statusCode == 401) {
+      throw AiArtException(
+          'مفتاح Pollinations مفقود أو غير صالح -- أضف مفتاحًا مجانيًا من enter.pollinations.ai في الإعدادات');
+    }
+    if (res.statusCode == 402) {
+      throw AiArtException('تم استهلاك رصيد Pollinations المجاني لهذه الفترة -- حاول لاحقًا');
+    }
+    if (res.statusCode == 429) {
+      throw AiArtException('طلبات كثيرة جدًا خلال فترة قصيرة -- انتظر قليلًا ثم أعد المحاولة');
+    }
+    if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
+      throw AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
+    }
+    await cached.writeAsBytes(res.bodyBytes);
+    return cached.path;
   }
 
   // PATCH_S51_AI_ART_DELETE: removes the base cached image AND every

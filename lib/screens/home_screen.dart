@@ -2254,7 +2254,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 .bodyMedium
                 ?.copyWith(color: AyatColors.goldBright),
           ),
+          // PATCH_S69_AI_ART_FIX: Pollinations now requires a free API key for image
+          // generation -- get one at enter.pollinations.ai (publishable/pk_).
           const SizedBox(height: 8),
+          TextField(
+            controller: TextEditingController(text: state.pollinationsApiKey)
+              ..selection = TextSelection.collapsed(
+                  offset: state.pollinationsApiKey.length),
+            style: const TextStyle(fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: 'مفتاح Pollinations (pk_...)',
+              helperText: 'مجاني من enter.pollinations.ai -- مطلوب الآن لتوليد الفن',
+              helperMaxLines: 2,
+              isDense: true,
+            ),
+            onChanged: (v) => state.update(() {
+              state.pollinationsApiKey = v.trim();
+              AiArtService.apiKey = state.pollinationsApiKey;
+            }),
+          ),
+          const SizedBox(height: 8),
+          if (state.aiArtError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                state.aiArtError!,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: Colors.redAccent),
+              ),
+            ),
           if (state.aiArtBusy)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
@@ -2282,7 +2312,14 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.delete_outline, size: 18),
               label: const Text('حذف الفن المولّد لهذه الآية'),
             ),
-          ],
+          ] else
+            // PATCH_S69_AI_ART_FIX: previously nothing rendered here at all when no
+            // art existed yet -- this was the actual "does nothing" bug.
+            ElevatedButton.icon(
+              onPressed: () => state.generateAiArtNow(),
+              icon: const Icon(Icons.auto_awesome, size: 18),
+              label: const Text('توليد الآن'),
+            ),
         ],
         const SizedBox(height: 10),
         ElevatedButton.icon(
