@@ -15,7 +15,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti } // PATCH_S52_MORE_EFFECTS
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch } // PATCH_S72_GLITCH_EFFECT
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -26,6 +26,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.sparkle => 'بريق نجمي', // PATCH_S51_MORE_EFFECTS
         StageEffect.geometricShimmer => 'بريق زخرفي إسلامي', // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => 'قصاصات ذهبية', // PATCH_S52_MORE_EFFECTS
+        StageEffect.glitch => 'أعطال بصرية', // PATCH_S72_GLITCH_EFFECT
       };
 
   IconData get icon => switch (this) {
@@ -36,6 +37,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.sparkle => Icons.star_outline, // PATCH_S51_MORE_EFFECTS
         StageEffect.geometricShimmer => Icons.auto_awesome_mosaic, // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => Icons.celebration_outlined, // PATCH_S52_MORE_EFFECTS
+        StageEffect.glitch => Icons.broken_image_outlined, // PATCH_S72_GLITCH_EFFECT
       };
 }
 
@@ -54,6 +56,15 @@ class StageEffects {
     return x - x.floorToDouble();
   }
 
+  // PATCH_S71_REALISTIC_RAIN: shared easing helper -- turns a raw sin/cos value
+  // into a signed eased value (still in [-1, 1], still continuous and
+  // periodic) so a sway reads as ease-in-out rather than constant-velocity
+  // sinusoidal motion.
+  static double _easeInOutSine(double x) => -(cos(pi * x) - 1) / 2;
+
+  static double _easedOscillate(double raw) =>
+      raw.sign * _easeInOutSine(raw.abs());
+
   static void paint(Canvas canvas, Size size, StageEffect effect,
       double timeSec, double intensity) {
     switch (effect) {
@@ -71,29 +82,81 @@ class StageEffects {
         _paintGeometricShimmer(canvas, size, timeSec, intensity);
       case StageEffect.confetti: // PATCH_S52_MORE_EFFECTS
         _paintConfetti(canvas, size, timeSec, intensity);
+      case StageEffect.glitch: // PATCH_S72_GLITCH_EFFECT
+        _paintGlitch(canvas, size, timeSec, intensity);
     }
   }
 
   static void _paintRain(
       Canvas canvas, Size size, double t, double intensity) {
+    // PATCH_S71_REALISTIC_RAIN: 3 depth bands (far/mid/near) instead of one continuous
+    // depth gradient -- distinct opacity/blur/speed/streak-length per band
+    // is what makes rain read as real layered rainfall rather than "lines
+    // falling in front of the camera."
+    const bands = [
+      (count: 70, alpha: 0.10, lenFrac: 0.028, blur: 1.6, speedMul: 0.75, widthMul: 0.8),
+      (count: 55, alpha: 0.20, lenFrac: 0.045, blur: 0.6, speedMul: 1.05, widthMul: 1.15),
+      (count: 35, alpha: 0.34, lenFrac: 0.065, blur: 0.0, speedMul: 1.35, widthMul: 1.5),
+    ];
+    var seedBase = 0;
+    for (final band in bands) {
+      _paintRainBand(canvas, size, t, intensity, band, seedBase);
+      seedBase += 1000;
+    }
+  }
+
+  // PATCH_S71_REALISTIC_RAIN: one depth band of the layered rain above.
+  static void _paintRainBand(
+    Canvas canvas,
+    Size size,
+    double t,
+    double intensity,
+    ({
+      int count,
+      double alpha,
+      double lenFrac,
+      double blur,
+      double speedMul,
+      double widthMul
+    }) band,
+    int seedBase,
+  ) {
     final w = size.width, h = size.height;
-    final count = (150 * intensity).round();
-    final paint = Paint()..strokeCap = StrokeCap.round;
+    final count = (band.count * intensity).round();
+    // Gentle whole-cycle wind-gust drift on the slant angle instead of a
+    // constant slant -- one full gust cycle per loop keeps the export tile
+    // seamless.
+    final gustPhase = _rand(seedBase, 99) * 2 * pi;
+    final slant = 0.14 + 0.10 * sin(2 * pi * t / loopSeconds + gustPhase);
     for (var i = 0; i < count; i++) {
-      final depth = _rand(i, 1); // 0 = far/dim/short, 1 = near/bright/long
-      final len = h * (0.030 + 0.045 * depth);
+      final idx = seedBase + i;
+      final len = h * band.lenFrac;
       final range = h + len;
-      // whole [kLoops] traversals per loop keeps the wrap seamless
       final kLoops = 2 + (i % 2);
-      final v = kLoops * range / loopSeconds;
-      final y = ((_rand(i, 2) * range + v * t) % range) - len;
-      final x = _rand(i, 3) * w;
-      paint
-        ..color = Colors.white.withValues(alpha: 0.14 + 0.30 * depth)
-        ..strokeWidth = (1.0 + 1.6 * depth) * w / 1080;
-      // constant slant: the drop is drawn tilted while falling vertically,
-      // which reads as wind-blown rain without breaking the loop wrap
-      canvas.drawLine(Offset(x, y), Offset(x + len * 0.18, y + len), paint);
+      final v = kLoops * range / loopSeconds * band.speedMul;
+      final y = ((_rand(idx, 2) * range + v * t) % range) - len;
+      final x = _rand(idx, 3) * w;
+      final start = Offset(x, y);
+      final end = Offset(x + len * slant, y + len);
+      final paint = Paint()
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth =
+            (1.0 + 1.2 * _rand(idx, 5)) * band.widthMul * w / 1080;
+      if (band.blur > 0) {
+        paint.maskFilter =
+            MaskFilter.blur(BlurStyle.normal, band.blur * w / 1080);
+      }
+      // Motion-blur trail: gradient from transparent to the drop's color
+      // along the streak, instead of a hard-edged uniform line.
+      paint.shader = ui.Gradient.linear(
+        start,
+        end,
+        [
+          Colors.white.withValues(alpha: 0.0),
+          Colors.white.withValues(alpha: band.alpha),
+        ],
+      );
+      canvas.drawLine(start, end, paint);
     }
   }
 
@@ -111,8 +174,12 @@ class StageEffects {
       // whole sine cycles per loop so the sway is also seamless
       final swayCycles = 1 + (i % 3);
       final phase = _rand(i, 4) * 2 * pi;
-      final sway =
-          sin(2 * pi * swayCycles * t / loopSeconds + phase) * w * 0.03;
+      // PATCH_S71_REALISTIC_RAIN: eased sway instead of a raw sine position --
+      // lingers a touch near the sway's extremes and moves faster through
+      // the middle, reading less mechanical. Still one whole sine cycle per
+      // loop underneath, so the seamless wrap is untouched.
+      final swayRaw = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final sway = _easedOscillate(swayRaw) * w * 0.03;
       final x = (_rand(i, 3) * w + sway + w) % w;
       paint.color = Colors.white.withValues(alpha: 0.25 + 0.55 * depth);
       canvas.drawCircle(Offset(x, y), r, paint);
@@ -132,10 +199,12 @@ class StageEffects {
       // so nothing needs to wrap at all
       final phase = _rand(i, 4) * 2 * pi;
       final swayCycles = 1 + (i % 2);
-      final x = _rand(i, 2) * w +
-          sin(2 * pi * swayCycles * t / loopSeconds + phase) * w * 0.015;
-      final y = _rand(i, 3) * h +
-          cos(2 * pi * swayCycles * t / loopSeconds + phase) * h * 0.008;
+      // PATCH_S71_REALISTIC_RAIN: eased sway (see _paintSnow) instead of a raw
+      // sin/cos position -- same whole-cycle-per-loop guarantee.
+      final swayRawX = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final swayRawY = cos(2 * pi * swayCycles * t / loopSeconds + phase);
+      final x = _rand(i, 2) * w + _easedOscillate(swayRawX) * w * 0.015;
+      final y = _rand(i, 3) * h + _easedOscillate(swayRawY) * h * 0.008;
       final twinkleCycles = 1 + (i % 3);
       final twinkle =
           0.5 + 0.5 * sin(2 * pi * twinkleCycles * t / loopSeconds + phase * 2);
@@ -283,6 +352,81 @@ class StageEffects {
       canvas.drawRect(
           Rect.fromCenter(center: Offset.zero, width: pw, height: ph), paint);
       canvas.restore();
+    }
+  }
+
+
+  // PATCH_S72_GLITCH_EFFECT: RGB channel-split ghosting, horizontal scanline jitter, and
+  // short static-noise bursts. Burst timing/offsets are deterministic and
+  // whole-cycle-per-loop like every other effect here, so the exported
+  // PNG-tile loop still wraps seamlessly. Most of the loop stays calm --
+  // only [burstCount] brief windows per loop actually show anything, which
+  // reads as an intermittent glitch rather than constant noise.
+  static void _paintGlitch(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    const burstCount = 5;
+    for (var b = 0; b < burstCount; b++) {
+      final burstCenter = (b + 0.5) / burstCount * loopSeconds;
+      final dt =
+          ((t - burstCenter + loopSeconds / 2) % loopSeconds) - loopSeconds / 2;
+      final burstWidth = 0.12 + 0.10 * _rand(b, 90);
+      final burstEnv = (1 - (dt.abs() / burstWidth)).clamp(0.0, 1.0);
+      if (burstEnv <= 0) continue;
+      final strength = pow(burstEnv, 2).toDouble() * intensity;
+
+      // RGB channel-split ghosting: a few horizontal strips duplicated with
+      // a small red/blue horizontal offset, like a chromatic-aberration tear.
+      final stripCount = 4 + (b % 3);
+      for (var s = 0; s < stripCount; s++) {
+        final i = b * 100 + s;
+        final rowY = _rand(i, 1) * h;
+        final rowH = h * (0.01 + 0.03 * _rand(i, 2));
+        final shift = (2 + 10 * _rand(i, 3)) * w / 1080 * strength;
+        final rect = Rect.fromLTWH(0, rowY, w, rowH);
+        final redPaint = Paint()
+          ..color = const Color(0xFFFF3B3B).withValues(alpha: 0.28 * strength)
+          ..blendMode = BlendMode.plus;
+        final bluePaint = Paint()
+          ..color = const Color(0xFF3B9BFF).withValues(alpha: 0.28 * strength)
+          ..blendMode = BlendMode.plus;
+        canvas.save();
+        canvas.translate(-shift, 0);
+        canvas.drawRect(rect, redPaint);
+        canvas.restore();
+        canvas.save();
+        canvas.translate(shift, 0);
+        canvas.drawRect(rect, bluePaint);
+        canvas.restore();
+      }
+
+      // Horizontal scanline jitter: a few thin strips shifted sideways.
+      final jitterCount = 3 + (b % 2);
+      for (var s = 0; s < jitterCount; s++) {
+        final i = b * 200 + s;
+        final rowY = _rand(i, 4) * h;
+        final rowH = h * (0.006 + 0.012 * _rand(i, 5));
+        final shift = (w * 0.02 + w * 0.10 * _rand(i, 6)) * strength;
+        final dir = (i % 2 == 0) ? 1.0 : -1.0;
+        final paint = Paint()..color = Colors.white.withValues(alpha: 0.10 * strength);
+        canvas.drawRect(Rect.fromLTWH(dir * shift, rowY, w, rowH), paint);
+      }
+
+      // Brief static-noise burst: scattered small white/black flecks.
+      final staticCount = (40 * strength).round();
+      final staticPaint = Paint();
+      for (var s = 0; s < staticCount; s++) {
+        final i = b * 300 + s;
+        final x = _rand(i, 7) * w;
+        final y = _rand(i, 8) * h;
+        final dotSize = (1.0 + 2.0 * _rand(i, 9)) * w / 1080;
+        final bright = _rand(i, 10) > 0.5;
+        staticPaint.color =
+            (bright ? Colors.white : Colors.black).withValues(alpha: 0.5 * strength);
+        canvas.drawRect(
+            Rect.fromCenter(center: Offset(x, y), width: dotSize, height: dotSize),
+            staticPaint);
+      }
     }
   }
 

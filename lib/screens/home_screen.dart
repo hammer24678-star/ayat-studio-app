@@ -2128,10 +2128,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
-          if (state.bgTransitionStyle == BgTransitionStyle.crossfade) ...[
+          // PATCH_S70_MORE_TRANSITIONS: every non-hardCut style now uses the same
+          // duration/overlap slider via xfade, not just crossfade specifically.
+          if (state.bgTransitionStyle != BgTransitionStyle.hardCut) ...[
             const SizedBox(height: 8),
             _fieldLabel(
-                'مدة التلاشي: ${state.bgCrossfadeDuration.toStringAsFixed(1)} ثانية'),
+                'مدة الانتقال: ${state.bgCrossfadeDuration.toStringAsFixed(1)} ثانية'),
             Slider(
               value: state.bgCrossfadeDuration,
               min: 0.2,

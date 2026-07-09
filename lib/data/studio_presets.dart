@@ -38,7 +38,39 @@ const List<(ColorGrade, String)> kColorGrades = [
 // ExportService for the ffmpeg concat/xfade chain this drives.
 enum BgSwitchTrigger { ayahs, seconds }
 
-enum BgTransitionStyle { hardCut, crossfade }
+// PATCH_S70_MORE_TRANSITIONS: 7 more xfade-backed styles alongside the original 2.
+enum BgTransitionStyle {
+  hardCut,
+  crossfade,
+  wipeLeft,
+  wipeRight,
+  slideUp,
+  slideDown,
+  circleOpen,
+  circleClose,
+  dissolve,
+  pixelize,
+  radial,
+}
+
+// PATCH_S70_MORE_TRANSITIONS: ffmpeg xfade filter name for every non-hardCut style --
+// hardCut takes the concat path instead (see export_service.dart) so its
+// entry here is unused, just present for switch exhaustiveness.
+extension BgTransitionStyleXfade on BgTransitionStyle {
+  String get ffmpegXfadeName => switch (this) {
+        BgTransitionStyle.hardCut => 'fade',
+        BgTransitionStyle.crossfade => 'fade',
+        BgTransitionStyle.wipeLeft => 'wipeleft',
+        BgTransitionStyle.wipeRight => 'wiperight',
+        BgTransitionStyle.slideUp => 'slideup',
+        BgTransitionStyle.slideDown => 'slidedown',
+        BgTransitionStyle.circleOpen => 'circleopen',
+        BgTransitionStyle.circleClose => 'circleclose',
+        BgTransitionStyle.dissolve => 'dissolve',
+        BgTransitionStyle.pixelize => 'pixelize',
+        BgTransitionStyle.radial => 'radial',
+      };
+}
 
 const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
   (BgSwitchTrigger.ayahs, 'كل عدد آيات'),
@@ -48,6 +80,16 @@ const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
 const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
   (BgTransitionStyle.hardCut, 'قطع مباشر'),
   (BgTransitionStyle.crossfade, 'تلاشٍ متداخل'),
+  // PATCH_S70_MORE_TRANSITIONS
+  (BgTransitionStyle.wipeLeft, 'مسح لليسار'),
+  (BgTransitionStyle.wipeRight, 'مسح لليمين'),
+  (BgTransitionStyle.slideUp, 'انزلاق للأعلى'),
+  (BgTransitionStyle.slideDown, 'انزلاق للأسفل'),
+  (BgTransitionStyle.circleOpen, 'دائرة تتّسع'),
+  (BgTransitionStyle.circleClose, 'دائرة تنغلق'),
+  (BgTransitionStyle.dissolve, 'تلاشٍ متناثر'),
+  (BgTransitionStyle.pixelize, 'تبكسل'),
+  (BgTransitionStyle.radial, 'مسح شعاعي'),
 ];
 
 // PATCH_S54_PRO_EXPORT_CONTROLS: how an uploaded video maps onto the chosen

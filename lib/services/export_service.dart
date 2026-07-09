@@ -589,18 +589,21 @@ class ExportService {
       );
     }
 
-    // Crossfade: chain xfade pairwise. Each transition's duration is clamped
-    // to whichever neighbouring slot is shorter, so a short switch interval
-    // can never ask xfade for more overlap than a slot actually has.
+    // PATCH_S70_MORE_TRANSITIONS: any non-hardCut style chains xfade pairwise using that
+    // style's own ffmpeg transition name (was hardcoded to 'fade' -- crossfade
+    // was the only style that existed at the time). Duration is still clamped
+    // to whichever neighbouring slot is shorter, so a short switch interval can
+    // never ask xfade for more overlap than a slot actually has.
     var running = segLabels[0];
     var elapsed = segments[0].dur;
+    final xfadeName = transition.ffmpegXfadeName;
     for (var i = 1; i < segLabels.length; i++) {
       final safeDur =
           min(crossfadeDur, min(segments[i - 1].dur, segments[i].dur) * 0.9)
               .clamp(0.05, crossfadeDur);
       final offset = max(0.0, elapsed - safeDur);
       final outLbl = i == segLabels.length - 1 ? 'bgv' : 'bgx$i';
-      filters.add('[$running][${segLabels[i]}]xfade=transition=fade:'
+      filters.add('[$running][${segLabels[i]}]xfade=transition=$xfadeName:'
           'duration=${safeDur.toStringAsFixed(3)}:offset=${offset.toStringAsFixed(3)}[$outLbl]');
       running = outLbl;
       elapsed += segments[i].dur - safeDur;
