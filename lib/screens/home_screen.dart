@@ -1238,10 +1238,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: dialogAyahIdx == null
                     ? null
                     : () {
+                        // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the very first manual add is the
+                        // moment the editor card appears -- tell the user
+                        // where to find it instead of leaving them to
+                        // notice a new card above the fold on their own.
+                        final wasEmpty = state.timeline.isEmpty;
                         state.addManualSegment(
                             state.ayaat[dialogAyahIdx!], start, end);
                         Navigator.pop(context);
-                        _toast('أُضيفت الآية إلى الخط الزمني ✓');
+                        _toast(wasEmpty
+                            ? 'أُضيفت الآية الأولى ✓ — مرّري لأعلى لرؤية \'مراجعة الآيات المرصودة\' وأكملي إضافة بقية النطاق من هناك'
+                            : 'أُضيفت الآية إلى الخط الزمني ✓');
                       },
                 child: const Text('إضافة'),
               ),
@@ -1815,6 +1822,25 @@ class _HomeScreenState extends State<HomeScreen> {
         ElevatedButton(
             onPressed: _applyCustomText,
             child: const Text('تطبيق النص المخصص')),
+        const Divider(height: 32, color: AyatColors.hairline),
+        // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the dropdown above sets ONE static ayah. For a
+        // recitation that moves through several ayat, build a manual
+        // timeline instead -- this opens the same add-a-segment dialog
+        // used by the auto-sync review card, so the first ayah added
+        // here becomes the start of a full multi-ayah timeline you can
+        // keep extending from the card that appears above once it's
+        // no longer empty.
+        Text('نطاق آيات متعدد', style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'لتلاوة تمر بعدة آيات، أضيفي كل آية بتوقيتها الخاص -- ستظهر بطاقة \'مراجعة الآيات المرصودة\' أعلى الشاشة بعد أول آية لإكمال الباقي أو تعديل التوقيت.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _addManualSegmentDialog,
+          icon: const Icon(Icons.playlist_add, size: 18),
+          label: const Text('إضافة آية إلى خط زمني متعدد'),
+        ),
         const Divider(height: 32, color: AyatColors.hairline),
         Text('بطاقات افتتاحية وختامية',
             style: Theme.of(context).textTheme.headlineMedium),
