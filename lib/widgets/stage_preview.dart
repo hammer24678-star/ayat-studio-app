@@ -5,6 +5,7 @@
 // (rain/snow/light-dust) layer.
 import 'dart:async';
 import 'dart:io';
+import 'dart:math'; // PATCH_S58_LIVE_EFFECTS_PREVIEW
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -68,6 +69,23 @@ class _StagePreviewState extends State<StagePreview>
         milliseconds: (StageEffects.loopSeconds * 1000).round()),
   );
 
+  // PATCH_S58_LIVE_EFFECTS_PREVIEW: slow breathing zoom approximating the export's zoompan
+  // Ken Burns move -- a real ffmpeg zoompan only ever zooms forward for
+  // the length of the clip, but the preview loops indefinitely with no
+  // export duration to pace against, so it breathes in/out instead.
+  late final AnimationController _kenBurnsAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 9),
+  );
+
+  // PATCH_S58_LIVE_EFFECTS_PREVIEW: the grain dot field is regenerated on a plain ~90ms Timer,
+  // not a 60fps AnimationController -- real grain reads as flicker, not
+  // smooth motion, and a coarse refresh is far cheaper on-device (this
+  // is a Termux/S22 build) than repainting a dense random field every
+  // frame.
+  final ValueNotifier<int> _grainSeed = ValueNotifier(0);
+  Timer? _grainTimer;
+
   // PATCH_S34_PLAYER_CONTROLS_TRIM: transient ▶/⏸ flash after tapping the video.
   IconData? _tapFlashIcon;
   Timer? _tapFlashTimer;
@@ -76,6 +94,9 @@ class _StagePreviewState extends State<StagePreview>
   void dispose() {
     _bgAnim.dispose();
     _fxAnim.dispose();
+    _kenBurnsAnim.dispose(); // PATCH_S58_LIVE_EFFECTS_PREVIEW
+    _grainTimer?.cancel(); // PATCH_S58_LIVE_EFFECTS_PREVIEW
+    _grainSeed.dispose(); // PATCH_S58_LIVE_EFFECTS_PREVIEW
     _tapFlashTimer?.cancel();
     super.dispose();
   }
@@ -125,6 +146,21 @@ class _StagePreviewState extends State<StagePreview>
         } else if (_fxAnim.isAnimating) {
           _fxAnim.stop();
         }
+        // PATCH_S58_LIVE_EFFECTS_PREVIEW: same on-only-when-needed pattern as the particle
+        // loop above, for Ken Burns and grain.
+        if (state.kenBurnsEnabled) {
+          if (!_kenBurnsAnim.isAnimating) _kenBurnsAnim.repeat(reverse: true);
+        } else if (_kenBurnsAnim.isAnimating) {
+          _kenBurnsAnim.stop();
+          _kenBurnsAnim.value = 0;
+        }
+        if (state.grainEnabled) {
+          _grainTimer ??= Timer.periodic(const Duration(milliseconds: 90),
+              (_) => _grainSeed.value++);
+        } else {
+          _grainTimer?.cancel();
+          _grainTimer = null;
+        }
         return ClipRRect(
           borderRadius: BorderRadius.circular(26),
           child: Container(
@@ -135,7 +171,12 @@ class _StagePreviewState extends State<StagePreview>
               border: Border.all(color: AyatColors.hairline),
               borderRadius: BorderRadius.circular(26),
             ),
-            child: Stack(
+            child: ColorFiltered(
+              // PATCH_S58_LIVE_EFFECTS_PREVIEW: approximates the export's color-grade chain
+              // live -- see _liveColorFilter below for how close each grade
+              // gets. The exported MP4 stays the authoritative render.
+              colorFilter: _liveColorFilter(state.colorGrade),
+              child: Stack(
               fit: StackFit.expand,
               children: [
                 // PATCH_S51_BG_CROSSFADE: the AI-art/custom-photo background
@@ -163,11 +204,29 @@ class _StagePreviewState extends State<StagePreview>
                           if (current != null) current,
                         ],
                       ),
-                      child: Image.file(
-                        File(state.customBgPath!),
-                        key: ValueKey(state.customBgPath),
-                        fit: BoxFit.cover,
-                      ),
+                      child: state.kenBurnsEnabled
+                          ? AnimatedBuilder(
+                              // PATCH_S58_LIVE_EFFECTS_PREVIEW: only the photo/AI-art background is a
+                              // discrete image widget in the preview tree, so
+                              // that's the only case previewed here -- the flat
+                              // preset gradient still gets Ken Burns at export
+                              // time, just not shown live.
+                              animation: _kenBurnsAnim,
+                              child: Image.file(
+                                File(state.customBgPath!),
+                                key: ValueKey(state.customBgPath),
+                                fit: BoxFit.cover,
+                              ),
+                              builder: (context, child) => Transform.scale(
+                                scale: 1.0 + 0.08 * _kenBurnsAnim.value,
+                                child: child,
+                              ),
+                            )
+                          : Image.file(
+                              File(state.customBgPath!),
+                              key: ValueKey(state.customBgPath),
+                              fit: BoxFit.cover,
+                            ),
                     ),
                   ),
                 // PATCH_S28_ANIMATED_BACKGROUND: only over the plain preset gradient --
@@ -346,8 +405,41 @@ class _StagePreviewState extends State<StagePreview>
                       ),
                     ),
                   ),
+                // PATCH_S58_LIVE_EFFECTS_PREVIEW: vignette + grain sit on top of everything,
+                // including the ayah text -- matching the export chain, where
+                // the post-filter (color grade + vignette + grain) applies to
+                // the already-composited frame with text burned in.
+                if (state.vignetteEnabled)
+                  IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: Alignment.center,
+                          radius: 0.9,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(
+                                alpha: (state.vignetteIntensity / 100 * 0.55)
+                                    .clamp(0.0, 0.55)),
+                          ],
+                          stops: const [0.45, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                if (state.grainEnabled)
+                  IgnorePointer(
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _grainSeed,
+                      builder: (context, seed, _) => CustomPaint(
+                        painter: _GrainPainter(
+                            seed: seed, intensity: state.grainIntensity),
+                      ),
+                    ),
+                  ),
               ],
             ),
+            ), // PATCH_S58_LIVE_EFFECTS_PREVIEW: closes ColorFiltered
           ),
         );
       }),
@@ -507,4 +599,84 @@ class _StagePreviewState extends State<StagePreview>
       ),
     );
   }
+}
+
+// PATCH_S58_LIVE_EFFECTS_PREVIEW: rough live-preview twin of ExportService._colorGradeFilter's
+// ffmpeg eq/colorbalance/colorchannelmixer chains, expressed as a 4x5
+// ColorMatrix Flutter can apply every frame. Sepia uses the exact same
+// channel-mix coefficients as the ffmpeg filter; warmGold/nightTeal/
+// softMono are tuned approximations, not pixel-identical -- the exported
+// MP4 is the authoritative render.
+ColorFilter _liveColorFilter(ColorGrade g) {
+  switch (g) {
+    case ColorGrade.none:
+      return const ColorFilter.matrix(<double>[
+        1, 0, 0, 0, 0,
+        0, 1, 0, 0, 0,
+        0, 0, 1, 0, 0,
+        0, 0, 0, 1, 0,
+      ]);
+    case ColorGrade.warmGold:
+      return const ColorFilter.matrix(<double>[
+        1.20, -0.05, -0.05, 0, 12,
+        0.00, 1.05, -0.05, 0, 4,
+        -0.05, -0.10, 0.95, 0, -14,
+        0, 0, 0, 1, 0,
+      ]);
+    case ColorGrade.nightTeal:
+      return const ColorFilter.matrix(<double>[
+        0.90, 0.02, -0.05, 0, -8,
+        0.00, 0.95, 0.00, 0, -4,
+        -0.05, 0.05, 1.15, 0, 10,
+        0, 0, 0, 1, 0,
+      ]);
+    case ColorGrade.sepia:
+      return const ColorFilter.matrix(<double>[
+        0.393, 0.769, 0.189, 0, 0,
+        0.349, 0.686, 0.168, 0, 0,
+        0.272, 0.534, 0.131, 0, 0,
+        0, 0, 0, 1, 0,
+      ]);
+    case ColorGrade.softMono:
+      return const ColorFilter.matrix(<double>[
+        0.2254, 0.7581, 0.0765, 0, -5.1,
+        0.2254, 0.7581, 0.0765, 0, -5.1,
+        0.2254, 0.7581, 0.0765, 0, -5.1,
+        0, 0, 0, 1, 0,
+      ]);
+  }
+}
+
+// PATCH_S58_LIVE_EFFECTS_PREVIEW: cheap film-grain approximation -- a fixed count of translucent
+// dots redrawn from a seeded Random on every timer tick (see _grainTimer
+// above), not on every animation frame. Mirrors the ffmpeg
+// noise=alls=$amt:allf=t+u filter's 0..100 -> 4..30 intensity mapping
+// closely enough to judge the look; grain is inherently random so an
+// exact frame-for-frame match isn't meaningful anyway.
+class _GrainPainter extends CustomPainter {
+  final int seed;
+  final int intensity;
+  const _GrainPainter({required this.seed, required this.intensity});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final amt = (intensity.clamp(0, 100) / 100 * 26 + 4);
+    final count = (size.width * size.height / 900 * (amt / 30))
+        .round()
+        .clamp(60, 1400);
+    final rnd = Random(seed);
+    final points = <Offset>[
+      for (var i = 0; i < count; i++)
+        Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height),
+    ];
+    final paint = Paint()
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withValues(alpha: (amt / 100).clamp(0.0, 0.35));
+    canvas.drawPoints(PointMode.points, points, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GrainPainter old) =>
+      old.seed != seed || old.intensity != intensity;
 }

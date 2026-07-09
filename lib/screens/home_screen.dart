@@ -1518,8 +1518,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         // PATCH_S38_VIDEO_EFFECTS
         const Divider(height: 32, color: AyatColors.hairline),
+        // PATCH_S58_LIVE_EFFECTS_PREVIEW
         _panelTitle('تأثيرات التصدير',
-            'كل ما هنا يُطبَّق أثناء التصدير فقط (لا يبطئ المعاينة المباشرة)، وهو بصري بحت — لا يغيّر صوت التلاوة إطلاقًا.'),
+            'معاينة تقريبية مباشرة على المسرح أعلاه — الملف المُصدَّر هو المرجع النهائي للشكل الدقيق. بصري بحت، لا يغيّر صوت التلاوة إطلاقًا.'),
         _fieldLabel('تدرّج لوني'),
         Wrap(
           spacing: 8,
