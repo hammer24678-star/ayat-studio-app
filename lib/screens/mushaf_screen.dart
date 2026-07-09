@@ -1,3 +1,4 @@
+// PATCH_S74_MUSHAF_UI_POLISH
 import 'package:flutter/material.dart';
 
 import '../services/ayah_matcher.dart';
@@ -62,6 +63,8 @@ class _MushafScreenState extends State<MushafScreen> {
       backgroundColor: AyatColors.ink,
       appBar: AppBar(
         title: const Text('المصحف'),
+        iconTheme: const IconThemeData(color: AyatColors.gold),
+        actionsIconTheme: const IconThemeData(color: AyatColors.gold),
         actions: [
           IconButton(
             tooltip: 'السورة التالية',
@@ -79,16 +82,32 @@ class _MushafScreenState extends State<MushafScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: DropdownButton<int>(
-              isExpanded: true,
-              value: _surah,
-              items: [
-                for (final s in _surahs)
-                  DropdownMenuItem(value: s.$1, child: Text('سورة ${s.$2}')),
-              ],
-              onChanged: (v) {
-                if (v != null) setState(() => _surah = v);
-              },
+            // PATCH_S74_MUSHAF_UI_POLISH: bordered pill matching the app's
+            // card/chip language instead of the bare default dropdown.
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: AyatColors.surface2,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AyatColors.hairline),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  isExpanded: true,
+                  value: _surah,
+                  dropdownColor: AyatColors.surface2,
+                  iconEnabledColor: AyatColors.gold,
+                  style: const TextStyle(color: AyatColors.parchment),
+                  items: [
+                    for (final s in _surahs)
+                      DropdownMenuItem(
+                          value: s.$1, child: Text('سورة ${s.$2}')),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) setState(() => _surah = v);
+                  },
+                ),
+              ),
             ),
           ),
           Expanded(
@@ -111,7 +130,17 @@ class _MushafScreenState extends State<MushafScreen> {
                           child: Text('سورة $name',
                               style: Theme.of(context).textTheme.headlineLarge),
                         ),
-                        Directionality(
+                        // PATCH_S74_MUSHAF_UI_POLISH: soft-bordered "page" panel around the
+                        // ayah text, matching the surah-name card above it, instead of the
+                        // text sitting bare on the ink background.
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(18, 22, 18, 26),
+                          decoration: BoxDecoration(
+                            color: AyatColors.surface.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: AyatColors.hairline),
+                          ),
+                          child: Directionality(
                           textDirection: TextDirection.rtl,
                           child: Text.rich(
                             TextSpan(
@@ -122,15 +151,20 @@ class _MushafScreenState extends State<MushafScreen> {
                                     // PATCH_S63_MUSHAF_FONT_FIX: was Theme.of(context).textTheme.displayLarge
                                     // (hardcoded Amiri Quran) -- now respects the font picked
                                     // under 'خط الآية', same as the editor/export preview.
+                                    // PATCH_S74_MUSHAF_UI_POLISH: bumped 22->24pt and 1.8->2.0
+                                    // line-height, added slight letter-spacing, for readability.
                                     style: ayahTextStyle(
                                       widget.fontKey,
-                                      fontSize: 22,
-                                      height: 1.8,
+                                      fontSize: 24,
+                                      height: 2.0,
                                       color: AyatColors.parchment,
-                                    ),
+                                    ).copyWith(letterSpacing: 0.2),
                                   ),
                                   WidgetSpan(
                                     alignment: PlaceholderAlignment.middle,
+                                    // PATCH_S74_MUSHAF_UI_POLISH: solid gold
+                                    // ayah-end ornament with a soft glow,
+                                    // instead of a thin outline badge.
                                     child: Container(
                                       margin: const EdgeInsets.symmetric(horizontal: 3),
                                       width: 26,
@@ -138,13 +172,19 @@ class _MushafScreenState extends State<MushafScreen> {
                                       alignment: Alignment.center,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        border: Border.all(
-                                            color: AyatColors.gold, width: 1.2),
+                                        color: AyatColors.gold,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: AyatColors.gold.withValues(alpha: 0.45),
+                                            blurRadius: 6,
+                                            spreadRadius: 0.5,
+                                          ),
+                                        ],
                                       ),
                                       child: Text(
                                         '${a.num}',
                                         style: const TextStyle(
-                                          color: AyatColors.goldBright,
+                                          color: AyatColors.ink,
                                           fontSize: 11,
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -156,6 +196,7 @@ class _MushafScreenState extends State<MushafScreen> {
                               ],
                             ),
                             textAlign: TextAlign.justify,
+                          ),
                           ),
                         ),
                       ],
