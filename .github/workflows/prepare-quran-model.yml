@@ -58,18 +58,20 @@ jobs:
           model.save_pretrained(out_dir, safe_serialization=False)
 
           # convert-h5-to-ggml.py reads vocab.json/added_tokens.json directly out
-          # of dir_model. WhisperProcessor wraps a FAST tokenizer, whose
-          # save_pretrained() is not guaranteed to emit the legacy vocab.json/
-          # merges.txt/added_tokens.json files on current transformers versions --
-          # that's exactly what caused this job's original vocab.json
-          # FileNotFoundError. PATCH_S66B_VOCAB_JSON_FIX: also load + save the SLOW tokenizer,
-          # whose save_vocabulary() always dumps its BPE encoder straight to
-          # vocab.json, no ambiguity.
-          proc = WhisperProcessor.from_pretrained(base_id)
+          # of dir_model. PATCH_S66B_VOCAB_JSON_FIX's attempt (load the SLOW
+          # tokenizer from base_id) still came up empty: tarteel-ai's own repo
+          # simply doesn't host vocab.json/merges.txt/added_tokens.json at all,
+          # only tokenizer.json (fast-only). PATCH_S66C_TOKENIZER_FROM_OPENAI_BASE: fine-tuning
+          # Whisper never changes its tokenizer/vocab, so pull the tokenizer
+          # files from openai/whisper-base instead -- the canonical HF mirror
+          # that reliably ships the legacy files -- while the model WEIGHTS
+          # loaded/merged above remain the tarteel+LoRA merge, untouched.
+          tok_source = "openai/whisper-base"
+          proc = WhisperProcessor.from_pretrained(tok_source)
           proc.save_pretrained(out_dir)
 
           from transformers import WhisperTokenizer
-          slow_tok = WhisperTokenizer.from_pretrained(base_id)
+          slow_tok = WhisperTokenizer.from_pretrained(tok_source)
           slow_tok.save_pretrained(out_dir)
 
           import os
@@ -78,7 +80,7 @@ jobs:
           if missing:
               raise SystemExit(
                   f"FATAL: {out_dir}/ is still missing {missing} after saving both "
-                  f"processor and slow tokenizer -- contents: {os.listdir(out_dir)}"
+                  f"processor and slow tokenizer from {tok_source} -- contents: {os.listdir(out_dir)}"
               )
           print(f"Merged model saved to {out_dir}/ (verified: {required} all present)")
           PY
