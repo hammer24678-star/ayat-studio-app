@@ -136,20 +136,37 @@ class TimelineBuilder {
         final windowDurationSec = (endSample - startSample) / sampleRate;
         WhisperTranscript transcript;
         windowsAttempted++; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
+        final chunkPath = '${tempDir.path}/chunk_$chunkIndex.wav';
+        _writeWavMono16(chunkPath, slice);
         try {
-          final chunkPath = '${tempDir.path}/chunk_$chunkIndex.wav';
-          _writeWavMono16(chunkPath, slice);
           transcript = await WhisperService.transcribeWavWithSegments(
             chunkPath,
             audioDurationSec: windowDurationSec,
             splitOnWord: true, // PATCH_S55_WORD_TIMESTAMPS
           );
-          File(chunkPath).delete().ignore();
         } catch (e) {
-          windowsFailed++; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
-          lastTranscribeError = e; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
-          continue; // one failed window shouldn't kill the whole scan
+          // PATCH_S61_SPLITONWORD_FALLBACK: whisper_ggml_plus's word-split path is narrower
+          // than its normal one (it force-disables VAD, per its own docs)
+          // and can throw a json.exception.type_error.302 for some inputs.
+          // Retry this window without word-splitting before giving up on
+          // it -- _groupWords() already falls back to whole-window text
+          // when no per-word timestamps come back, so this only costs
+          // karaoke-onset precision for the affected window(s), not the
+          // whole video's detection.
+          try {
+            transcript = await WhisperService.transcribeWavWithSegments(
+              chunkPath,
+              audioDurationSec: windowDurationSec,
+              splitOnWord: false,
+            );
+          } catch (e2) {
+            File(chunkPath).delete().ignore();
+            windowsFailed++; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
+            lastTranscribeError = e2; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
+            continue; // one failed window shouldn't kill the whole scan
+          }
         }
+        File(chunkPath).delete().ignore();
 
         // PATCH_S55_WORD_TIMESTAMPS: per-word segments are grouped back into
         // phrases for corpus matching (single words can't match an ayah),
