@@ -9,6 +9,7 @@
 // wrap by whole multiples of the travel range and sways/twinkles use whole
 // sine cycles, so frame t=loopSeconds is pixel-identical to t=0 and the
 // exported loop is seamless.
+// PATCH_S73_SIMPLE_GLITCH_RAIN
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -89,73 +90,27 @@ class StageEffects {
 
   static void _paintRain(
       Canvas canvas, Size size, double t, double intensity) {
-    // PATCH_S71_REALISTIC_RAIN: 3 depth bands (far/mid/near) instead of one continuous
-    // depth gradient -- distinct opacity/blur/speed/streak-length per band
-    // is what makes rain read as real layered rainfall rather than "lines
-    // falling in front of the camera."
-    const bands = [
-      (count: 70, alpha: 0.10, lenFrac: 0.028, blur: 1.6, speedMul: 0.75, widthMul: 0.8),
-      (count: 55, alpha: 0.20, lenFrac: 0.045, blur: 0.6, speedMul: 1.05, widthMul: 1.15),
-      (count: 35, alpha: 0.34, lenFrac: 0.065, blur: 0.0, speedMul: 1.35, widthMul: 1.5),
-    ];
-    var seedBase = 0;
-    for (final band in bands) {
-      _paintRainBand(canvas, size, t, intensity, band, seedBase);
-      seedBase += 1000;
-    }
-  }
-
-  // PATCH_S71_REALISTIC_RAIN: one depth band of the layered rain above.
-  static void _paintRainBand(
-    Canvas canvas,
-    Size size,
-    double t,
-    double intensity,
-    ({
-      int count,
-      double alpha,
-      double lenFrac,
-      double blur,
-      double speedMul,
-      double widthMul
-    }) band,
-    int seedBase,
-  ) {
+    // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the 3-band depth-simulated rain
+  // (far/mid/near blur + wind-gust slant drift + motion-blur trails) with a
+  // single uniform layer -- the plain, flat "rain overlay" look used in
+  // most recitation-video edits, not a simulated rain shower.
+  static void _paintRain(
+      Canvas canvas, Size size, double t, double intensity) {
     final w = size.width, h = size.height;
-    final count = (band.count * intensity).round();
-    // Gentle whole-cycle wind-gust drift on the slant angle instead of a
-    // constant slant -- one full gust cycle per loop keeps the export tile
-    // seamless.
-    final gustPhase = _rand(seedBase, 99) * 2 * pi;
-    final slant = 0.14 + 0.10 * sin(2 * pi * t / loopSeconds + gustPhase);
+    final count = (90 * intensity).round();
+    const slant = 0.08; // fixed gentle slant, no wind-gust drift
     for (var i = 0; i < count; i++) {
-      final idx = seedBase + i;
-      final len = h * band.lenFrac;
+      final len = h * 0.05;
       final range = h + len;
-      final kLoops = 2 + (i % 2);
-      final v = kLoops * range / loopSeconds * band.speedMul;
-      final y = ((_rand(idx, 2) * range + v * t) % range) - len;
-      final x = _rand(idx, 3) * w;
+      final v = range / loopSeconds; // one traversal per loop
+      final y = ((_rand(i, 2) * range + v * t) % range) - len;
+      final x = _rand(i, 3) * w;
       final start = Offset(x, y);
       final end = Offset(x + len * slant, y + len);
       final paint = Paint()
         ..strokeCap = StrokeCap.round
-        ..strokeWidth =
-            (1.0 + 1.2 * _rand(idx, 5)) * band.widthMul * w / 1080;
-      if (band.blur > 0) {
-        paint.maskFilter =
-            MaskFilter.blur(BlurStyle.normal, band.blur * w / 1080);
-      }
-      // Motion-blur trail: gradient from transparent to the drop's color
-      // along the streak, instead of a hard-edged uniform line.
-      paint.shader = ui.Gradient.linear(
-        start,
-        end,
-        [
-          Colors.white.withValues(alpha: 0.0),
-          Colors.white.withValues(alpha: band.alpha),
-        ],
-      );
+        ..strokeWidth = 1.4 * w / 1080
+        ..color = Colors.white.withValues(alpha: 0.22 * intensity);
       canvas.drawLine(start, end, paint);
     }
   }
@@ -356,77 +311,65 @@ class StageEffects {
   }
 
 
-  // PATCH_S72_GLITCH_EFFECT: RGB channel-split ghosting, horizontal scanline jitter, and
-  // short static-noise bursts. Burst timing/offsets are deterministic and
-  // whole-cycle-per-loop like every other effect here, so the exported
-  // PNG-tile loop still wraps seamlessly. Most of the loop stays calm --
-  // only [burstCount] brief windows per loop actually show anything, which
-  // reads as an intermittent glitch rather than constant noise.
+  // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the multi-layer RGB-ghost +
+  // scanline-jitter + static-noise glitch with the plain "block glitch"
+  // every basic video editor ships as a glitch preset: a handful of
+  // horizontal slices jump-cut sideways by a fixed offset for the burst
+  // (no per-frame drift, no eased envelope) plus one flat red/cyan
+  // channel split. No static noise, no scanline shimmer.
   static void _paintGlitch(
       Canvas canvas, Size size, double t, double intensity) {
     final w = size.width, h = size.height;
-    const burstCount = 5;
+    const burstCount = 3; // fewer, punchier bursts than before
     for (var b = 0; b < burstCount; b++) {
       final burstCenter = (b + 0.5) / burstCount * loopSeconds;
       final dt =
           ((t - burstCenter + loopSeconds / 2) % loopSeconds) - loopSeconds / 2;
-      final burstWidth = 0.12 + 0.10 * _rand(b, 90);
+      const burstWidth = 0.08; // short and sharp -- a cut, not a wave
       final burstEnv = (1 - (dt.abs() / burstWidth)).clamp(0.0, 1.0);
       if (burstEnv <= 0) continue;
-      final strength = pow(burstEnv, 2).toDouble() * intensity;
+      final strength = burstEnv * intensity; // linear on/off, no easing curve
 
-      // RGB channel-split ghosting: a few horizontal strips duplicated with
-      // a small red/blue horizontal offset, like a chromatic-aberration tear.
-      final stripCount = 4 + (b % 3);
-      for (var s = 0; s < stripCount; s++) {
-        final i = b * 100 + s;
+      // A few horizontal slices jump-cut sideways by a fixed offset for
+      // the whole burst -- the classic "block glitch" look.
+      final sliceCount = 3 + (b % 2);
+      for (var s = 0; s < sliceCount; s++) {
+        final i = b * 10 + s;
         final rowY = _rand(i, 1) * h;
-        final rowH = h * (0.01 + 0.03 * _rand(i, 2));
-        final shift = (2 + 10 * _rand(i, 3)) * w / 1080 * strength;
+        final rowH = h * (0.03 + 0.05 * _rand(i, 2));
+        final dir = (_rand(i, 3) > 0.5) ? 1.0 : -1.0;
+        final shift = dir * w * (0.02 + 0.05 * _rand(i, 4)) * strength;
         final rect = Rect.fromLTWH(0, rowY, w, rowH);
-        final redPaint = Paint()
-          ..color = const Color(0xFFFF3B3B).withValues(alpha: 0.28 * strength)
-          ..blendMode = BlendMode.plus;
-        final bluePaint = Paint()
-          ..color = const Color(0xFF3B9BFF).withValues(alpha: 0.28 * strength)
-          ..blendMode = BlendMode.plus;
-        canvas.save();
-        canvas.translate(-shift, 0);
-        canvas.drawRect(rect, redPaint);
-        canvas.restore();
         canvas.save();
         canvas.translate(shift, 0);
-        canvas.drawRect(rect, bluePaint);
+        canvas.drawRect(
+          rect,
+          Paint()..color = Colors.black.withValues(alpha: 0.18 * strength),
+        );
         canvas.restore();
       }
 
-      // Horizontal scanline jitter: a few thin strips shifted sideways.
-      final jitterCount = 3 + (b % 2);
-      for (var s = 0; s < jitterCount; s++) {
-        final i = b * 200 + s;
-        final rowY = _rand(i, 4) * h;
-        final rowH = h * (0.006 + 0.012 * _rand(i, 5));
-        final shift = (w * 0.02 + w * 0.10 * _rand(i, 6)) * strength;
-        final dir = (i % 2 == 0) ? 1.0 : -1.0;
-        final paint = Paint()..color = Colors.white.withValues(alpha: 0.10 * strength);
-        canvas.drawRect(Rect.fromLTWH(dir * shift, rowY, w, rowH), paint);
-      }
-
-      // Brief static-noise burst: scattered small white/black flecks.
-      final staticCount = (40 * strength).round();
-      final staticPaint = Paint();
-      for (var s = 0; s < staticCount; s++) {
-        final i = b * 300 + s;
-        final x = _rand(i, 7) * w;
-        final y = _rand(i, 8) * h;
-        final dotSize = (1.0 + 2.0 * _rand(i, 9)) * w / 1080;
-        final bright = _rand(i, 10) > 0.5;
-        staticPaint.color =
-            (bright ? Colors.white : Colors.black).withValues(alpha: 0.5 * strength);
-        canvas.drawRect(
-            Rect.fromCenter(center: Offset(x, y), width: dotSize, height: dotSize),
-            staticPaint);
-      }
+      // One flat red/cyan channel split across the whole frame -- a clean
+      // offset, not a per-strip gradient ghost.
+      final splitShift = w * 0.006 * strength;
+      canvas.save();
+      canvas.translate(-splitShift, 0);
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, h),
+        Paint()
+          ..color = const Color(0xFFFF3B3B).withValues(alpha: 0.18 * strength)
+          ..blendMode = BlendMode.plus,
+      );
+      canvas.restore();
+      canvas.save();
+      canvas.translate(splitShift, 0);
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, h),
+        Paint()
+          ..color = const Color(0xFF3BE8FF).withValues(alpha: 0.18 * strength)
+          ..blendMode = BlendMode.plus,
+      );
+      canvas.restore();
     }
   }
 
