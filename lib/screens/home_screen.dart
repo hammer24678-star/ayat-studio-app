@@ -1585,24 +1585,57 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // PATCH_S59_TAB_GRID: fixed 4-column grid so 8 tabs always lay out as a
+  // clean 4+4, instead of Wrap's width-driven 3/4/1 orphan row.
   Widget _tabChips() {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      alignment: WrapAlignment.center,
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      childAspectRatio: 1.55,
       children: [
-        for (var i = 0; i < _tabs.length; i++)
-          ChoiceChip(
-            avatar: Icon(_tabs[i].$1,
-                size: 15,
-                color: _selectedTab == i
-                    ? AyatColors.goldBright
-                    : AyatColors.parchmentDim),
-            label: Text(_tabs[i].$2),
-            selected: _selectedTab == i,
-            onSelected: (_) => setState(() => _selectedTab = i),
-          ),
+        for (var i = 0; i < _tabs.length; i++) _tabButton(i),
       ],
+    );
+  }
+
+  Widget _tabButton(int i) {
+    final selected = _selectedTab == i;
+    return Material(
+      color: selected ? AyatColors.goldBright : AyatColors.surface2,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _selectedTab = i),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AyatColors.goldBright : AyatColors.hairline,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_tabs[i].$1,
+                  size: 18,
+                  color: selected ? AyatColors.ink : AyatColors.parchmentDim),
+              const SizedBox(height: 4),
+              Text(_tabs[i].$2,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? AyatColors.ink : AyatColors.parchment,
+                  )),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
