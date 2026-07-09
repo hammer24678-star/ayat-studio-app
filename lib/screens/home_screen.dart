@@ -31,6 +31,7 @@ import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
 import '../widgets/gold_switch.dart';
 import '../widgets/stage_preview.dart';
+import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1809,6 +1810,23 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         _panelTitle('اختيار الآية',
             'اختر السورة ثم الآية، أو استخدم أزرار التعرّف بالذكاء الاصطناعي، أو اكتب نصًا مخصصًا.'),
+        // PATCH_S62_MUSHAF_READER: standalone full-mushaf browser, separate from
+        // the single-ayah picker below it -- reuses state.ayaat, no extra load.
+        OutlinedButton.icon(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) => MushafScreen(ayaat: state.ayaat)),
+          ),
+          icon: const Icon(Icons.auto_stories_outlined, size: 18),
+          label: const Text('فتح المصحف كاملاً للقراءة'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'تصفّحي أي سورة واقرئيها كاملة، بمعزل عن تحرير الفيديو.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const Divider(height: 28, color: AyatColors.hairline),
         _fieldLabel('السورة'),
         DropdownButton<int>(
           isExpanded: true,
