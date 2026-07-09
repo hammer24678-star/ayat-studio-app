@@ -93,6 +93,13 @@ class TimelineBuilder {
     // timeline instead of silently vanishing.
     TimelineSegment? pending;
     var chunkIndex = 0;
+    // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES: distinguishes "we transcribed the audio but
+    // nothing matched confidently" (a normal, expected outcome) from
+    // "transcription itself never worked" (an engine/model problem) --
+    // the two look identical as an empty timeline unless tracked.
+    var windowsAttempted = 0;
+    var windowsFailed = 0;
+    Object? lastTranscribeError;
 
     void flushPending() {
       final p = pending;
@@ -128,6 +135,7 @@ class TimelineBuilder {
         // the real audio instead of drifting ahead of الشيخ.
         final windowDurationSec = (endSample - startSample) / sampleRate;
         WhisperTranscript transcript;
+        windowsAttempted++; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
         try {
           final chunkPath = '${tempDir.path}/chunk_$chunkIndex.wav';
           _writeWavMono16(chunkPath, slice);
@@ -137,7 +145,9 @@ class TimelineBuilder {
             splitOnWord: true, // PATCH_S55_WORD_TIMESTAMPS
           );
           File(chunkPath).delete().ignore();
-        } catch (_) {
+        } catch (e) {
+          windowsFailed++; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
+          lastTranscribeError = e; // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES
           continue; // one failed window shouldn't kill the whole scan
         }
 
@@ -230,6 +240,16 @@ class TimelineBuilder {
                 wordStarts: List.of(absOnsets));
           }
         }
+      }
+      // PATCH_S56_SURFACE_TRANSCRIBE_FAILURES: an empty timeline because nothing matched is a
+      // normal outcome the UI already explains well. An empty timeline
+      // because transcription itself never once succeeded is a broken
+      // engine/model, and silently reporting it the same way just hides
+      // the real problem -- surface it instead.
+      if (windowsAttempted > 0 && windowsFailed == windowsAttempted) {
+        throw Exception(
+            'تعذّر التعرّف على الكلام في كل مقاطع هذا الفيديو (${lastTranscribeError ?? "خطأ غير معروف"}) — '
+            'جرّب حجم نموذج مختلف من الإعدادات أو أعد تشغيل التطبيق.');
       }
       // PATCH_S31_ACCURATE_SYNC: a partial ayah still pending at the very
       // end of the scan is real — commit it instead of dropping it.
