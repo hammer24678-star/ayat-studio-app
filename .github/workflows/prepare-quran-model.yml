@@ -1,0 +1,102 @@
+name: Prepare Quran-tuned Whisper model (one-time / on-demand)
+
+# PATCH_S66_QURAN_TUNED_MODEL: separate from build-apk.yml on purpose -- this does NOT run on
+# every push. It merges KheemP's Quran LoRA adapter into its tarteel-ai
+# base, converts the result to whisper.cpp's GGML format, and publishes it
+# as a new asset on the same `models` GitHub Release that build-apk.yml
+# already re-hosts tiny/base/small/medium to. Run this once from the
+# Actions tab (workflow_dispatch); re-run only if you want to swap in a
+# different/updated Quran fine-tune later. Runs on plain ubuntu-latest CPU
+# -- this is a weight merge + format conversion, not training, so no GPU
+# runner is needed.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  prepare-model:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Clone whisper.cpp + openai/whisper (conversion tooling only -- neither gets built)
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
+          git clone --depth 1 https://github.com/openai/whisper.git
+
+      - name: Install Python deps (CPU-only torch -- weight merge + format conversion, no GPU/training needed)
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers peft accelerate huggingface_hub
+
+      - name: Merge KheemP Quran LoRA adapter into tarteel-ai/whisper-base-ar-quran
+        run: |
+          python3 - <<'PY'
+          import torch
+          from transformers import WhisperForConditionalGeneration, WhisperProcessor
+          from peft import PeftModel
+
+          base_id = "tarteel-ai/whisper-base-ar-quran"
+          lora_id = "KheemP/whisper-base-quran-lora"
+          out_dir = "merged-quran-model"
+
+          print(f"Loading base model {base_id}...")
+          model = WhisperForConditionalGeneration.from_pretrained(base_id, torch_dtype=torch.float32)
+          print(f"Loading LoRA adapter {lora_id}...")
+          model = PeftModel.from_pretrained(model, lora_id)
+          print("Merging adapter into base weights...")
+          model = model.merge_and_unload()
+          # safe_serialization=False: convert-h5-to-ggml.py (below) expects the
+          # classic pytorch_model.bin layout, not a safetensors-only checkpoint.
+          model.save_pretrained(out_dir, safe_serialization=False)
+
+          # convert-h5-to-ggml.py reads vocab.json/added_tokens.json directly out
+          # of dir_model -- the fast tokenizer files, saved alongside the weights.
+          proc = WhisperProcessor.from_pretrained(base_id)
+          proc.save_pretrained(out_dir)
+          print(f"Merged model saved to {out_dir}/")
+          PY
+
+      - name: Convert merged HF checkpoint to whisper.cpp GGML format
+        run: |
+          python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./merged-quran-model ./whisper .
+          mv -f ggml-model.bin ggml-quran-lora-base.bin
+          ls -la ggml-quran-lora-base.bin
+
+      - name: Sanity-check the converted file size before publishing
+        run: |
+          SIZE=$(stat -c%s ggml-quran-lora-base.bin)
+          MIN=$((100 * 1024 * 1024))
+          MAX=$((400 * 1024 * 1024))
+          # base architecture, fp16 GGML -> ~140-160MB expected (same class as
+          # the existing ggml-base.bin); wide margin here just to catch a
+          # badly truncated/corrupt conversion, not to be a precise gate.
+          if [ "$SIZE" -lt "$MIN" ] || [ "$SIZE" -gt "$MAX" ]; then
+            echo "ERROR: ggml-quran-lora-base.bin size ($SIZE bytes) is outside the expected base-architecture range -- conversion likely went wrong. Not publishing." >&2
+            exit 1
+          fi
+          echo "Size check OK: $SIZE bytes."
+
+      - name: Publish to the shared 'models' GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=models
+          ASSET=ggml-quran-lora-base.bin
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "ASR model assets" \
+              --notes "Whisper GGML models re-hosted here so the on-device app fetches from github.com instead of huggingface.co." || true
+          fi
+          if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ASSET"; then
+            echo "Removing previous $ASSET so this conversion replaces it..."
+            gh release delete-asset "$TAG" "$ASSET" -y
+          fi
+          gh release upload "$TAG" "$ASSET"
+          echo "Published $ASSET to release $TAG."

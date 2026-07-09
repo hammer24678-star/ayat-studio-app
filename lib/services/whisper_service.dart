@@ -18,7 +18,13 @@ import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 // scan on older devices or quick previews, `medium` is a further accuracy
 // step up for users who want the best possible sync and don't mind the
 // extra download size + scan time.
-enum WhisperModelSize { tiny, base, small, medium }
+// PATCH_S66_QURAN_TUNED_MODEL: `quranTuned` is a 5th tier -- a Quran-recitation fine-tune
+// (tarteel-ai/whisper-base-ar-quran + KheemP's LoRA adapter merged, same size
+// class as `base`) instead of a generic-speech Whisper checkpoint. This is the
+// actual lever on sync accuracy -- see prepare-quran-model.yml for how the
+// .bin asset this tier downloads is produced (one-time HF->GGML conversion
+// job, run on demand, not on every build).
+enum WhisperModelSize { tiny, base, small, medium, quranTuned }
 
 class _ModelSpec {
   final WhisperModel model;
@@ -37,6 +43,13 @@ const Map<WhisperModelSize, _ModelSpec> _modelSpecs = {
       WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (الافتراضي، ~466MB)'),
   WhisperModelSize.medium: _ModelSpec(
       WhisperModel.medium, 'ggml-medium.bin', 1300 * 1024 * 1024, 'الأدق (~1.5GB) — أبطأ'),
+  // PATCH_S66_QURAN_TUNED_MODEL: reuses the `largeV3Turbo` enum tag purely as a path/routing key --
+  // see the enum-level comment above for why. Not actually large-v3-turbo.
+  // Size target matches `base`'s architecture converted to GGML fp16 (~148MB);
+  // minExpectedBytes mirrors base's own threshold for the same reason.
+  WhisperModelSize.quranTuned: _ModelSpec(
+      WhisperModel.largeV3Turbo, 'ggml-quran-lora-base.bin', 100 * 1024 * 1024,
+      'دقة القرآن (~148MB) — نموذج مخصص لتلاوة القرآن'),
 };
 
 class WhisperService {
