@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math'; // PATCH_S58_LIVE_EFFECTS_PREVIEW
+import 'dart:ui' as ui; // PATCH_S60_FIX_POINTMODE
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -673,7 +674,7 @@ class _GrainPainter extends CustomPainter {
       ..strokeWidth = 1.2
       ..strokeCap = StrokeCap.round
       ..color = Colors.white.withValues(alpha: (amt / 100).clamp(0.0, 0.35));
-    canvas.drawPoints(PointMode.points, points, paint);
+    canvas.drawPoints(ui.PointMode.points, points, paint); // PATCH_S60_FIX_POINTMODE
   }
 
   @override
