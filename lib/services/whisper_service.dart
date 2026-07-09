@@ -90,18 +90,21 @@ class WhisperService {
   /// Ensures the model is downloaded/cached. Safe to call repeatedly — only
   /// downloads once per app run. [onStatus] gets human-readable Arabic
   /// status text.
-  static Future<void> ensureReady({void Function(String status)? onStatus}) async {
-    if (_modelReady) return;
-
-    final path = await _controller.getPath(_model);
+  // PATCH_S75_COMPACT_PICKER_FALLBACK: download/verify for whichever tier `size` currently points at.
+  // Pulled out of ensureReady() so it can be attempted for the selected tier
+  // first, then retried for a fallback tier without duplicating this logic.
+  static Future<void> _downloadAndVerify(
+      WhisperModelSize size, {void Function(String status)? onStatus}) async {
+    final spec = _modelSpecs[size]!;
+    final path = await _controller.getPath(spec.model);
     final file = File(path);
     final needsDownload =
-        !(await file.exists()) || (await file.length()) < _minExpectedBytes;
+        !(await file.exists()) || (await file.length()) < spec.minExpectedBytes;
 
     if (needsDownload) {
       onStatus?.call('جارٍ تنزيل نموذج التعرّف على الكلام من GitHub (أول تشغيل فقط)…');
       await file.parent.create(recursive: true);
-      final uri = Uri.parse('$_releaseBaseUrl/$_assetName');
+      final uri = Uri.parse('$_releaseBaseUrl/${spec.assetName}');
       final request = http.Request('GET', uri);
       final response = await http.Client().send(request);
       if (response.statusCode != 200) {
@@ -110,12 +113,31 @@ class WhisperService {
       final sink = file.openWrite();
       await response.stream.pipe(sink);
       await sink.close();
-      if (await file.length() < _minExpectedBytes) {
+      if (await file.length() < spec.minExpectedBytes) {
         await file.delete();
         throw Exception('اكتمل التنزيل لكن حجم الملف غير سليم — أعد المحاولة');
       }
     }
+  }
 
+  // PATCH_S75_COMPACT_PICKER_FALLBACK: if the selected tier can't be downloaded/verified (e.g. a tier
+  // whose asset isn't published yet, or a transient network/HTTP error) this
+  // no longer throws straight into the caller's face. Unless the failing tier
+  // is already `small` (the long-standing safe default, always published),
+  // it falls back to `small` and retries once, so auto-sync/detect still
+  // works. `_size` itself is updated on fallback so the UI can re-sync its
+  // displayed selection via currentSize.
+  static Future<void> ensureReady({void Function(String status)? onStatus}) async {
+    if (_modelReady) return;
+    try {
+      await _downloadAndVerify(_size, onStatus: onStatus);
+    } catch (e) {
+      if (_size == WhisperModelSize.small) rethrow;
+      final failedLabel = labelFor(_size).split(' — ').first;
+      onStatus?.call('تعذّر تحميل "$failedLabel" — سيتم استخدام "دقيق" مؤقتًا…');
+      _size = WhisperModelSize.small;
+      await _downloadAndVerify(_size, onStatus: onStatus);
+    }
     _modelReady = true;
     onStatus?.call('النموذج جاهز');
   }
