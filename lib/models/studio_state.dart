@@ -28,6 +28,7 @@ class TimelineSegment {
 /// Central mutable app state — the Flutter counterpart of the HTML
 /// prototype's single `state` object. Everything the stage preview and the
 /// exporter read lives here so they can never disagree.
+// PATCH_S76_QURAN_MODEL_DEFAULT
 class StudioState extends ChangeNotifier {
   // ---- corpus ----
   List<Ayah> ayaat = [];
@@ -163,7 +164,10 @@ class StudioState extends ChangeNotifier {
   String outroText = kDefaultOutro;
 
   // ---- PATCH_S43_MODEL_SIZE_PICKER: which Whisper tier drives detection/auto-sync ----
-  WhisperModelSize whisperModelSize = WhisperModelSize.small;
+  // PATCH_S76_QURAN_MODEL_DEFAULT: default is now the Quran-tuned tier (S66),
+  // not generic-speech `small` -- see whisper_service.dart for why this is
+  // safe even if that tier's asset isn't published yet (S75 fallback).
+  WhisperModelSize whisperModelSize = WhisperModelSize.quranTuned;
 
   // ---- auto-sync timeline ----
   List<TimelineSegment> timeline = [];

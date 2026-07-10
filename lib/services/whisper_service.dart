@@ -8,6 +8,7 @@
 // to the path WhisperController.getPath() expects, then call transcribe()
 // normally; whisper_ggml_plus just finds the file already there and never
 // starts its own download.
+// PATCH_S76_QURAN_MODEL_DEFAULT
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -40,7 +41,7 @@ const Map<WhisperModelSize, _ModelSpec> _modelSpecs = {
   WhisperModelSize.base: _ModelSpec(
       WhisperModel.base, 'ggml-base.bin', 100 * 1024 * 1024, 'سريع (~148MB) — دقة متوسطة'),
   WhisperModelSize.small: _ModelSpec(
-      WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (الافتراضي، ~466MB)'),
+      WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (~466MB)'),
   WhisperModelSize.medium: _ModelSpec(
       WhisperModel.medium, 'ggml-medium.bin', 1300 * 1024 * 1024, 'الأدق (~1.5GB) — أبطأ'),
   // PATCH_S66_QURAN_TUNED_MODEL: reuses the `largeV3Turbo` enum tag purely as a path/routing key --
@@ -49,13 +50,16 @@ const Map<WhisperModelSize, _ModelSpec> _modelSpecs = {
   // minExpectedBytes mirrors base's own threshold for the same reason.
   WhisperModelSize.quranTuned: _ModelSpec(
       WhisperModel.largeV3Turbo, 'ggml-quran-lora-base.bin', 100 * 1024 * 1024,
-      'دقة القرآن (~148MB) — نموذج مخصص لتلاوة القرآن'),
+      'دقة القرآن (الافتراضي، ~148MB) — نموذج مخصص لتلاوة القرآن'),
 };
 
 class WhisperService {
   // PATCH_S43_MODEL_SIZE_PICKER: mutable (was a S41 const) so the user can switch tiers at
   // runtime; setModelSize() below is the only writer.
-  static WhisperModelSize _size = WhisperModelSize.small;
+  // PATCH_S76_QURAN_MODEL_DEFAULT: default is now the Quran-tuned tier;
+  // `small` remains the guaranteed-published fallback target in
+  // ensureReady() below (S75), unchanged.
+  static WhisperModelSize _size = WhisperModelSize.quranTuned;
   static final WhisperController _controller = WhisperController();
   static bool _modelReady = false;
 
