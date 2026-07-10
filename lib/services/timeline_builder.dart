@@ -32,6 +32,7 @@ import 'ayah_matcher.dart';
 import 'media_service.dart';
 import 'whisper_service.dart';
 
+// PATCH_S77_ONSET_ENERGY_SNAP
 class TimelineBuilder {
   static const double chunkSec = 6; // analysis window length
   static const double stepSec = 5; // window stride
@@ -180,7 +181,11 @@ class TimelineBuilder {
           if (text.isEmpty) continue;
           final absStart = t + piece.startSec;
           final absEnd = max(absStart + 0.2, t + piece.endSec);
-          final absOnsets = [for (final s in rawOnsets) t + s];
+          final rawAbsOnsets = [for (final s in rawOnsets) t + s];
+          // PATCH_S77_ONSET_ENERGY_SNAP: correct against real audio energy
+          // instead of trusting Whisper's per-word timestamp as-is.
+          final absOnsets =
+              _snapOnsetsToEnergyAttacks(pcm, sampleRate, rawAbsOnsets);
 
           var match = matcher.match(text, minConfidence: minConfidence);
 
@@ -452,6 +457,62 @@ class TimelineBuilder {
       a.end = bestT;
       b.start = bestT;
     }
+  }
+
+  // PATCH_S77_ONSET_ENERGY_SNAP: corrects Whisper's per-word onset timestamps
+  // against the real audio energy -- see the doc-comment at the top of this
+  // patch for the full reasoning. Forward-only: a word's lit moment can be
+  // pushed later (to catch a held مدّ/غنة Whisper cut short) but never
+  // earlier than what Whisper actually heard.
+  static const double _onsetSearchCapSec = 0.6;
+  static const double _onsetHopSec = 0.02;
+  static const double _onsetFrameSec = 0.05;
+
+  static List<double> _snapOnsetsToEnergyAttacks(
+      Int16List pcm, int sampleRate, List<double> rawOnsets) {
+    if (rawOnsets.isEmpty) return rawOnsets;
+    final frameLen = (_onsetFrameSec * sampleRate).round();
+    final hopLen = (_onsetHopSec * sampleRate).round();
+    final refined = <double>[];
+    for (var i = 0; i < rawOnsets.length; i++) {
+      final onset = rawOnsets[i];
+      // Never search past the next declared onset -- keeps this word's
+      // correction from wandering into the next word's audio.
+      final hardLimit =
+          i + 1 < rawOnsets.length ? rawOnsets[i + 1] - 0.05 : onset + _onsetSearchCapSec;
+      final searchEnd = min(onset + _onsetSearchCapSec, hardLimit);
+      if (searchEnd <= onset) {
+        refined.add(onset);
+        continue;
+      }
+      double frameRmsAt(double atSec) {
+        final start = (atSec * sampleRate).round().clamp(0, max(0, pcm.length - 1));
+        final end = min(pcm.length, start + frameLen);
+        if (end <= start) return 0;
+        return _rmsEnergy(Int16List.sublistView(pcm, start, end));
+      }
+
+      final baseEnergy = frameRmsAt(onset);
+      var sawDip = false;
+      var snapped = onset;
+      var t = onset;
+      while (t < searchEnd) {
+        final e = frameRmsAt(t);
+        if (e < baseEnergy * 0.55) {
+          sawDip = true; // a real gap/consonant closure near here
+        } else if (sawDip && e > baseEnergy * 0.85) {
+          snapped = t; // energy climbed back after a real dip -- the true next attack
+          break;
+        }
+        t += hopLen / sampleRate;
+      }
+      // No real dip found before the cap -- the audio stayed energetic the
+      // whole window, i.e. a held مدّ/غنة Whisper's timestamp cut short.
+      // Push the onset out to the search cap rather than trusting the
+      // early guess.
+      refined.add(sawDip ? snapped : min(searchEnd, onset + _onsetSearchCapSec));
+    }
+    return refined;
   }
 
   static double _rmsEnergy(Int16List samples) {
