@@ -16,12 +16,14 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-// PATCH_S69_AI_ART_FIX: Pollinations retired free/keyless image generation --
-// GET /image/{prompt} now requires a Bearer key or ?key= param (401
-// otherwise). Get a free publishable (pk_...) key at
-// https://enter.pollinations.ai -- pk_ keys are explicitly documented
-// as safe to ship inside a mobile app, unlike secret sk_ keys. Set via
-// Settings; wired in from studio_state.pollinationsApiKey.
+// PATCH_S80_POLLINATIONS_KEYLESS_FLUX: gen.pollinations.ai/image/ is the
+// newer unified API surface and is what actually enforces the key
+// requirement S69/S69b hit. image.pollinations.ai/prompt/ is the original
+// Flux endpoint and stays free, unlimited, and keyless -- no signup, no
+// billing. apiKey is kept as an OPTIONAL field: if the user later adds a
+// personal key (e.g. for higher limits or a premium model), it's still
+// sent, but an empty key is the normal, fully-supported path now, not an
+// error case.
 class AiArtException implements Exception {
   final String message;
   AiArtException(this.message);
@@ -30,7 +32,7 @@ class AiArtException implements Exception {
 }
 
 class AiArtService {
-  static const String _base = 'https://gen.pollinations.ai/image/';
+  static const String _base = 'https://image.pollinations.ai/prompt/';
   static String apiKey = '';
 
   static Future<Directory> _cacheDir() async {
@@ -141,12 +143,12 @@ class AiArtService {
     // reproduces the same art; a regenerate tap bumps the offset for a
     // genuinely different result.
     final seed = (surahNum * 1000 + ayahNum) * 97 + seedOffset;
-    // PATCH_S69_AI_ART_FIX: current Pollinations API requires ?key=
-    // (pk_/sk_) for this endpoint; empty apiKey will 401 with a clear
-    // error below instead of silently failing like before.
+    // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: key stays optional -- omit the
+    // param entirely when empty rather than sending it blank, and an empty
+    // key is no longer treated as a fatal (401) case below.
     final keyParam = apiKey.trim().isEmpty ? '' : '&key=${Uri.encodeComponent(apiKey.trim())}';
     final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
-        '?width=1080&height=1920&seed=$seed&model=flux$keyParam');
+        '?width=1080&height=1920&seed=$seed&model=flux&nologo=true$keyParam');
 
     http.Response res;
     try {
@@ -155,11 +157,13 @@ class AiArtService {
       throw AiArtException('تعذر الاتصال بخدمة توليد الفن: $e');
     }
     if (res.statusCode == 401) {
+      // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: only reachable if the user
+      // typed in their own (invalid) key -- the keyless path never 401s.
       throw AiArtException(
-          'مفتاح Pollinations مفقود أو غير صالح -- أضف مفتاحًا مجانيًا من enter.pollinations.ai في الإعدادات');
+          'المفتاح المُدخَل في الإعدادات غير صالح -- احذفه لاستخدام التوليد المجاني بدون مفتاح، أو تحقق منه في enter.pollinations.ai');
     }
     if (res.statusCode == 402) {
-      throw AiArtException('تم استهلاك رصيد Pollinations المجاني لهذه الفترة -- حاول لاحقًا');
+      throw AiArtException('تم تجاوز الحد المسموح مؤقتًا -- حاول مرة أخرى خلال دقيقة');
     }
     if (res.statusCode == 429) {
       throw AiArtException('طلبات كثيرة جدًا خلال فترة قصيرة -- انتظر قليلًا ثم أعد المحاولة');

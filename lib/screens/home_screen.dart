@@ -2301,8 +2301,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 .bodyMedium
                 ?.copyWith(color: AyatColors.goldBright),
           ),
-          // PATCH_S69_AI_ART_FIX: Pollinations now requires a free API key for image
-          // generation -- get one at enter.pollinations.ai (publishable/pk_).
+          // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: generation now works with this
+          // field left blank -- it's an optional advanced field only.
           const SizedBox(height: 8),
           TextField(
             controller: TextEditingController(text: state.pollinationsApiKey)
@@ -2310,8 +2310,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   offset: state.pollinationsApiKey.length),
             style: const TextStyle(fontSize: 13),
             decoration: const InputDecoration(
-              labelText: 'مفتاح Pollinations (pk_...)',
-              helperText: 'مجاني من enter.pollinations.ai -- مطلوب الآن لتوليد الفن',
+              labelText: 'مفتاح Pollinations (اختياري)',
+              helperText: 'التوليد يعمل بدون مفتاح -- اتركه فارغًا. أدخل مفتاحك الشخصي فقط لرفع الحد لاحقًا',
               helperMaxLines: 2,
               isDense: true,
             ),

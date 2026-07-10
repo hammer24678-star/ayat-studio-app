@@ -113,12 +113,14 @@ class StudioState extends ChangeNotifier {
   int? _lastMatchedSurah;
   int? _lastMatchedAyahNum;
   String? _lastMatchedAyahText;
-  // PATCH_S69B_HARDCODE_POLLINATIONS_KEY: hardcoded default so a fresh install doesn't start
-  // with an empty key -- see this patch's module docstring for the
-  // security tradeoff this accepts (committed to git history + baked
-  // into the compiled APK). Still overridable via Settings, which
-  // persists any change through SharedPreferences as before.
-  String pollinationsApiKey = 'sk_7WOpFiSmdUD4TtS2Zk07bBLfoxYeVaTr';
+  // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: the S69b hardcoded key is removed.
+  // It was a *secret* sk_ key baked into a public APK and committed to git
+  // history, which was never a safe place for it, and it's no longer
+  // needed since Flux generation works fully keyless. Default is empty;
+  // Settings can still set a personal key later for higher limits.
+  // IMPORTANT: treat the old key as burned regardless of this patch --
+  // rotate/revoke it at enter.pollinations.ai since it was already exposed.
+  String pollinationsApiKey = '';
 
   // ---- chroma key ----
   bool chromaEnabled = false;
