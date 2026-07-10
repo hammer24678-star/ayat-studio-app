@@ -17,6 +17,10 @@ import '../data/quran_repository.dart';
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
+import '../services/ai_art_service.dart'; // PATCH_S73C_FIX_MISSING_IMPORT: restores the import
+// dropped somewhere in S73/S73b's edits -- AiArtService.apiKey is used
+// below (Pollinations API key field) but the class was left unimported,
+// which is what broke the release build.
 import '../services/export_service.dart';
 import '../services/font_service.dart'; // PATCH_S39_PERSISTENT_FONTS
 import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
