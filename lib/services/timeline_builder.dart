@@ -33,6 +33,7 @@ import 'media_service.dart';
 import 'whisper_service.dart';
 
 // PATCH_S77_ONSET_ENERGY_SNAP
+// PATCH_S78_FIX_S77_CLAMP_TYPE_ERROR
 class TimelineBuilder {
   static const double chunkSec = 6; // analysis window length
   static const double stepSec = 5; // window stride
@@ -486,7 +487,8 @@ class TimelineBuilder {
         continue;
       }
       double frameRmsAt(double atSec) {
-        final start = (atSec * sampleRate).round().clamp(0, max(0, pcm.length - 1));
+        // PATCH_S78_FIX_S77_CLAMP_TYPE_ERROR: int.clamp() returns num, not int.
+        final start = (atSec * sampleRate).round().clamp(0, max(0, pcm.length - 1)).toInt();
         final end = min(pcm.length, start + frameLen);
         if (end <= start) return 0;
         return _rmsEnergy(Int16List.sublistView(pcm, start, end));
