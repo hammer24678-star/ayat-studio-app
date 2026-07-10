@@ -34,4 +34,48 @@ class MediaService {
     }
     return outPath;
   }
+
+  // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE: concatenates a second video onto the end of the
+  // first. Uses filter_complex (not the concat demuxer) because the
+  // two clips almost certainly differ in resolution/fps/codec --
+  // each is independently scaled+padded onto a common 1080x1920
+  // canvas and fps-normalized before the concat filter runs, so
+  // mismatched source shapes don't break the join or letterbox
+  // unpredictably. Re-encodes (no way to concat mismatched sources
+  // losslessly), so this takes real time on longer clips -- callers
+  // should run it inside their own busy/progress wrapper.
+  static Future<String> mergeVideos(
+    String firstPath,
+    String secondPath, {
+    int width = 1080,
+    int height = 1920,
+  }) async {
+    if (!File(firstPath).existsSync()) {
+      throw Exception('تعذّر الوصول إلى الفيديو الأول — قد يكون تم حذفه أو نقله.\n$firstPath');
+    }
+    if (!File(secondPath).existsSync()) {
+      throw Exception('تعذّر الوصول إلى الفيديو الثاني — قد يكون مسارًا غير مباشر (SAF) أو تم حذفه.\n$secondPath');
+    }
+    final dir = await getTemporaryDirectory();
+    final outPath =
+        '${dir.path}/merged_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final filter = '[0:v]scale=$width:$height:force_original_aspect_ratio=decrease,'
+        'pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v0];'
+        '[1:v]scale=$width:$height:force_original_aspect_ratio=decrease,'
+        'pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v1];'
+        '[0:a]aresample=44100,aformat=channel_layouts=stereo[a0];'
+        '[1:a]aresample=44100,aformat=channel_layouts=stereo[a1];'
+        '[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]';
+    final cmd = '-y -i "$firstPath" -i "$secondPath" '
+        '-filter_complex "$filter" -map "[outv]" -map "[outa]" '
+        '-c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 192k "$outPath"';
+    final session = await FFmpegKit.execute(cmd);
+    final rc = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(rc)) {
+      final rawLog = (await session.getOutput()) ?? '';
+      final log = rawLog.length > 900 ? rawLog.substring(rawLog.length - 900) : rawLog;
+      throw Exception('تعذّر دمج الفيديوهين (ffmpeg rc=$rc)\n$log');
+    }
+    return outPath;
+  }
 }

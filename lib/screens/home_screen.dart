@@ -239,6 +239,42 @@ class _HomeScreenState extends State<HomeScreen> {
     _toast('تم رفع الملف ✓');
   }
 
+  // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE: appends a second picked video/clip onto the end of
+  // the one already loaded, then swaps the player over to the
+  // merged file. Requires a first video to already be loaded.
+  Future<void> _pickAndMergeVideo() async {
+    if (!state.hasVideo) {
+      _toast('ارفع فيديو أولًا قبل الدمج');
+      return;
+    }
+    final res = await FilePicker.platform.pickFiles(type: FileType.any);
+    final secondPath = res?.files.single.path;
+    if (secondPath == null) return;
+    final firstPath = state.videoPath!;
+    final merged = await _withBusy(() async {
+      _setBusyStatus('جارٍ دمج الفيديوهين…');
+      return MediaService.mergeVideos(firstPath, secondPath);
+    });
+    if (merged == null || !mounted) return;
+    await _video?.dispose();
+    _liveOverlay.value = null;
+    final controller = VideoPlayerController.file(File(merged));
+    _video = controller;
+    state.setVideo(merged);
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
+      state.update(() => state.videoDurationSec =
+          controller.value.duration.inMilliseconds / 1000.0);
+    } catch (_) {
+      // merged output should always be a valid mp4, but don't crash
+      // the flow if the preview player still refuses it.
+    }
+    if (mounted) setState(() {});
+    _toast('تم دمج الفيديوهين ✓');
+  }
+
   // PATCH_S35_SMARTER_DETECTION: apply one confirmed/auto-detected match.
   void _applyDetectedAyah(AyahMatch m, {String? heardText}) {
     _liveOverlay.value = null;
@@ -998,6 +1034,13 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: _busy ? null : _pickVideo,
           icon: const Icon(Icons.upload_file, size: 18),
           label: const Text('رفع فيديو أو تلاوة صوتية'),
+        ),
+        const SizedBox(height: 8),
+        // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE
+        OutlinedButton.icon(
+          onPressed: (_busy || !state.hasVideo) ? null : _pickAndMergeVideo,
+          icon: const Icon(Icons.video_collection_outlined, size: 18),
+          label: const Text('دمج مع فيديو آخر'),
         ),
         const SizedBox(height: 8),
         ElevatedButton.icon(
@@ -2326,6 +2369,32 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
         const SizedBox(height: 10),
+        // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE: give the custom upload the same numbered
+        // badge the 14 preset tiles get (kBackgrounds.length + 1),
+        // so it reads as part of the same numbered set instead of
+        // an unrelated extra option.
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 12,
+              backgroundColor: state.useCustomBg
+                  ? AyatColors.goldBright
+                  : Colors.white.withValues(alpha: 0.08),
+              child: Text(
+                '${kBackgrounds.length + 1}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: state.useCustomBg ? Colors.black : AyatColors.parchmentDim,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('خلفية ${kBackgrounds.length + 1} — خلفيتك المخصصة',
+                style: const TextStyle(fontSize: 11, color: AyatColors.parchmentDim)),
+          ],
+        ),
+        const SizedBox(height: 8),
         ElevatedButton.icon(
           onPressed: _pickCustomBg,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
