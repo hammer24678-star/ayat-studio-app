@@ -1,5 +1,8 @@
 // PATCH_S35_SMARTER_DETECTION: matcher top-K / subset scoring and the
 // timeline post-processing (overlap split, gap bridging).
+import 'dart:math';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ayat_studio_app/models/studio_state.dart';
@@ -220,6 +223,80 @@ void main() {
       ];
       TimelineBuilder.inferSkippedAyat(consecutive, corpus);
       expect(consecutive.length, 2);
+    });
+  });
+
+  // PATCH_S43_GAP_RESCUE ----------------------------------------------------
+
+  group('TimelineBuilder.expectedInGap', () {
+    test('gap between two anchors spans them inclusively', () {
+      final c = TimelineBuilder.expectedInGap(corpus[0], corpus[3], corpus);
+      expect(c.map((a) => a.num), [1, 2, 3, 4]);
+    });
+
+    test('head gap looks back, tail gap looks forward', () {
+      final head = TimelineBuilder.expectedInGap(null, corpus[2], corpus);
+      expect(head.map((a) => a.num), [1, 2, 3]);
+      final tail = TimelineBuilder.expectedInGap(corpus[2], null, corpus);
+      expect(tail.map((a) => a.num), [3, 4, 6]);
+    });
+
+    test('degenerate spans fall back to the anchors, wide spans to nothing',
+        () {
+      // out-of-order anchors (a repeat) → just the anchors themselves
+      final repeat = TimelineBuilder.expectedInGap(corpus[3], corpus[0], corpus);
+      expect(repeat.length, 2);
+      // no anchors at all → nothing to constrain against
+      expect(TimelineBuilder.expectedInGap(null, null, corpus), isEmpty);
+      // span wider than maxGapCandidates → too unconstrained to guess
+      final wide = [
+        for (var n = 1; n <= 12; n++) ayah(2, n, 'اية رقم $n في السورة')
+      ];
+      expect(TimelineBuilder.expectedInGap(wide.first, wide.last, wide),
+          isEmpty);
+    });
+  });
+
+  group('TimelineBuilder.snapEdgesToSpeech', () {
+    // 12s of 16kHz PCM: silence, then a loud tone from 3s to 10s.
+    Int16List tonePcm() {
+      const rate = TimelineBuilder.sampleRate;
+      final pcm = Int16List(rate * 12);
+      for (var i = rate * 3; i < rate * 10; i++) {
+        pcm[i] = (8000 * sin(2 * pi * 220 * i / rate)).round();
+      }
+      return pcm;
+    }
+
+    test('first start and last end move from the grid to the speech', () {
+      final t = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.8),
+        TimelineSegment(start: 6, end: 11.5, ayah: corpus[1], confidence: 0.8),
+      ];
+      TimelineBuilder.snapEdgesToSpeech(t, tonePcm(), 0.008);
+      expect(t.first.start, closeTo(3.0, 0.35));
+      expect(t.last.end, closeTo(10.0, 0.35));
+      // the shared boundary is not an edge and must not move
+      expect(t.first.end, 6);
+      expect(t.last.start, 6);
+    });
+
+    test('edges already on speech stay put', () {
+      final t = [
+        TimelineSegment(start: 4, end: 9, ayah: corpus[0], confidence: 0.8),
+      ];
+      TimelineBuilder.snapEdgesToSpeech(t, tonePcm(), 0.008);
+      expect(t.single.start, 4);
+      expect(t.single.end, 9);
+    });
+
+    test('an all-silent segment is left alone', () {
+      final t = [
+        TimelineSegment(start: 0, end: 2.5, ayah: corpus[0], confidence: 0.8),
+      ];
+      TimelineBuilder.snapEdgesToSpeech(t, tonePcm(), 0.008);
+      expect(t.single.start, 0);
+      expect(t.single.end, 2.5);
     });
   });
 

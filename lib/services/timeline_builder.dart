@@ -34,6 +34,15 @@
 //        gap between them holds enough recitation time, the skipped ayat are
 //        inferred into the gap (flagged `inferred` so the UI can show them
 //        for review) — one garbled window no longer silently drops an ayah.
+//   7. PATCH_S43_GAP_RESCUE: a second, finer Whisper pass over every gap the
+//      main scan left unmatched (including before the first and after the
+//      last detection): 4s windows on a 2s stride, scored ONLY against the
+//      ayat mushaf order allows at that spot. Real acoustic evidence beats
+//      the pure inference of pass 6, so this runs first and pass 6 only
+//      fills what the rescue couldn't hear. Afterwards the very first
+//      segment's start and the very last segment's end are snapped from the
+//      window grid to the actual speech onset/offset, so leading/trailing
+//      room tone is no longer captioned.
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -98,7 +107,6 @@ class TimelineBuilder {
     // minConfidence by chance, two in a row on the same ayah almost never do.
     TimelineSegment? pending;
     var chunkIndex = 0;
-    final elapsed = Stopwatch()..start(); // PATCH_S42_SYNC_QOL: drives the ETA
 
     try {
       for (double t = 0; t < totalSec; t += stepSec) {
@@ -106,16 +114,11 @@ class TimelineBuilder {
           throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
         }
         chunkIndex++;
-        // PATCH_S42_SYNC_QOL: after a few windows the average pace is a fair
-        // predictor — long clips finally get a "time remaining" readout.
-        var eta = '';
-        if (chunkIndex > 3) {
-          final secPerChunk =
-              elapsed.elapsedMilliseconds / 1000 / (chunkIndex - 1);
-          eta = ' — يتبقى نحو ${_fmtEta((totalChunks - chunkIndex + 1) * secPerChunk)}';
-        }
-        onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks$eta…');
-        onProgress?.call(chunkIndex / totalChunks);
+        onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks…');
+        // PATCH_S43_GAP_RESCUE: the head 90% — the gap-rescue pass owns the
+        // rest. (The remaining-time readout lives in the UI now, derived
+        // from this fraction's pace.)
+        onProgress?.call(0.9 * chunkIndex / totalChunks);
 
         final startSample = (t * sampleRate).floor();
         final endSample =
@@ -208,11 +211,27 @@ class TimelineBuilder {
       // gaps normalization would bridge away), then the S35 grid cleanup and
       // breath-pause boundary snapping.
       repairTimeline(timeline);
+      // PATCH_S43_GAP_RESCUE: try to actually HEAR what the main scan missed
+      // in the gaps before pass 6 resorts to inferring it, then re-merge any
+      // rescued pieces into their neighbouring segments.
+      await _rescanGaps(
+        timeline: timeline,
+        pcm: pcm,
+        matcher: matcher,
+        tempDir: tempDir,
+        silenceGate: silenceGate,
+        totalSec: totalSec,
+        onStatus: onStatus,
+        onProgress: onProgress,
+      );
+      repairTimeline(timeline);
       inferSkippedAyat(timeline, matcher.ayaat);
       // PATCH_S35_SMARTER_DETECTION: clean the step-grid quantization up and
       // snap ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
       _refineBoundaries(timeline, pcm);
+      snapEdgesToSpeech(timeline, pcm, silenceGate); // PATCH_S43_GAP_RESCUE
+      onProgress?.call(1);
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
@@ -340,11 +359,164 @@ class TimelineBuilder {
     }
   }
 
-  // PATCH_S42_SYNC_QOL: human-readable remaining-time estimate.
-  static String _fmtEta(double seconds) {
-    final s = max(0, seconds.round());
-    if (s < 60) return '$s ث';
-    return '${s ~/ 60} د ${s % 60} ث';
+  // PATCH_S43_GAP_RESCUE ----------------------------------------------------
+
+  // Finer grid for the second pass: gaps are short, so a 4s window on a 2s
+  // stride resolves what the main 6s/5s grid smeared.
+  static const double gapChunkSec = 4;
+  static const double gapStepSec = 2;
+  // Gaps shorter than this can't hold a recitation worth rescuing.
+  static const double minGapToRescan = 2.5;
+  // Give up on a gap whose mushaf-order candidate set would be this large —
+  // the constrained-candidate prior that justifies the relaxed threshold is
+  // gone at that point.
+  static const int maxGapCandidates = 6;
+
+  /// The ayat mushaf order allows inside a gap: everything from [before] to
+  /// [after] inclusive (the anchors themselves can spill into the gap), the
+  /// two ayat preceding the first detection for the head gap, or the two
+  /// following the last one for the tail gap. Returns empty when the span is
+  /// too wide to constrain anything. Pure and public for unit tests.
+  static List<Ayah> expectedInGap(Ayah? before, Ayah? after, List<Ayah> ayaat) {
+    if (before == null && after == null) return const [];
+    if (before == null) {
+      final i = ayaat.indexOf(after!); // identity ==
+      if (i < 0) return [after];
+      return ayaat.sublist(max(0, i - 2), i + 1);
+    }
+    if (after == null) {
+      final i = ayaat.indexOf(before);
+      if (i < 0) return [before];
+      return ayaat.sublist(i, min(ayaat.length, i + 3));
+    }
+    final i = ayaat.indexOf(before);
+    final j = ayaat.indexOf(after);
+    if (i < 0 || j < 0 || j <= i) return [before, after];
+    if (j - i + 1 > maxGapCandidates) return const [];
+    return ayaat.sublist(i, j + 1);
+  }
+
+  /// Second detection pass over every span the main scan left empty. Each
+  /// gap is rescanned on the finer [gapChunkSec]/[gapStepSec] grid and
+  /// scored ONLY against [expectedInGap]'s candidates via matchAmong — the
+  /// strong positional prior is what makes the relaxed threshold safe.
+  /// Rescued spans are inserted in place (sorted afterwards); merging into
+  /// neighbours is left to the repairTimeline call that follows.
+  static Future<void> _rescanGaps({
+    required List<TimelineSegment> timeline,
+    required Int16List pcm,
+    required AyahMatcher matcher,
+    required Directory tempDir,
+    required double silenceGate,
+    required double totalSec,
+    void Function(String status)? onStatus,
+    void Function(double fraction)? onProgress,
+  }) async {
+    if (timeline.isEmpty) return;
+    // (start, end, candidates) per gap, edges included
+    final gaps = <(double, double, List<Ayah>)>[];
+    void addGap(double from, double to, Ayah? before, Ayah? after) {
+      if (to - from < minGapToRescan) return;
+      final cands = expectedInGap(before, after, matcher.ayaat);
+      if (cands.isEmpty) return;
+      gaps.add((from, to, cands));
+    }
+
+    addGap(0, timeline.first.start, null, timeline.first.ayah);
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      addGap(timeline[i].end, timeline[i + 1].start, timeline[i].ayah,
+          timeline[i + 1].ayah);
+    }
+    addGap(timeline.last.end, totalSec, timeline.last.ayah, null);
+    if (gaps.isEmpty) return;
+
+    final totalWindows = gaps.fold<int>(
+        0, (n, g) => n + max(1, ((g.$2 - g.$1) / gapStepSec).ceil()));
+    var done = 0;
+    final rescued = <TimelineSegment>[];
+    for (final (gapStart, gapEnd, candidates) in gaps) {
+      TimelineSegment? current;
+      for (double t = gapStart; t < gapEnd; t += gapStepSec) {
+        if (_cancelRequested) {
+          throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
+        }
+        done++;
+        onStatus?.call('جارٍ فحص الفجوات بدقة أعلى: $done من $totalWindows…');
+        onProgress?.call(0.9 + 0.1 * done / totalWindows);
+
+        final startSample = (t * sampleRate).floor();
+        final endSample = min(
+            pcm.length, (min(t + gapChunkSec, gapEnd) * sampleRate).floor());
+        if (endSample - startSample < sampleRate * 1.2) continue;
+        final slice = Int16List.sublistView(pcm, startSample, endSample);
+        if (_rmsEnergy(slice) < silenceGate) {
+          current = null;
+          continue;
+        }
+
+        AyahMatch? match;
+        try {
+          final chunkPath = '${tempDir.path}/gap_$done.wav';
+          _writeWavMono16(chunkPath, slice);
+          final text = await WhisperService.transcribeWav(chunkPath);
+          File(chunkPath).delete().ignore();
+          match = matcher.matchAmong(text, candidates,
+              minConfidence: contextMinConfidence);
+        } catch (_) {
+          continue; // one failed window shouldn't kill the rescue
+        }
+        if (match == null) {
+          current = null;
+          continue;
+        }
+        final end = min(t + gapChunkSec, gapEnd);
+        if (current != null && identical(current.ayah, match.ayah)) {
+          current.end = end;
+          current.confidence = max(current.confidence, match.confidence);
+        } else {
+          current = TimelineSegment(
+              start: t, end: end, ayah: match.ayah, confidence: match.confidence);
+          rescued.add(current);
+        }
+      }
+    }
+    if (rescued.isEmpty) return;
+    timeline.addAll(rescued);
+    timeline.sort((a, b) => a.start.compareTo(b.start));
+  }
+
+  /// The main scan quantizes the first segment's start and the last one's
+  /// end to the window grid, which can caption up to a whole step of leading
+  /// or trailing room tone. Walk 120ms windows inward until the audio
+  /// actually clears [gate] and snap the edge there (with a small pre/post
+  /// roll so the first/last syllable's attack isn't clipped). Pure over the
+  /// PCM and public for unit tests.
+  static void snapEdgesToSpeech(
+      List<TimelineSegment> timeline, Int16List pcm, double gate) {
+    if (timeline.isEmpty) return;
+    const winSec = 0.12, hopSec = 0.05, rollSec = 0.15;
+    double rmsAt(double t) {
+      final s = max(0, (t * sampleRate).floor());
+      final e = min(pcm.length, ((t + winSec) * sampleRate).floor());
+      if (e <= s) return 0;
+      return _rmsEnergy(Int16List.sublistView(pcm, s, e));
+    }
+
+    final first = timeline.first;
+    var t = first.start;
+    final startLimit = first.end - 0.5;
+    while (t < startLimit && rmsAt(t) < gate) {
+      t += hopSec;
+    }
+    if (t < startLimit) first.start = max(first.start, t - rollSec);
+
+    final last = timeline.last;
+    var e = last.end - winSec;
+    final endLimit = last.start + 0.5;
+    while (e > endLimit && rmsAt(e) < gate) {
+      e -= hopSec;
+    }
+    if (e > endLimit) last.end = min(last.end, e + winSec + rollSec);
   }
 
   /// PATCH_S35_SMARTER_DETECTION: resolves the 6s-window/5s-step grid

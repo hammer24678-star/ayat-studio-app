@@ -54,6 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _busy = false;
   String _busyStatus = '';
   double? _busyProgress;
+  // PATCH_S43_POLISH: wall-clock of the running job — with the progress
+  // fraction it yields a remaining-time estimate for BOTH export and sync.
+  final Stopwatch _busyWatch = Stopwatch();
   // PATCH_S37_CANCEL_LONG_JOBS: set by long jobs (export / auto-sync) so the
   // status card can offer a working إلغاء button; cleared when the job ends.
   VoidCallback? _busyCancelAction;
@@ -167,12 +170,16 @@ class _HomeScreenState extends State<HomeScreen> {
       _busy = true;
       _busyProgress = null;
     });
+    _busyWatch
+      ..reset()
+      ..start(); // PATCH_S43_POLISH
     try {
       return await job();
     } catch (e) {
       _toast('$e'.replaceFirst('Exception: ', ''));
       return null;
     } finally {
+      _busyWatch.stop(); // PATCH_S43_POLISH
       if (mounted) {
         setState(() {
           _busy = false;
@@ -182,6 +189,20 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  // PATCH_S43_POLISH: linear projection of the remaining time from how long
+  // the completed fraction took. Null while it can't be trusted (too early,
+  // basically done, or no measurable pace yet).
+  String? _busyEta() {
+    final f = _busyProgress;
+    if (f == null || f < 0.03 || f > 0.995) return null;
+    final elapsedSec = _busyWatch.elapsedMilliseconds / 1000;
+    if (elapsedSec < 2) return null;
+    final remaining = (elapsedSec * (1 - f) / f).round();
+    if (remaining < 1) return null;
+    if (remaining < 60) return 'يتبقى نحو $remaining ث';
+    return 'يتبقى نحو ${remaining ~/ 60} د ${remaining % 60} ث';
   }
 
   void _setBusyStatus(String s, [double? progress]) {
@@ -428,8 +449,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (current == null ||
         current.segmentKey != segmentKey ||
         current.litWords != cue.litWords) {
-      _liveOverlay.value = StageOverlayText(cue.chunk.text,
-          cue.chunk.translation, segmentKey, cue.chunk.words, cue.litWords);
+      _liveOverlay.value = StageOverlayText(
+          cue.chunk.text,
+          cue.chunk.translation,
+          segmentKey,
+          cue.chunk.words,
+          cue.litWords,
+          // PATCH_S43_POLISH: which ayah is playing, right on the stage
+          'سورة ${seg.ayah.surah} — ${seg.ayah.num}'
+          '${seg.inferred ? ' · مستنتجة' : ''}');
     }
   }
 
@@ -485,6 +513,13 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     if (path == null || !mounted) return;
     HapticFeedback.mediumImpact(); // PATCH_S42_SYNC_QOL
+    // PATCH_S43_POLISH: the file size answers "will this upload/share OK?"
+    // right in the done dialog.
+    String sizeNote = '';
+    try {
+      final mb = File(path).lengthSync() / (1024 * 1024);
+      sizeNote = '\nحجم الملف: ${mb.toStringAsFixed(1)} م.ب';
+    } catch (_) {}
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -494,7 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
           side: const BorderSide(color: AyatColors.hairline),
         ),
         title: const Text('التصدير جاهز ✓'),
-        content: Text('تم حفظ المقطع بصيغة MP4:\n$path',
+        content: Text('تم حفظ المقطع بصيغة MP4:\n$path$sizeNote',
             style: Theme.of(context).textTheme.bodyMedium),
         actions: [
           TextButton(
@@ -773,6 +808,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ],
             ),
+            // PATCH_S43_POLISH: remaining-time projection for any job that
+            // reports a fraction (export and both auto-sync passes).
+            if (_busyEta() != null) ...[
+              const SizedBox(height: 6),
+              Text(_busyEta()!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.parchmentDim)),
+            ],
             // PATCH_S37_CANCEL_LONG_JOBS: abort export / auto-sync scan
             if (_busyCancelAction != null) ...[
               const SizedBox(height: 6),
@@ -845,7 +889,10 @@ class _HomeScreenState extends State<HomeScreen> {
             side: const BorderSide(color: AyatColors.gold),
           ),
           icon: const Icon(Icons.auto_awesome, size: 18),
-          label: const Text('مزامنة تلقائية: اكتب كل آية أثناء التلاوة'),
+          // PATCH_S43_POLISH: make it clear a re-run replaces the current scan
+          label: Text(state.timelineActive
+              ? 'إعادة المزامنة التلقائية (تستبدل الرصد الحالي)'
+              : 'مزامنة تلقائية: اكتب كل آية أثناء التلاوة'),
         ),
       ],
     );
