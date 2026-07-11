@@ -86,10 +86,8 @@ class WhisperService {
     defaultValue:
         'https://github.com/REPLACE_OWNER/ayat_studio_app/releases/download/models',
   );
-  // PATCH_S43_MODEL_SIZE_PICKER: derived from the selected tier instead of a fixed S41 const --
-  // each tier's own expected size gates its own partial-download check.
-  static String get _assetName => _modelSpecs[_size]!.assetName;
-  static int get _minExpectedBytes => _modelSpecs[_size]!.minExpectedBytes;
+  // PATCH_S84_CLEANUP: the S43 _assetName/_minExpectedBytes getters became
+  // dead once S75's _downloadAndVerify started reading the spec directly.
 
   /// Ensures the model is downloaded/cached. Safe to call repeatedly — only
   /// downloads once per app run. [onStatus] gets human-readable Arabic

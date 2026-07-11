@@ -19,11 +19,20 @@ import 'package:path_provider/path_provider.dart';
 // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: gen.pollinations.ai/image/ is the
 // newer unified API surface and is what actually enforces the key
 // requirement S69/S69b hit. image.pollinations.ai/prompt/ is the original
-// Flux endpoint and stays free, unlimited, and keyless -- no signup, no
-// billing. apiKey is kept as an OPTIONAL field: if the user later adds a
-// personal key (e.g. for higher limits or a premium model), it's still
-// sent, but an empty key is the normal, fully-supported path now, not an
-// error case.
+// endpoint and stays free and keyless -- no signup, no billing. apiKey is
+// kept as an OPTIONAL field: if the user later adds a personal key (e.g.
+// for higher limits or a premium model), it's still sent, but an empty key
+// is the normal, fully-supported path now, not an error case.
+//
+// PATCH_S84_AI_ART_MODEL_CHAIN: one hardcoded model was fragile -- providers
+// add better models and retire/gate old ones without notice, which is
+// exactly how the art "stopped working". Generation now walks a
+// quality-ordered chain of free models and uses the first one that returns
+// a real image (validated by content-type + size, since these endpoints can
+// answer an error as HTTP 200 with an HTML body). The winning model is
+// remembered for the session so every later ayah skips the dead ones, and
+// transient failures (429/5xx/timeouts) get one retry with a short backoff
+// before moving down the chain.
 class AiArtException implements Exception {
   final String message;
   AiArtException(this.message);
@@ -35,9 +44,25 @@ class AiArtService {
   static const String _base = 'https://image.pollinations.ai/prompt/';
   static String apiKey = '';
 
+  // PATCH_S84_AI_ART_MODEL_CHAIN: best first. `zimage` (Z-Image Turbo) beats
+  // the flux-schnell tier on detail and prompt-following and is served on
+  // the free tier; `flux` is the proven previous default; `turbo` (fast
+  // SDXL) is the always-alive last resort. An unknown model name simply
+  // falls through to the next entry, so this list is safe to extend.
+  static const List<String> kModelChain = ['zimage', 'flux', 'turbo'];
+  // The model that last produced a real image this session -- tried first
+  // for every following ayah so dead models are only probed once.
+  static String? _workingModel;
+
   static Future<Directory> _cacheDir() async {
     final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory('${docs.path}/ai_art_cache');
+    // PATCH_S84_AI_ART_MODEL_CHAIN: v2 -- cache is versioned so art cached
+    // from the old single-model days regenerates on the better chain
+    // instead of being served forever. The old dir is cleaned up once.
+    Directory('${docs.path}/ai_art_cache')
+        .delete(recursive: true)
+        .ignore();
+    final dir = Directory('${docs.path}/ai_art_cache_v2');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
@@ -129,6 +154,8 @@ class AiArtService {
   /// Returns a local file path to the cached (or freshly generated) art for
   /// [surahNum]:[ayahNum], or null on any failure -- caller should keep
   /// whatever background was already active if this returns null.
+  /// PATCH_S84_AI_ART_MODEL_CHAIN: walks [kModelChain] (working model first)
+  /// until one returns a validated image.
   static Future<String?> artFor({
     required int surahNum,
     required int ayahNum,
@@ -144,35 +171,69 @@ class AiArtService {
     // genuinely different result.
     final seed = (surahNum * 1000 + ayahNum) * 97 + seedOffset;
     // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: key stays optional -- omit the
-    // param entirely when empty rather than sending it blank, and an empty
-    // key is no longer treated as a fatal (401) case below.
-    final keyParam = apiKey.trim().isEmpty ? '' : '&key=${Uri.encodeComponent(apiKey.trim())}';
-    final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
-        '?width=1080&height=1920&seed=$seed&model=flux&nologo=true$keyParam');
+    // param entirely when empty rather than sending it blank.
+    final keyParam = apiKey.trim().isEmpty
+        ? ''
+        : '&key=${Uri.encodeComponent(apiKey.trim())}';
 
-    http.Response res;
-    try {
-      res = await http.get(url).timeout(const Duration(seconds: 45));
-    } on Exception catch (e) {
-      throw AiArtException('تعذر الاتصال بخدمة توليد الفن: $e');
+    final models = [
+      if (_workingModel != null) _workingModel!,
+      ...kModelChain.where((m) => m != _workingModel),
+    ];
+    AiArtException? lastError;
+    for (final model in models) {
+      // private=true keeps generated Quranic art off the provider's public
+      // feed; safe=true forces the strictest content filter tier.
+      final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
+          '?width=1080&height=1920&seed=$seed&model=$model'
+          '&nologo=true&private=true&safe=true$keyParam');
+      // one retry per model for transient failures, with a short backoff
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(const Duration(seconds: 3));
+        }
+        http.Response res;
+        try {
+          res = await http.get(url).timeout(const Duration(seconds: 40));
+        } on Exception {
+          lastError =
+              AiArtException('تعذر الاتصال بخدمة توليد الفن -- تحقق من الإنترنت');
+          continue;
+        }
+        if (res.statusCode == 401 && apiKey.trim().isNotEmpty) {
+          // only reachable with a user-typed (invalid) key -- the keyless
+          // path is never authenticated
+          throw AiArtException(
+              'المفتاح المُدخَل في الإعدادات غير صالح -- احذفه لاستخدام التوليد المجاني بدون مفتاح، أو تحقق منه في enter.pollinations.ai');
+        }
+        if (res.statusCode == 402 || res.statusCode == 429) {
+          lastError = AiArtException(
+              'تم تجاوز الحد المسموح مؤقتًا -- حاول مرة أخرى خلال دقيقة');
+          continue; // retry, then next model
+        }
+        if (res.statusCode >= 500) {
+          lastError =
+              AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
+          continue;
+        }
+        // A gated/renamed model can answer 200 with a tiny HTML/JSON error
+        // body -- only a real image counts as success.
+        final contentType = res.headers['content-type'] ?? '';
+        final looksLikeImage = res.statusCode == 200 &&
+            res.bodyBytes.length > 5000 &&
+            (contentType.startsWith('image/') || contentType.isEmpty);
+        if (!looksLikeImage) {
+          lastError =
+              AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
+          break; // hard failure for this model -- try the next one
+        }
+        await cached.writeAsBytes(res.bodyBytes);
+        _workingModel = model;
+        return cached.path;
+      }
     }
-    if (res.statusCode == 401) {
-      // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: only reachable if the user
-      // typed in their own (invalid) key -- the keyless path never 401s.
-      throw AiArtException(
-          'المفتاح المُدخَل في الإعدادات غير صالح -- احذفه لاستخدام التوليد المجاني بدون مفتاح، أو تحقق منه في enter.pollinations.ai');
-    }
-    if (res.statusCode == 402) {
-      throw AiArtException('تم تجاوز الحد المسموح مؤقتًا -- حاول مرة أخرى خلال دقيقة');
-    }
-    if (res.statusCode == 429) {
-      throw AiArtException('طلبات كثيرة جدًا خلال فترة قصيرة -- انتظر قليلًا ثم أعد المحاولة');
-    }
-    if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
-      throw AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
-    }
-    await cached.writeAsBytes(res.bodyBytes);
-    return cached.path;
+    throw lastError ??
+        AiArtException('فشل توليد الفن -- حاول مرة أخرى لاحقًا');
   }
 
   // PATCH_S51_AI_ART_DELETE: removes the base cached image AND every

@@ -290,6 +290,30 @@ class StudioState extends ChangeNotifier {
     await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!);
   }
 
+  // PATCH_S84_AI_ART_FOLLOWS_PLAYBACK: called every karaoke tick with the
+  // ayah currently being recited. "فن لكل آية" used to only fire on the
+  // one-shot detection paths (setAyah) -- during auto-sync playback the
+  // background never changed. Now each ayah's art generates as the reciter
+  // reaches it and swaps in via the existing S51 background crossfade.
+  // Cheap to call at 10Hz: the attempt-dedupe below means one real
+  // generation per ayah (success OR failure -- no retry spam), and cached
+  // art returns without touching the network.
+  int? _artAttemptSurah;
+  int? _artAttemptAyah;
+  void ensureArtForPlayback(Ayah ayah) {
+    if (!aiArtEnabled || aiArtBusy) return;
+    if (_artAttemptSurah == ayah.surahNum && _artAttemptAyah == ayah.num) {
+      return;
+    }
+    _artAttemptSurah = ayah.surahNum;
+    _artAttemptAyah = ayah.num;
+    _lastMatchedSurah = ayah.surahNum;
+    _lastMatchedAyahNum = ayah.num;
+    _lastMatchedAyahText = ayah.ar;
+    _aiArtSeedOffset = 0;
+    _generateAiArt(ayah.surahNum, ayah.num, ayah.ar);
+  }
+
   // PATCH_S69_AI_ART_FIX: standalone manual entry point -- works from whatever ayah
   // was last matched, with a real, visible error instead of the old
   // silent no-op when there's no context yet.
@@ -317,6 +341,10 @@ class StudioState extends ChangeNotifier {
     useCustomBg = false;
     customBgPath = null;
     _aiArtSeedOffset = 0;
+    // PATCH_S84_AI_ART_FOLLOWS_PLAYBACK: let the playback path regenerate
+    // this ayah's art instead of the dedupe treating it as already tried.
+    _artAttemptSurah = null;
+    _artAttemptAyah = null;
     notifyListeners();
   }
 

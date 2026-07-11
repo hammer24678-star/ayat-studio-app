@@ -508,6 +508,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final seg = state.segmentAt(t);
     if (seg != null) _loopSeg = seg;
     if (seg == null) return; // keep the last ayah on screen between segments
+    // PATCH_S84_AI_ART_FOLLOWS_PLAYBACK: per-ayah art now tracks the
+    // recitation live (internal guards make this call ~free per tick).
+    // Only when the background is actually visible: audio-only uploads
+    // (no video surface) or chroma, where the art replaces the backdrop —
+    // generating behind an opaque video would just burn bandwidth.
+    if (controller.value.size.width <= 0 || state.chromaEnabled) {
+      state.ensureArtForPlayback(seg.ayah);
+    }
     final cue = karaokeCueAt(buildKaraokeChunks(seg), t);
     // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-part key so StagePreview only fades when
     // the ayah part actually changes, not on every newly lit word.
@@ -2565,7 +2573,9 @@ class _HomeScreenState extends State<HomeScreen> {
         if (state.aiArtEnabled) ...[
           const SizedBox(height: 6),
           Text(
-            'تُنشأ خلفية بأسلوب خطوط متوهجة أحادية اللون لكل آية تُكتشف تلقائيًا، بلا وجوه بشرية أبدًا؛ إن ذُكر نبي في الآية يظهر عمود نور واسمه بخط عربي بدل أي شخصية.',
+            // PATCH_S84_AI_ART_MODEL_CHAIN + PATCH_S84_AI_ART_FOLLOWS_PLAYBACK
+            'تُنشأ خلفية بأسلوب خطوط متوهجة أحادية اللون لكل آية تُكتشف تلقائيًا، بلا وجوه بشرية أبدًا؛ إن ذُكر نبي في الآية يظهر عمود نور واسمه بخط عربي بدل أي شخصية. '
+            'يختار التطبيق تلقائيًا أفضل نموذج مجاني متاح، ومع المزامنة التلقائية يتبدّل الفن مع كل آية أثناء التلاوة (في التلاوات الصوتية أو مع الكروم).',
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
