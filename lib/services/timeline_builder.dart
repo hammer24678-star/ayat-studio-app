@@ -23,6 +23,20 @@
 //      consecutive segments are normalized away and each shared boundary is
 //      snapped to the quietest instant nearby — the reciter's breath pause
 //      between ayat — which makes the karaoke word timing noticeably tighter.
+//   6. PATCH_S82_AUTOSYNC_MAX: four robustness passes on top:
+//      • the silence gate adapts to the clip's own noise floor instead of a
+//        fixed -42 dBFS, so noisy room tone no longer reaches Whisper (which
+//        hallucinates on it) and unusually clean/quiet recordings keep the
+//        proven fixed gate;
+//      • a short weak mis-detection sandwiched between two halves of the
+//        SAME ayah is recognized as noise and merged away;
+//      • a second, finer Whisper pass re-scans every span the main scan left
+//        unmatched (including before the first and after the last detection),
+//        scored ONLY against the ayat mushaf order allows at that spot;
+//      • when a same-surah jump (N → N+2/N+3) still remains and the gap
+//        holds enough recitation time, the skipped ayat are inferred into it
+//        (flagged `inferred` so the UI can show them for review) — real
+//        acoustic evidence from the rescue pass always wins over inference.
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -84,6 +98,17 @@ class TimelineBuilder {
     final totalSec = pcm.length / sampleRate;
     final totalChunks = max(1, (totalSec / stepSec).ceil());
 
+    // PATCH_S82_AUTOSYNC_MAX: one cheap pre-pass over the whole clip to
+    // learn its noise floor, so the silence gate below fits THIS recording.
+    final windowRms = <double>[];
+    for (double t = 0; t < totalSec; t += stepSec) {
+      final s = (t * sampleRate).floor();
+      final e = min(pcm.length, ((t + chunkSec) * sampleRate).floor());
+      windowRms
+          .add(e > s ? _rmsEnergy(Int16List.sublistView(pcm, s, e)) : 0.0);
+    }
+    final silenceGate = adaptiveSilenceThreshold(windowRms);
+
     final tempDir = Directory.systemTemp.createTempSync('ayat_timeline');
     final timeline = <TimelineSegment>[];
     // PATCH_S31_ACCURATE_SYNC: a borderline match is held as `pending` and
@@ -118,7 +143,9 @@ class TimelineBuilder {
         }
         chunkIndex++;
         onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks…');
-        onProgress?.call(chunkIndex / totalChunks);
+        // PATCH_S82_AUTOSYNC_MAX: the head 90% — the gap-rescue pass owns
+        // the remainder.
+        onProgress?.call(0.9 * chunkIndex / totalChunks);
 
         final startSample = (t * sampleRate).floor();
         final endSample =
@@ -126,7 +153,10 @@ class TimelineBuilder {
         if (endSample - startSample < sampleRate * 1.2) continue; // tiny tail
 
         final slice = Int16List.sublistView(pcm, startSample, endSample);
-        if (_rmsEnergy(slice) < vadSilenceRms) {
+        if ((chunkIndex - 1 < windowRms.length
+                ? windowRms[chunkIndex - 1]
+                : _rmsEnergy(slice)) <
+            silenceGate) {
           flushPending(); // real gap in speech — whatever was pending is done
           continue;
         }
@@ -277,14 +307,35 @@ class TimelineBuilder {
       // PATCH_S31_ACCURATE_SYNC: a partial ayah still pending at the very
       // end of the scan is real — commit it instead of dropping it.
       flushPending();
+      // PATCH_S82_AUTOSYNC_MAX: structural repairs and the gap-rescue pass
+      // need the raw gaps that normalization would bridge away, so they run
+      // first: repair → hear what the gaps actually contain → re-merge any
+      // rescued pieces → only then infer what still couldn't be heard.
+      repairTimeline(timeline);
+      await _rescanGaps(
+        timeline: timeline,
+        pcm: pcm,
+        matcher: matcher,
+        tempDir: tempDir,
+        silenceGate: silenceGate,
+        totalSec: totalSec,
+        onStatus: onStatus,
+        onProgress: onProgress,
+      );
+      repairTimeline(timeline);
+      inferSkippedAyat(timeline, matcher.ayaat);
       // PATCH_S35_SMARTER_DETECTION: resolve overlaps/small gaps and snap
       // ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
       _refineBoundaries(timeline, pcm);
       // PATCH_S44_CONFIDENCE_RETRANSCRIBE: give low-confidence segments one more focused look now
-      // that their real boundaries are known.
+      // that their real boundaries are known. (PATCH_S82_AUTOSYNC_MAX: this
+      // also doubles as free verification of inferred segments — their 0.3
+      // confidence puts them under the re-transcribe bar, and if Whisper
+      // hears the inferred ayah in that span it's upgraded to a real match.)
       await _reTranscribeWeakSegments(timeline, pcm, matcher, tempDir,
           onStatus: onStatus);
+      onProgress?.call(1);
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
@@ -349,6 +400,10 @@ class TimelineBuilder {
           end: seg.end,
           ayah: candidate.ayah,
           confidence: candidate.confidence,
+          // PATCH_S82_AUTOSYNC_MAX: keep the acoustic word onsets (they
+          // belong to the audio span, not the ayah label) and clear the
+          // inferred flag — this span has now actually been heard.
+          wordStarts: seg.wordStarts,
         );
       }
     }
@@ -405,10 +460,284 @@ class TimelineBuilder {
 
   // PATCH_S35_SMARTER_DETECTION: the ayat mushaf order predicts after
   // [anchor]: the anchor itself (still being recited) and the next two.
+  // PATCH_S82_AUTOSYNC_MAX: plus the ayah BEFORE the anchor — repeating the
+  // previous ayah is common in memorization/practice recordings.
   static List<Ayah> _expectedNext(List<Ayah> ayaat, Ayah anchor) {
     final i = ayaat.indexOf(anchor); // identity ==, Ayah defines no operator==
     if (i < 0) return [anchor];
-    return ayaat.sublist(i, min(ayaat.length, i + 3));
+    return [
+      if (i > 0) ayaat[i - 1],
+      ...ayaat.sublist(i, min(ayaat.length, i + 3)),
+    ];
+  }
+
+  // PATCH_S82_AUTOSYNC_MAX --------------------------------------------------
+
+  /// Picks the silence gate for THIS clip from the RMS of all its analysis
+  /// windows. The clip's quietest windows are its room tone; anything within
+  /// ~2.2× of that is still "silence". The result never drops below the
+  /// proven fixed gate ([vadSilenceRms]) and is capped both absolutely and
+  /// relative to the clip's loud (speech) windows, so a clip that is
+  /// wall-to-wall recitation can never gate real speech away. Pure and
+  /// public for unit tests.
+  static double adaptiveSilenceThreshold(List<double> windowRms) {
+    if (windowRms.length < 4) return vadSilenceRms;
+    final sorted = [...windowRms]..sort();
+    double at(double q) =>
+        sorted[(sorted.length * q).floor().clamp(0, sorted.length - 1)];
+    final noiseFloor = at(0.1);
+    final speechLevel = at(0.85);
+    final cap = min(0.02, max(vadSilenceRms, speechLevel * 0.35));
+    return (noiseFloor * 2.2).clamp(vadSilenceRms, cap);
+  }
+
+  /// Structural cleanup of the raw scan output. Two repairs, both pure and
+  /// public for unit tests:
+  ///   • adjacent segments of the same ayah merge (the scan already merges
+  ///     close-in-time re-hearings, but rescue/editing can reintroduce
+  ///     them);
+  ///   • an A-B-A "sandwich": a single short span that matched some other
+  ///     ayah B in the middle of ayah A's span, weaker than both A halves —
+  ///     that's a garbled window, not a real jump away and back, so B is
+  ///     dropped and the halves merge.
+  static void repairTimeline(List<TimelineSegment> timeline) {
+    for (var i = 0; i + 1 < timeline.length;) {
+      final a = timeline[i], b = timeline[i + 1];
+      if (identical(a.ayah, b.ayah) && b.start - a.end <= bridgeGapSec + 0.01) {
+        a.end = max(a.end, b.end);
+        a.confidence = max(a.confidence, b.confidence);
+        _appendOnsets(a.wordStarts, b.wordStarts);
+        timeline.removeAt(i + 1);
+      } else {
+        i++;
+      }
+    }
+    for (var i = 0; i + 2 < timeline.length;) {
+      final a = timeline[i], mid = timeline[i + 1], b = timeline[i + 2];
+      if (identical(a.ayah, b.ayah) &&
+          !identical(mid.ayah, a.ayah) &&
+          mid.end - mid.start <= chunkSec + 0.01 &&
+          mid.confidence < min(a.confidence, b.confidence)) {
+        a.end = b.end;
+        a.confidence = max(a.confidence, b.confidence);
+        _appendOnsets(a.wordStarts, b.wordStarts);
+        timeline.removeAt(i + 2);
+        timeline.removeAt(i + 1);
+        // stay at i — the merged segment has new neighbours to re-check
+      } else {
+        i++;
+      }
+    }
+  }
+
+  // An ayah can't realistically be recited in less than this many seconds —
+  // gates how many missing ayat a gap is allowed to absorb.
+  static const double _minSecPerInferredAyah = 1.5;
+
+  /// When detection jumps from ayah N to ayah N+2/N+3 of the same surah and
+  /// the gap between the two segments holds enough recitation time, the
+  /// skipped ayat almost certainly WERE recited — their windows just came
+  /// back garbled even for the rescue pass. Insert them across the gap,
+  /// splitting it proportionally to each ayah's word count, flagged
+  /// [TimelineSegment.inferred] for the UI. Runs BEFORE normalizeTimeline,
+  /// which would otherwise bridge exactly the gaps this pass reads. Pure and
+  /// public for unit tests.
+  static void inferSkippedAyat(
+      List<TimelineSegment> timeline, List<Ayah> ayaat) {
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      final a = timeline[i], b = timeline[i + 1];
+      if (a.ayah.surahNum != b.ayah.surahNum) continue;
+      final missingCount = b.ayah.num - a.ayah.num - 1;
+      if (missingCount < 1 || missingCount > 3) continue;
+      final gap = b.start - a.end;
+      if (gap < _minSecPerInferredAyah * missingCount) continue;
+      final ai = ayaat.indexOf(a.ayah); // identity ==
+      if (ai < 0 || ai + missingCount + 1 >= ayaat.length) continue;
+      // the corpus must really place b right after the presumed-missing run
+      if (!identical(ayaat[ai + missingCount + 1], b.ayah)) continue;
+      final missing = ayaat.sublist(ai + 1, ai + 1 + missingCount);
+      final weights = [
+        for (final m in missing)
+          m.ar.trim().split(RegExp(r'\s+')).length.toDouble()
+      ];
+      final totalWeight = weights.fold(0.0, (s, w) => s + w);
+      var t = a.end;
+      for (var j = 0; j < missing.length; j++) {
+        final end = j == missing.length - 1
+            ? b.start
+            : t + gap * weights[j] / totalWeight;
+        timeline.insert(
+            i + 1 + j,
+            TimelineSegment(
+              start: t,
+              end: end,
+              ayah: missing[j],
+              confidence: 0.3,
+              inferred: true,
+            ));
+        t = end;
+      }
+      i += missing.length; // continue after the inserted run
+    }
+  }
+
+  // Finer grid for the rescue pass: gaps are short, so a 4s window on a 2s
+  // stride resolves what the main 6s/5s grid smeared.
+  static const double gapChunkSec = 4;
+  static const double gapStepSec = 2;
+  // Gaps shorter than this can't hold a recitation worth rescuing.
+  static const double minGapToRescan = 2.5;
+  // Give up on a gap whose mushaf-order candidate set would be this large —
+  // the constrained-candidate prior that justifies the relaxed threshold is
+  // gone at that point.
+  static const int maxGapCandidates = 6;
+
+  /// The ayat mushaf order allows inside a gap: everything from [before] to
+  /// [after] inclusive (the anchors themselves can spill into the gap), the
+  /// two ayat preceding the first detection for the head gap, or the two
+  /// following the last one for the tail gap. Returns empty when the span is
+  /// too wide to constrain anything. Pure and public for unit tests.
+  static List<Ayah> expectedInGap(Ayah? before, Ayah? after, List<Ayah> ayaat) {
+    if (before == null && after == null) return const [];
+    if (before == null) {
+      final i = ayaat.indexOf(after!); // identity ==
+      if (i < 0) return [after];
+      return ayaat.sublist(max(0, i - 2), i + 1);
+    }
+    if (after == null) {
+      final i = ayaat.indexOf(before);
+      if (i < 0) return [before];
+      return ayaat.sublist(i, min(ayaat.length, i + 3));
+    }
+    final i = ayaat.indexOf(before);
+    final j = ayaat.indexOf(after);
+    if (i < 0 || j < 0 || j <= i) return [before, after];
+    if (j - i + 1 > maxGapCandidates) return const [];
+    return ayaat.sublist(i, j + 1);
+  }
+
+  /// Second detection pass over every span the main scan left empty. Each
+  /// gap is rescanned on the finer [gapChunkSec]/[gapStepSec] grid and
+  /// scored ONLY against [expectedInGap]'s candidates via matchAmong — the
+  /// strong positional prior is what makes the relaxed threshold safe.
+  /// Rescued spans keep their word onsets (same word-split transcription as
+  /// the main scan) and are inserted in place; merging into neighbours is
+  /// left to the repairTimeline call that follows.
+  static Future<void> _rescanGaps({
+    required List<TimelineSegment> timeline,
+    required Int16List pcm,
+    required AyahMatcher matcher,
+    required Directory tempDir,
+    required double silenceGate,
+    required double totalSec,
+    void Function(String status)? onStatus,
+    void Function(double fraction)? onProgress,
+  }) async {
+    if (timeline.isEmpty) return;
+    // (start, end, candidates) per gap, head/tail included
+    final gaps = <(double, double, List<Ayah>)>[];
+    void addGap(double from, double to, Ayah? before, Ayah? after) {
+      if (to - from < minGapToRescan) return;
+      final cands = expectedInGap(before, after, matcher.ayaat);
+      if (cands.isEmpty) return;
+      gaps.add((from, to, cands));
+    }
+
+    addGap(0, timeline.first.start, null, timeline.first.ayah);
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      addGap(timeline[i].end, timeline[i + 1].start, timeline[i].ayah,
+          timeline[i + 1].ayah);
+    }
+    addGap(timeline.last.end, totalSec, timeline.last.ayah, null);
+    if (gaps.isEmpty) return;
+
+    final totalWindows = gaps.fold<int>(
+        0, (n, g) => n + max(1, ((g.$2 - g.$1) / gapStepSec).ceil()));
+    var done = 0;
+    final rescued = <TimelineSegment>[];
+    for (final (gapStart, gapEnd, candidates) in gaps) {
+      TimelineSegment? current;
+      for (double t = gapStart; t < gapEnd; t += gapStepSec) {
+        if (_cancelRequested) {
+          throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
+        }
+        done++;
+        onStatus?.call('جارٍ فحص الفجوات بدقة أعلى: $done من $totalWindows…');
+        onProgress?.call(0.9 + 0.1 * min(1, done / totalWindows));
+
+        final startSample = (t * sampleRate).floor();
+        final endSample = min(
+            pcm.length, (min(t + gapChunkSec, gapEnd) * sampleRate).floor());
+        if (endSample - startSample < sampleRate * 1.2) continue;
+        final slice = Int16List.sublistView(pcm, startSample, endSample);
+        if (_rmsEnergy(slice) < silenceGate) {
+          current = null;
+          continue;
+        }
+
+        final sliceDurSec = (endSample - startSample) / sampleRate;
+        final chunkPath = '${tempDir.path}/gap_$done.wav';
+        WhisperTranscript transcript;
+        try {
+          _writeWavMono16(chunkPath, slice);
+          try {
+            transcript = await WhisperService.transcribeWavWithSegments(
+              chunkPath,
+              audioDurationSec: sliceDurSec,
+              splitOnWord: true,
+            );
+          } catch (_) {
+            // same S61 fallback as the main scan: costs onset precision
+            // for this window only, not the rescue itself
+            transcript = await WhisperService.transcribeWavWithSegments(
+              chunkPath,
+              audioDurationSec: sliceDurSec,
+              splitOnWord: false,
+            );
+          }
+        } catch (_) {
+          continue; // one failed window shouldn't kill the rescue
+        } finally {
+          File(chunkPath).delete().ignore();
+        }
+
+        final text = transcript.text.trim();
+        if (text.isEmpty) continue;
+        final match = matcher.matchAmong(text, candidates,
+            minConfidence: contextMinConfidence);
+        if (match == null) {
+          current = null;
+          continue;
+        }
+        // real phrase bounds when available, the window bounds otherwise
+        final segs = transcript.segments;
+        final absStart =
+            segs.isEmpty ? t : min(gapEnd, t + segs.first.startSec);
+        final absEnd = segs.isEmpty
+            ? min(t + gapChunkSec, gapEnd)
+            : min(gapEnd, max(absStart + 0.2, t + segs.last.endSec));
+        final onsets = _snapOnsetsToEnergyAttacks(pcm, sampleRate,
+            [for (final s in segs) t + s.startSec]);
+        if (current != null &&
+            identical(current.ayah, match.ayah) &&
+            absStart - current.end <= mergeGapSec) {
+          current.end = max(current.end, absEnd);
+          current.confidence = max(current.confidence, match.confidence);
+          _appendOnsets(current.wordStarts, onsets);
+        } else {
+          current = TimelineSegment(
+              start: absStart,
+              end: absEnd,
+              ayah: match.ayah,
+              confidence: match.confidence,
+              wordStarts: List.of(onsets));
+          rescued.add(current);
+        }
+      }
+    }
+    if (rescued.isEmpty) return;
+    timeline.addAll(rescued);
+    timeline.sort((a, b) => a.start.compareTo(b.start));
   }
 
   /// PATCH_S35_SMARTER_DETECTION: consecutive segments that overlap (the

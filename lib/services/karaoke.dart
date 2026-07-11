@@ -18,6 +18,17 @@ const int kKaraokeMaxWordsPerChunk = 12;
 /// remaining tail holds the fully lit line before the next part fades in.
 const double kKaraokeLightingSpan = 0.9;
 
+// PATCH_S82_KARAOKE_WEIGHTED_FALLBACK: when no real word onsets exist for a
+// segment (manual/inferred segments, failed word-split windows), time is
+// carved per word as its letter count plus a constant per-word beat instead
+// of assuming equal time for every word — reciters dwell longer on longer
+// words (more letters, more madd). The constant keeps very short words
+// (لا، من، بل) from flashing by.
+double _wordWeight(String word) => word.length + 2.0;
+
+double _weightOf(Iterable<String> words) =>
+    words.fold(0.0, (sum, w) => sum + _wordWeight(w));
+
 /// One sequential part of an ayah on the karaoke timeline. [start]/[end] are
 /// absolute seconds into the source clip, carved out of the parent
 /// [TimelineSegment] proportionally to each part's word count (the reciter
@@ -91,7 +102,12 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
       // boundary = where the next part's first heard word actually starts
       tTo = onsets[onsetTo].clamp(tFrom + 0.3, seg.end - 0.3);
     } else {
-      tTo = tFrom + segDur * (wordTo - wordFrom) / total;
+      // PATCH_S82_KARAOKE_WEIGHTED_FALLBACK: no usable onsets — window
+      // share follows the part's letter mass, not just its word count.
+      tTo = tFrom +
+          segDur *
+              _weightOf(words.sublist(wordFrom, wordTo)) /
+              max(0.001, _weightOf(words));
     }
     chunks.add(KaraokeChunk(
       words: words.sublist(wordFrom, wordTo),
@@ -127,10 +143,21 @@ KaraokeCue karaokeCueAt(List<KaraokeChunk> chunks, double t) {
         }
         lit = min(n, max(1, (n * passed / c.onsets.length).ceil()));
       } else {
+        // PATCH_S82_KARAOKE_WEIGHTED_FALLBACK: a word lights once the
+        // reciter's letter-mass progress reaches its start — long words
+        // hold the highlight longer, short particles pass quickly.
         final dur = max(0.001, c.end - c.start);
         final frac =
             ((t - c.start) / (dur * kKaraokeLightingSpan)).clamp(0.0, 1.0);
-        lit = min(n, max(1, (n * frac).ceil()));
+        final target = frac * _weightOf(c.words);
+        var cum = 0.0;
+        lit = 0;
+        for (final w in c.words) {
+          if (cum >= target) break;
+          lit++;
+          cum += _wordWeight(w);
+        }
+        lit = max(1, lit);
       }
       return KaraokeCue(c, lit);
     }

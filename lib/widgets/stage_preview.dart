@@ -32,8 +32,12 @@ class StageOverlayText {
   // rest dimmed until the reciter reaches them.
   final List<String>? karaokeWords;
   final int litWords;
+  // PATCH_S83_SYNC_QOL: small "سورة كذا — آية كذا" chip on the stage during
+  // auto-sync playback, so you always know which detection is showing.
+  final String? ayahLabel;
   const StageOverlayText(this.text, this.translation,
-      [this.segmentKey = '', this.karaokeWords, this.litWords = 0]);
+      [this.segmentKey = '', this.karaokeWords, this.litWords = 0,
+      this.ayahLabel]);
 }
 
 class StagePreview extends StatefulWidget {
@@ -102,6 +106,14 @@ class _StagePreviewState extends State<StagePreview>
     super.dispose();
   }
 
+  void _flash(IconData icon) {
+    _tapFlashTimer?.cancel();
+    setState(() => _tapFlashIcon = icon);
+    _tapFlashTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _tapFlashIcon = null);
+    });
+  }
+
   // PATCH_S34_PLAYER_CONTROLS_TRIM: tap anywhere on the stage to pause/resume
   // the uploaded video, with a short feedback icon flash.
   void _togglePlayback() {
@@ -113,12 +125,23 @@ class _StagePreviewState extends State<StagePreview>
     } else {
       c.pause();
     }
-    _tapFlashTimer?.cancel();
-    setState(() =>
-        _tapFlashIcon = nowPlaying ? Icons.play_arrow : Icons.pause);
-    _tapFlashTimer = Timer(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _tapFlashIcon = null);
-    });
+    _flash(nowPlaying ? Icons.play_arrow : Icons.pause);
+  }
+
+  // PATCH_S83_SYNC_QOL: the standard video-player gesture — double-tap the
+  // right half of the stage to jump 5s forward, the left half 5s back.
+  // (Double-tapping the ayah TEXT itself still resets its drag position —
+  // the text's own GestureDetector sits above this layer and wins.)
+  void _doubleTapSeek(TapDownDetails details, double stageWidth) {
+    final c = widget.videoController;
+    if (c == null || !c.value.isInitialized) return;
+    final forward = details.localPosition.dx > stageWidth / 2;
+    final dur = c.value.duration;
+    var target = c.value.position + Duration(seconds: forward ? 5 : -5);
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > dur) target = dur;
+    c.seekTo(target);
+    _flash(forward ? Icons.forward_5 : Icons.replay_5);
   }
 
   @override
@@ -291,11 +314,15 @@ class _StagePreviewState extends State<StagePreview>
                     ),
                   ),
                 // PATCH_S34_PLAYER_CONTROLS_TRIM: tap the stage to pause/resume.
+                // PATCH_S83_SYNC_QOL: double-tap left/right half seeks ∓/±5s.
                 if (controller != null && controller.value.isInitialized)
                   Positioned.fill(
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
                       onTap: _togglePlayback,
+                      onDoubleTapDown: (d) =>
+                          _doubleTapSeek(d, constraints.maxWidth),
+                      onDoubleTap: () {}, // keeps the recognizer armed
                     ),
                   ),
                 if (videoReady && state.chromaEnabled)
@@ -353,6 +380,36 @@ class _StagePreviewState extends State<StagePreview>
                       child: KeyedSubtree(
                         key: ValueKey(overlayKey),
                         child: _overlay(context, live, text, trans, scale),
+                      ),
+                    );
+                  },
+                ),
+                // PATCH_S83_SYNC_QOL: which ayah the auto-sync playback is on.
+                ValueListenableBuilder<StageOverlayText?>(
+                  valueListenable: liveOverride,
+                  builder: (context, live, _) {
+                    final label = live?.ayahLabel;
+                    if (label == null || label.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return PositionedDirectional(
+                      bottom: 10,
+                      end: 10,
+                      child: IgnorePointer(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AyatColors.ink.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: AyatColors.hairline),
+                          ),
+                          child: Text(
+                            label,
+                            style: const TextStyle(
+                                fontSize: 9.5, color: AyatColors.goldBright),
+                          ),
+                        ),
                       ),
                     );
                   },
