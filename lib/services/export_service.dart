@@ -458,6 +458,13 @@ class ExportService {
     final parts = <String>[];
     final grade = _colorGradeFilter(state.colorGrade);
     if (grade.isNotEmpty) parts.add(grade);
+    // PATCH_S85_VIDEO_ADJUST: manual sliders stack on top of the preset
+    // grade, mirroring the preview's nested ColorFiltered order.
+    if (state.hasManualAdjust) {
+      parts.add('eq=brightness=${state.adjustBrightness.toStringAsFixed(3)}'
+          ':contrast=${state.adjustContrast.toStringAsFixed(3)}'
+          ':saturation=${state.adjustSaturation.toStringAsFixed(3)}');
+    }
     if (state.vignetteEnabled) {
       parts.add(_vignetteFilter(state.vignetteIntensity));
     }
@@ -755,6 +762,17 @@ class ExportService {
             '[$bgIdx:v]${_staticImageFilterChain(w, h, state.kenBurnsEnabled)}[base]');
         base = 'base';
       }
+    }
+
+    // PATCH_S85_VIDEO_ADJUST: blur the composited video/background BEFORE
+    // the particles and the ayah text are overlaid, so only the backdrop
+    // softens — same z-order as the preview. Sigma scales from the
+    // 270-reference slider units to this export's real width.
+    if (state.videoBlur > 0.05) {
+      final sigma =
+          (state.videoBlur * w / 270).clamp(1.0, 60.0).toStringAsFixed(2);
+      filters.add('[$base]gblur=sigma=$sigma[vblur]');
+      base = 'vblur';
     }
 
     // PATCH_S34_STAGE_EFFECTS: particle loop over the video/background,

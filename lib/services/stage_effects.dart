@@ -16,7 +16,10 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch } // PATCH_S72_GLITCH_EFFECT
+// PATCH_S85_MORE_EFFECTS: fireflies/fog/rays appended at the END — the
+// settings persistence stores effect.index, so existing saved choices keep
+// pointing at the same effect.
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays } // PATCH_S72_GLITCH_EFFECT
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -28,6 +31,9 @@ extension StageEffectLabel on StageEffect {
         StageEffect.geometricShimmer => 'بريق زخرفي إسلامي', // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => 'قصاصات ذهبية', // PATCH_S52_MORE_EFFECTS
         StageEffect.glitch => 'أعطال بصرية', // PATCH_S72_GLITCH_EFFECT
+        StageEffect.fireflies => 'يراعات مضيئة', // PATCH_S85_MORE_EFFECTS
+        StageEffect.fog => 'ضباب هادئ', // PATCH_S85_MORE_EFFECTS
+        StageEffect.rays => 'أشعة نور', // PATCH_S85_MORE_EFFECTS
       };
 
   IconData get icon => switch (this) {
@@ -39,6 +45,9 @@ extension StageEffectLabel on StageEffect {
         StageEffect.geometricShimmer => Icons.auto_awesome_mosaic, // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => Icons.celebration_outlined, // PATCH_S52_MORE_EFFECTS
         StageEffect.glitch => Icons.broken_image_outlined, // PATCH_S72_GLITCH_EFFECT
+        StageEffect.fireflies => Icons.emoji_nature_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.fog => Icons.cloud_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.rays => Icons.wb_twilight_outlined, // PATCH_S85_MORE_EFFECTS
       };
 }
 
@@ -85,6 +94,120 @@ class StageEffects {
         _paintConfetti(canvas, size, timeSec, intensity);
       case StageEffect.glitch: // PATCH_S72_GLITCH_EFFECT
         _paintGlitch(canvas, size, timeSec, intensity);
+      case StageEffect.fireflies: // PATCH_S85_MORE_EFFECTS
+        _paintFireflies(canvas, size, timeSec, intensity);
+      case StageEffect.fog: // PATCH_S85_MORE_EFFECTS
+        _paintFog(canvas, size, timeSec, intensity);
+      case StageEffect.rays: // PATCH_S85_MORE_EFFECTS
+        _paintRays(canvas, size, timeSec, intensity);
+    }
+  }
+
+  // PATCH_S85_MORE_EFFECTS: a handful of large, softly glowing points that
+  // wander slowly around their anchor and pulse — unlike the dense drifting
+  // `dust`, fireflies are few, bright and individually noticeable. Whole
+  // wander/pulse cycles per loop keep the export tile seamless, same
+  // convention as every other effect here.
+  static void _paintFireflies(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final count = (14 * intensity).round().clamp(3, 20);
+    final paint = Paint()
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6.0 * w / 1080);
+    for (var i = 0; i < count; i++) {
+      final phase = _rand(i, 1) * 2 * pi;
+      final wanderCycles = 1 + (i % 2);
+      // two independent eased oscillations trace a slow lissajous wander
+      final dx = _easedOscillate(
+              sin(2 * pi * wanderCycles * t / loopSeconds + phase)) *
+          w *
+          0.06;
+      final dy = _easedOscillate(
+              cos(2 * pi * (wanderCycles + 1) * t / loopSeconds + phase * 1.7)) *
+          h *
+          0.04;
+      final x = _rand(i, 2) * w + dx;
+      final y = _rand(i, 3) * h + dy;
+      // slow pulse, mostly-on with a soft dip — a firefly, not a strobe
+      final pulseCycles = 1 + (i % 3);
+      final pulse =
+          0.35 + 0.65 * (0.5 + 0.5 * sin(2 * pi * pulseCycles * t / loopSeconds + phase * 2));
+      final r = (3.0 + 3.0 * _rand(i, 4)) * w / 1080;
+      // warm green-gold glow halo + brighter core
+      paint.color =
+          const Color(0xFFD7EFA0).withValues(alpha: 0.45 * pulse * intensity);
+      canvas.drawCircle(Offset(x, y), r * 2.2, paint);
+      paint.color =
+          const Color(0xFFF4FFCE).withValues(alpha: 0.9 * pulse * intensity);
+      canvas.drawCircle(Offset(x, y), r, paint);
+    }
+  }
+
+  // PATCH_S85_MORE_EFFECTS: two depth layers of very large, heavily blurred
+  // ellipses drifting sideways — a quiet fog bank rolling through, not a
+  // smoke machine. Each blob makes a whole traversal (or two) per loop so
+  // the export tile wraps seamlessly.
+  static void _paintFog(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final paint = Paint()
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.06 * w);
+    const blobs = 10;
+    for (var i = 0; i < blobs; i++) {
+      final depth = _rand(i, 1); // far blobs: slower, dimmer, higher
+      final bw = w * (0.55 + 0.5 * _rand(i, 2));
+      final bh = h * (0.10 + 0.08 * _rand(i, 3));
+      final range = w + bw;
+      final kLoops = 1 + (i % 2); // whole traversals per loop
+      final dir = (i % 2 == 0) ? 1.0 : -1.0; // layers cross for parallax
+      final v = kLoops * range / loopSeconds;
+      final travel = (_rand(i, 4) * range + v * t) % range;
+      final x = (dir > 0 ? travel : range - travel) - bw / 2;
+      // fog sits low-to-mid; far blobs float a bit higher
+      final y = h * (0.35 + 0.55 * _rand(i, 5)) - depth * h * 0.15;
+      paint.color = Colors.white
+          .withValues(alpha: (0.045 + 0.05 * depth) * intensity);
+      canvas.drawOval(
+          Rect.fromCenter(center: Offset(x + bw / 2, y), width: bw, height: bh),
+          paint);
+    }
+  }
+
+  // PATCH_S85_MORE_EFFECTS: soft diagonal light beams falling from the top
+  // edge — the classic "God rays through the window" recitation-video look.
+  // Each beam sways around its base angle by a whole eased cycle per loop
+  // and breathes in brightness, so the tile stays seamless.
+  static void _paintRays(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    const beams = 6;
+    for (var i = 0; i < beams; i++) {
+      final phase = _rand(i, 1) * 2 * pi;
+      final baseAngle = -0.35 + 0.7 * _rand(i, 2); // radians off vertical
+      final sway = _easedOscillate(
+              sin(2 * pi * (1 + i % 2) * t / loopSeconds + phase)) *
+          0.05;
+      final breathe =
+          0.55 + 0.45 * sin(2 * pi * (1 + i % 3) * t / loopSeconds + phase * 2);
+      final beamW = w * (0.05 + 0.09 * _rand(i, 3));
+      final topX = w * (0.15 + 0.7 * _rand(i, 4));
+      canvas.save();
+      canvas.translate(topX, -h * 0.05);
+      canvas.rotate(baseAngle + sway);
+      final rect = Rect.fromLTWH(-beamW / 2, 0, beamW, h * 1.5);
+      final paint = Paint()
+        ..shader = ui.Gradient.linear(
+          rect.topCenter,
+          rect.bottomCenter,
+          [
+            const Color(0xFFFFF3D6)
+                .withValues(alpha: 0.22 * breathe * intensity),
+            const Color(0xFFFFF3D6).withValues(alpha: 0.0),
+          ],
+        )
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.012 * w);
+      canvas.drawRect(rect, paint);
+      canvas.restore();
     }
   }
 

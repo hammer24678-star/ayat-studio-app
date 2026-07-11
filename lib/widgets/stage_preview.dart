@@ -200,6 +200,12 @@ class _StagePreviewState extends State<StagePreview>
               // live -- see _liveColorFilter below for how close each grade
               // gets. The exported MP4 stays the authoritative render.
               colorFilter: _liveColorFilter(state.colorGrade),
+              child: ColorFiltered(
+              // PATCH_S85_VIDEO_ADJUST: manual brightness/contrast/saturation
+              // stacked over the preset grade, same order as the export's
+              // eq filter (identity matrix when everything is neutral).
+              colorFilter: _adjustColorFilter(state.adjustBrightness,
+                  state.adjustContrast, state.adjustSaturation),
               child: Stack(
               fit: StackFit.expand,
               children: [
@@ -212,6 +218,16 @@ class _StagePreviewState extends State<StagePreview>
                 // actual image changes.
                 if (state.useCustomBg && state.customBgPath != null)
                   Positioned.fill(
+                    // PATCH_S85_VIDEO_ADJUST: the custom/AI-art photo
+                    // background blurs too (matches the export, where gblur
+                    // hits the composited base layer).
+                    child: ImageFiltered(
+                      imageFilter: state.videoBlur > 0.05
+                          ? ui.ImageFilter.blur(
+                              sigmaX: state.videoBlur * scale,
+                              sigmaY: state.videoBlur * scale,
+                              tileMode: TileMode.clamp)
+                          : ui.ImageFilter.matrix(Matrix4.identity().storage),
                     child: AnimatedSwitcher(
                       duration: state.bgTransitionStyle ==
                               BgTransitionStyle.crossfade
@@ -252,6 +268,7 @@ class _StagePreviewState extends State<StagePreview>
                               fit: BoxFit.cover,
                             ),
                     ),
+                    ), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered
                   ),
                 // PATCH_S28_ANIMATED_BACKGROUND: only over the plain preset gradient --
                 // never over real video or a custom photo background.
@@ -284,7 +301,17 @@ class _StagePreviewState extends State<StagePreview>
                   // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror preview,
                   // and contain-fit when «احتواء + خلفية ضبابية» is chosen
                   // (the blurred fill itself is rendered in the export).
-                  FittedBox(
+                  // PATCH_S85_VIDEO_ADJUST: optional live blur of the video
+                  // layer only — text/particles above stay sharp, matching
+                  // the export's gblur placement.
+                  ImageFiltered(
+                    imageFilter: state.videoBlur > 0.05
+                        ? ui.ImageFilter.blur(
+                            sigmaX: state.videoBlur * scale,
+                            sigmaY: state.videoBlur * scale,
+                            tileMode: TileMode.clamp)
+                        : ui.ImageFilter.matrix(Matrix4.identity().storage),
+                    child: FittedBox(
                     fit: state.videoFit == VideoFitMode.fitBlur
                         ? BoxFit.contain
                         : BoxFit.cover,
@@ -301,6 +328,7 @@ class _StagePreviewState extends State<StagePreview>
                       ),
                     ),
                   ),
+                  ), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered
                 // PATCH_S34_STAGE_EFFECTS: particles over the video/background,
                 // under the ayah text so the words stay readable.
                 if (state.effect != StageEffect.none)
@@ -497,11 +525,28 @@ class _StagePreviewState extends State<StagePreview>
                   ),
               ],
             ),
+            ), // PATCH_S85_VIDEO_ADJUST: closes the manual-adjust ColorFiltered
             ), // PATCH_S58_LIVE_EFFECTS_PREVIEW: closes ColorFiltered
           ),
         );
       }),
     );
+  }
+
+  // PATCH_S85_VIDEO_ADJUST: the ffmpeg eq brightness/contrast/saturation
+  // triple as one 4x5 color matrix: saturation via the standard luminance-
+  // preserving mix, then contrast scales around mid-gray and brightness
+  // offsets. Identity when everything is neutral.
+  static ColorFilter _adjustColorFilter(double b, double c, double s) {
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    final sr = (1 - s) * lr, sg = (1 - s) * lg, sb = (1 - s) * lb;
+    final o = 255 * (b + (1 - c) / 2);
+    return ColorFilter.matrix([
+      c * (sr + s), c * sg, c * sb, 0, o,
+      c * sr, c * (sg + s), c * sb, 0, o,
+      c * sr, c * sg, c * (sb + s), 0, o,
+      0, 0, 0, 1, 0,
+    ]);
   }
 
   Widget _overlay(BuildContext context, StageOverlayText? live, String text,

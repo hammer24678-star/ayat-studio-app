@@ -333,5 +333,53 @@ void main() {
       final empty = StudioState();
       expect(empty.timelineCoverageFraction(), 0);
     });
+
+    // PATCH_S86_TIMELINE_EDITING
+    test('splitTimelineSegment cuts at the playhead and divides onsets', () {
+      final s = freshState();
+      s.timeline[1].wordStarts.addAll([11.0, 13.0, 16.0, 19.0]);
+      expect(s.splitTimelineSegment(1, 15.0), isTrue);
+      expect(s.timeline.length, 4);
+      expect(s.timeline[1].end, 15.0);
+      expect(s.timeline[2].start, 15.0);
+      expect(identical(s.timeline[1].ayah, s.timeline[2].ayah), isTrue);
+      expect(s.timeline[1].wordStarts, [11.0, 13.0]);
+      expect(s.timeline[2].wordStarts, [16.0, 19.0]);
+      // too close to an edge to leave two real segments → refused
+      expect(s.splitTimelineSegment(1, 10.1), isFalse);
+      expect(s.splitTimelineSegment(99, 5), isFalse);
+    });
+
+    test('changeSegmentAyah relabels but keeps timing and onsets', () {
+      final s = freshState();
+      s.timeline[0].wordStarts.addAll([1.0, 3.0]);
+      s.changeSegmentAyah(0, corpus[4]);
+      expect(s.timeline[0].ayah.num, 6);
+      expect(s.timeline[0].start, 0);
+      expect(s.timeline[0].end, 10);
+      expect(s.timeline[0].confidence, 1.0);
+      expect(s.timeline[0].wordStarts, [1.0, 3.0]);
+      expect(s.timeline[0].inferred, isFalse);
+    });
+  });
+
+  // PATCH_S86_ASR_JUNK_FILTER
+  group('TimelineBuilder.isAsrHallucination', () {
+    test('flags stock subtitle/music hallucinations in any diacritic form',
+        () {
+      expect(TimelineBuilder.isAsrHallucination('اشتركوا في القناة'), isTrue);
+      expect(TimelineBuilder.isAsrHallucination('لا تنسى الاشتراك'), isTrue);
+      expect(TimelineBuilder.isAsrHallucination('موسيقى'), isTrue);
+      expect(TimelineBuilder.isAsrHallucination('مُوسِيقَى'), isTrue);
+      expect(
+          TimelineBuilder.isAsrHallucination('ترجمة نانسي قنقر'), isTrue);
+    });
+
+    test('never flags real recitation text', () {
+      expect(
+          TimelineBuilder.isAsrHallucination('قل هو الله أحد'), isFalse);
+      expect(TimelineBuilder.isAsrHallucination('إن مع العسر يسرا'), isFalse);
+      expect(TimelineBuilder.isAsrHallucination(''), isFalse);
+    });
   });
 }

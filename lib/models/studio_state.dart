@@ -68,6 +68,26 @@ class StudioState extends ChangeNotifier {
   bool kenBurnsEnabled = false; // slow zoom on background images only, never on uploaded video
   bool softTransitions = true; // fade in/out around bismillah/outro cards instead of a hard cut
 
+  // ---- PATCH_S85_VIDEO_ADJUST: manual picture controls on top of the ----
+  // preset grades — live in the preview, burned in at export (ffmpeg eq).
+  double adjustBrightness = 0.0; // -0.25..0.25, 0 = neutral
+  double adjustContrast = 1.0; // 0.7..1.4, 1 = neutral
+  double adjustSaturation = 1.0; // 0.0..2.0, 1 = neutral
+  // Blur of the video/background layer only (text and particles stay
+  // sharp), in 270-reference-width units like the text sizes.
+  double videoBlur = 0.0; // 0..6
+  bool get hasManualAdjust =>
+      adjustBrightness.abs() > 0.005 ||
+      (adjustContrast - 1).abs() > 0.005 ||
+      (adjustSaturation - 1).abs() > 0.005;
+  void resetManualAdjust() {
+    adjustBrightness = 0.0;
+    adjustContrast = 1.0;
+    adjustSaturation = 1.0;
+    videoBlur = 0.0;
+    notifyListeners();
+  }
+
   // ---- PATCH_S54_PRO_EXPORT_CONTROLS ----
   VideoFitMode videoFit = VideoFitMode.source;
   int videoRotationQuarterTurns = 0; // 0..3, clockwise
@@ -440,6 +460,61 @@ class StudioState extends ChangeNotifier {
     timelineActive = true;
     trimFromIndex = -1;
     trimToIndex = -1;
+    notifyListeners();
+  }
+
+  // PATCH_S86_TIMELINE_EDITING: split segment [index] at [atSec] (clip
+  // seconds) — the inverse of mergeTimelineSegments, for when one detected
+  // span actually covers two ayat. Both halves keep the ayah and
+  // confidence; relabel the wrong half with [changeSegmentAyah]. Word
+  // onsets are divided by time so karaoke pacing survives on both sides.
+  // Returns false when [atSec] isn't usable (outside, or too close to an
+  // edge to leave two real segments).
+  bool splitTimelineSegment(int index, double atSec) {
+    if (index < 0 || index >= timeline.length) return false;
+    final seg = timeline[index];
+    if (atSec < seg.start + 0.3 || atSec > seg.end - 0.3) return false;
+    final first = TimelineSegment(
+      start: seg.start,
+      end: atSec,
+      ayah: seg.ayah,
+      confidence: seg.confidence,
+      wordStarts: [for (final s in seg.wordStarts) if (s < atSec) s],
+      inferred: seg.inferred,
+    );
+    final second = TimelineSegment(
+      start: atSec,
+      end: seg.end,
+      ayah: seg.ayah,
+      confidence: seg.confidence,
+      wordStarts: [for (final s in seg.wordStarts) if (s >= atSec) s],
+      inferred: seg.inferred,
+    );
+    timeline
+      ..removeAt(index)
+      ..insert(index, first)
+      ..insert(index + 1, second);
+    trimFromIndex = -1;
+    trimToIndex = -1;
+    notifyListeners();
+    return true;
+  }
+
+  // PATCH_S86_TIMELINE_EDITING: relabel a detection with the RIGHT ayah
+  // while keeping its (already reviewed) timing — beats delete + manual
+  // re-add, which loses the tuned boundaries. Confidence becomes 1.0: the
+  // user just told us what this span is. Word onsets stay — they describe
+  // the audio, not the label. The inferred flag clears for the same reason.
+  void changeSegmentAyah(int index, Ayah ayah) {
+    if (index < 0 || index >= timeline.length) return;
+    final seg = timeline[index];
+    timeline[index] = TimelineSegment(
+      start: seg.start,
+      end: seg.end,
+      ayah: ayah,
+      confidence: 1.0,
+      wordStarts: seg.wordStarts,
+    );
     notifyListeners();
   }
 

@@ -131,6 +131,18 @@ class SettingsService {
           read<bool>('kenBurnsEnabled') ?? state.kenBurnsEnabled;
       state.softTransitions =
           read<bool>('softTransitions') ?? state.softTransitions;
+      // PATCH_S85_VIDEO_ADJUST
+      state.adjustBrightness =
+          (read<double>('adjustBrightness') ?? state.adjustBrightness)
+              .clamp(-0.25, 0.25);
+      state.adjustContrast =
+          (read<double>('adjustContrast') ?? state.adjustContrast)
+              .clamp(0.7, 1.4);
+      state.adjustSaturation =
+          (read<double>('adjustSaturation') ?? state.adjustSaturation)
+              .clamp(0.0, 2.0);
+      state.videoBlur =
+          (read<double>('videoBlur') ?? state.videoBlur).clamp(0.0, 6.0);
       // PATCH_S40_MULTI_BG_CYCLE
       state.multiBgEnabled =
           read<bool>('multiBgEnabled') ?? state.multiBgEnabled;
@@ -263,6 +275,11 @@ class SettingsService {
       p.setInt('${_prefix}grainIntensity', state.grainIntensity),
       p.setBool('${_prefix}kenBurnsEnabled', state.kenBurnsEnabled),
       p.setBool('${_prefix}softTransitions', state.softTransitions),
+      // PATCH_S85_VIDEO_ADJUST
+      p.setDouble('${_prefix}adjustBrightness', state.adjustBrightness),
+      p.setDouble('${_prefix}adjustContrast', state.adjustContrast),
+      p.setDouble('${_prefix}adjustSaturation', state.adjustSaturation),
+      p.setDouble('${_prefix}videoBlur', state.videoBlur),
       // PATCH_S40_MULTI_BG_CYCLE
       p.setBool('${_prefix}multiBgEnabled', state.multiBgEnabled),
       p.setStringList('${_prefix}multiBgIndexes',

@@ -88,9 +88,15 @@ class TimelineBuilder {
   /// Scans [mediaPath] (video or audio) and returns the detected ayah
   /// timeline. [onStatus] receives human-readable Arabic progress text,
   /// [onProgress] a 0..1 fraction.
+  /// PATCH_S86_SCAN_RANGE: [scanStart]/[scanEnd] limit the scan to that
+  /// span of the clip (used when a manual cut is set — only the part that
+  /// will actually be exported gets analyzed, which is proportionally
+  /// faster). Segment times stay absolute clip seconds either way.
   static Future<List<TimelineSegment>> build({
     required String mediaPath,
     required AyahMatcher matcher,
+    double? scanStart,
+    double? scanEnd,
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
   }) async {
@@ -102,12 +108,17 @@ class TimelineBuilder {
     final pcm = _readWavMono16(wavPath);
 
     final totalSec = pcm.length / sampleRate;
-    final totalChunks = max(1, (totalSec / stepSec).ceil());
+    // PATCH_S86_SCAN_RANGE
+    final rangeStart = (scanStart ?? 0).clamp(0.0, totalSec);
+    final rangeEnd = (scanEnd == null || scanEnd <= rangeStart)
+        ? totalSec
+        : scanEnd.clamp(rangeStart, totalSec);
+    final totalChunks = max(1, ((rangeEnd - rangeStart) / stepSec).ceil());
 
-    // PATCH_S82_AUTOSYNC_MAX: one cheap pre-pass over the whole clip to
+    // PATCH_S82_AUTOSYNC_MAX: one cheap pre-pass over the scanned span to
     // learn its noise floor, so the silence gate below fits THIS recording.
     final windowRms = <double>[];
-    for (double t = 0; t < totalSec; t += stepSec) {
+    for (double t = rangeStart; t < rangeEnd; t += stepSec) {
       final s = (t * sampleRate).floor();
       final e = min(pcm.length, ((t + chunkSec) * sampleRate).floor());
       windowRms
@@ -143,7 +154,7 @@ class TimelineBuilder {
     }
 
     try {
-      for (double t = 0; t < totalSec; t += stepSec) {
+      for (double t = rangeStart; t < rangeEnd; t += stepSec) { // PATCH_S86_SCAN_RANGE
         if (_cancelRequested) {
           throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
         }
@@ -221,6 +232,15 @@ class TimelineBuilder {
         for (final (piece, rawOnsets) in pieces) {
           final text = piece.text.trim();
           if (text.isEmpty) continue;
+          // PATCH_S86_ASR_JUNK_FILTER: Whisper narrates non-speech audio
+          // with stock YouTube-caption phrases ("اشتركوا في القناة",
+          // "موسيقى"…). Those windows are noise, not recitation — treat
+          // them exactly like silence so they can't extend or seed a
+          // segment via the relaxed mushaf-order rescore.
+          if (isAsrHallucination(text)) {
+            flushPending();
+            continue;
+          }
           final absStart = t + piece.startSec;
           final absEnd = max(absStart + 0.2, t + piece.endSec);
           final rawAbsOnsets = [for (final s in rawOnsets) t + s];
@@ -329,7 +349,10 @@ class TimelineBuilder {
         matcher: matcher,
         tempDir: tempDir,
         silenceGate: silenceGate,
-        totalSec: totalSec,
+        // PATCH_S86_SCAN_RANGE: head/tail gaps end at the scanned span, not
+        // the whole clip — outside it there's nothing we're exporting.
+        rangeStart: rangeStart,
+        rangeEnd: rangeEnd,
         onStatus: onStatus,
         onProgress: onProgress,
       );
@@ -531,6 +554,49 @@ class TimelineBuilder {
     ];
   }
 
+  // PATCH_S86_ASR_JUNK_FILTER ------------------------------------------------
+
+  // Stock phrases Whisper "hears" in music, applause and room noise —
+  // artifacts of its YouTube-subtitle training data, not speech. Stored
+  // pre-normalized (no tashkeel, ى→ي, ة→ه, alef forms→ا) to match
+  // [_lightNormalize]'s output.
+  static const List<String> _asrJunkPhrases = [
+    'اشتركوا في القناه',
+    'اشترك في القناه',
+    'لا تنسي الاشتراك',
+    'لا تنسوا الاشتراك',
+    'فعلوا زر الجرس',
+    'فعل زر الجرس',
+    'جرس التنبيهات',
+    'لايك واشتراك',
+    'شكرا للمشاهده',
+    'شكرا علي المشاهده',
+    'ترجمه نانسي قنقر',
+    'نانسي قنقر',
+    'موسيقي',
+    'تصفيق',
+  ];
+
+  static String _lightNormalize(String text) => text
+      .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]'), '') // tashkeel+tatweel, same ranges as AyahMatcher.normalize
+      .replaceAll(RegExp(r'[إأآٱ]'), 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll('ة', 'ه')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  /// True when [text] is one of Whisper's stock non-speech hallucination
+  /// phrases (music/applause/subtitle credits). Pure and public for unit
+  /// tests.
+  static bool isAsrHallucination(String text) {
+    final norm = _lightNormalize(text);
+    if (norm.isEmpty) return false;
+    for (final junk in _asrJunkPhrases) {
+      if (norm.contains(junk)) return true;
+    }
+    return false;
+  }
+
   // PATCH_S82_AUTOSYNC_MAX --------------------------------------------------
 
   /// Picks the silence gate for THIS clip from the RMS of all its analysis
@@ -692,7 +758,8 @@ class TimelineBuilder {
     required AyahMatcher matcher,
     required Directory tempDir,
     required double silenceGate,
-    required double totalSec,
+    required double rangeStart, // PATCH_S86_SCAN_RANGE
+    required double rangeEnd,
     void Function(String status)? onStatus,
     void Function(double fraction)? onProgress,
   }) async {
@@ -706,12 +773,12 @@ class TimelineBuilder {
       gaps.add((from, to, cands));
     }
 
-    addGap(0, timeline.first.start, null, timeline.first.ayah);
+    addGap(rangeStart, timeline.first.start, null, timeline.first.ayah);
     for (var i = 0; i + 1 < timeline.length; i++) {
       addGap(timeline[i].end, timeline[i + 1].start, timeline[i].ayah,
           timeline[i + 1].ayah);
     }
-    addGap(timeline.last.end, totalSec, timeline.last.ayah, null);
+    addGap(timeline.last.end, rangeEnd, timeline.last.ayah, null);
     if (gaps.isEmpty) return;
 
     final totalWindows = gaps.fold<int>(
@@ -766,6 +833,13 @@ class TimelineBuilder {
 
         final text = transcript.text.trim();
         if (text.isEmpty) continue;
+        // PATCH_S86_ASR_JUNK_FILTER: same guard as the main scan — the
+        // rescue's relaxed threshold makes it MORE vulnerable to stock
+        // hallucination phrases, not less.
+        if (isAsrHallucination(text)) {
+          current = null;
+          continue;
+        }
         final match = matcher.matchAmong(text, candidates,
             minConfidence: contextMinConfidence);
         if (match == null) {

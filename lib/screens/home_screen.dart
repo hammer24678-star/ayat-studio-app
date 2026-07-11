@@ -443,9 +443,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // PATCH_S37_CANCEL_LONG_JOBS: a full scan can take minutes on long clips
     setState(() => _busyCancelAction = TimelineBuilder.requestCancel);
     await _withBusy(() async {
+      // PATCH_S86_SCAN_RANGE: with a manual cut set, only the span that
+      // will actually be exported gets scanned — proportionally faster.
       final timeline = await TimelineBuilder.build(
         mediaPath: state.videoPath!,
         matcher: matcher,
+        scanStart: state.manualTrimSet ? state.trimManualStart : null,
+        scanEnd: state.manualTrimSet ? state.trimManualEnd : null,
         onStatus: (s) => _setBusyStatus(s),
         onProgress: (f) => setState(() => _busyProgress = f),
       );
@@ -1819,6 +1823,47 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: const Text('استمع من بداية الآية',
                       style: TextStyle(fontSize: 12)),
                 ),
+                const SizedBox(height: 6),
+                // PATCH_S86_TIMELINE_EDITING: split one detected span that
+                // actually covers two ayat, right where the playhead is.
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final c = _video;
+                    if (c == null || !c.value.isInitialized) return;
+                    final pos = c.value.position.inMilliseconds / 1000.0;
+                    if (state.splitTimelineSegment(i, pos)) {
+                      Navigator.pop(context);
+                      _toast(
+                          'تم التقسيم عند موضع التشغيل ✓ — غيّر آية النصف الخاطئ من زر الضبط');
+                    } else {
+                      _toast(
+                          'حرّك موضع التشغيل إلى داخل هذه الآية أولًا ثم اضغط تقسيم');
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AyatColors.hairline),
+                  ),
+                  icon: const Icon(Icons.content_cut,
+                      size: 15, color: AyatColors.goldBright),
+                  label: const Text('تقسيم عند موضع التشغيل',
+                      style: TextStyle(fontSize: 12)),
+                ),
+                const SizedBox(height: 6),
+                // PATCH_S86_TIMELINE_EDITING: relabel with the right ayah,
+                // keeping the reviewed timing.
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _changeSegmentAyahDialog(i);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AyatColors.hairline),
+                  ),
+                  icon: const Icon(Icons.swap_horiz,
+                      size: 16, color: AyatColors.goldBright),
+                  label: const Text('تغيير الآية (الرصد خاطئ)',
+                      style: TextStyle(fontSize: 12)),
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'التعديل يظهر فورًا في المعاينة وفي إضاءة الكلمات، ويلتزم به التصدير.',
@@ -1830,6 +1875,95 @@ class _HomeScreenState extends State<HomeScreen> {
               TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('تم')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // PATCH_S86_TIMELINE_EDITING: pick the correct ayah for segment [i] —
+  // keeps its timing, only the label (and confidence) changes.
+  Future<void> _changeSegmentAyahDialog(int i) {
+    if (i < 0 || i >= state.timeline.length) return Future.value();
+    int dialogSurah = state.timeline[i].ayah.surahNum;
+    int? dialogAyahIdx;
+    return showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final surahs = <(int, String)>[];
+          var last = 0;
+          for (final a in state.ayaat) {
+            if (a.surahNum != last) {
+              surahs.add((a.surahNum, a.surah));
+              last = a.surahNum;
+            }
+          }
+          final ayatOfSurah = <(int, Ayah)>[
+            for (var j = 0; j < state.ayaat.length; j++)
+              if (state.ayaat[j].surahNum == dialogSurah) (j, state.ayaat[j]),
+          ];
+          return AlertDialog(
+            backgroundColor: AyatColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: const BorderSide(color: AyatColors.hairline),
+            ),
+            title: const Text('اختر الآية الصحيحة لهذا المقطع'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DropdownButton<int>(
+                  isExpanded: true,
+                  value: surahs.any((s) => s.$1 == dialogSurah)
+                      ? dialogSurah
+                      : (surahs.isEmpty ? null : surahs.first.$1),
+                  items: [
+                    for (final s in surahs)
+                      DropdownMenuItem(
+                          value: s.$1, child: Text('سورة ${s.$2}')),
+                  ],
+                  onChanged: (v) => setDialogState(() {
+                    dialogSurah = v ?? dialogSurah;
+                    dialogAyahIdx = null;
+                  }),
+                ),
+                DropdownButton<int>(
+                  isExpanded: true,
+                  value: dialogAyahIdx,
+                  hint: const Text('اختر الآية'),
+                  items: [
+                    for (final e in ayatOfSurah)
+                      DropdownMenuItem(
+                          value: e.$1, child: Text('آية ${e.$2.num}')),
+                  ],
+                  onChanged: (v) => setDialogState(() => dialogAyahIdx = v),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'التوقيت الذي ضبطته يبقى كما هو — يتغير نص الآية فقط في المعاينة والتصدير.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إلغاء')),
+              FilledButton(
+                onPressed: dialogAyahIdx == null
+                    ? null
+                    : () {
+                        final ayah = state.ayaat[dialogAyahIdx!];
+                        state.changeSegmentAyah(i, ayah);
+                        Navigator.pop(context);
+                        _toast(
+                            'تم التغيير إلى سورة ${ayah.surah} — آية ${ayah.num} ✓');
+                      },
+                child: const Text('تطبيق'),
+              ),
             ],
           );
         },
@@ -1908,7 +2042,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(
             state.trimFromIndex >= 0 && state.trimToIndex >= 0
                 ? 'ملاحظة: نطاق الآيات المحدد أدناه له الأولوية على هذا القص عند التصدير.'
-                : 'سيُصدَّر هذا النطاق فقط من المقطع.',
+                // PATCH_S86_SCAN_RANGE
+                : 'سيُصدَّر هذا النطاق فقط من المقطع — والمزامنة التلقائية ستفحص هذا النطاق وحده (أسرع بكثير في المقاطع الطويلة).',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
@@ -2004,6 +2139,55 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: (v) =>
                 state.update(() => state.grainIntensity = v.round()),
           ),
+        // PATCH_S85_VIDEO_ADJUST: manual picture controls, live in the
+        // preview and burned in at export on top of the chosen grade.
+        const Divider(height: 32, color: AyatColors.hairline),
+        Row(
+          children: [
+            Expanded(
+              child: Text('ضبط الصورة يدويًا',
+                  style: Theme.of(context).textTheme.headlineMedium),
+            ),
+            if (state.hasManualAdjust || state.videoBlur > 0.05)
+              TextButton.icon(
+                onPressed: () => state.resetManualAdjust(),
+                icon: const Icon(Icons.restart_alt,
+                    size: 16, color: AyatColors.parchmentDim),
+                label: const Text('إعادة الضبط',
+                    style: TextStyle(
+                        fontSize: 11, color: AyatColors.parchmentDim)),
+              ),
+          ],
+        ),
+        _fieldLabel('السطوع'),
+        Slider(
+          value: state.adjustBrightness,
+          min: -0.25,
+          max: 0.25,
+          onChanged: (v) => state.update(() => state.adjustBrightness = v),
+        ),
+        _fieldLabel('التباين'),
+        Slider(
+          value: state.adjustContrast,
+          min: 0.7,
+          max: 1.4,
+          onChanged: (v) => state.update(() => state.adjustContrast = v),
+        ),
+        _fieldLabel('تشبّع الألوان'),
+        Slider(
+          value: state.adjustSaturation,
+          min: 0.0,
+          max: 2.0,
+          onChanged: (v) => state.update(() => state.adjustSaturation = v),
+        ),
+        _fieldLabel('تمويه الفيديو/الخلفية (النص يبقى حادًا)'),
+        Slider(
+          value: state.videoBlur,
+          min: 0.0,
+          max: 6.0,
+          onChanged: (v) => state.update(() => state.videoBlur = v),
+        ),
+        const Divider(height: 32, color: AyatColors.hairline),
         ToggleRow(
           label: 'تكبير بطيء للخلفية (كين برنز)',
           value: state.kenBurnsEnabled,
