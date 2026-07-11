@@ -92,7 +92,10 @@ class TimelineBuilder {
   /// span of the clip (used when a manual cut is set — only the part that
   /// will actually be exported gets analyzed, which is proportionally
   /// faster). Segment times stay absolute clip seconds either way.
-  static Future<List<TimelineSegment>> build({
+  // PATCH_S90_HONEST_COVERAGE: returns the real decoded duration
+  // alongside the timeline so callers can report coverage against
+  // the actual clip length instead of a possibly-unset video duration.
+  static Future<({List<TimelineSegment> timeline, double totalSec})> build({
     required String mediaPath,
     required AyahMatcher matcher,
     double? scanStart,
@@ -377,7 +380,7 @@ class TimelineBuilder {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
     }
-    return timeline;
+    return (timeline: timeline, totalSec: totalSec); // PATCH_S90_HONEST_COVERAGE
   }
 
   // PATCH_S88_AUTOSYNC_HONEST_FIX: a detection strong enough to stand on

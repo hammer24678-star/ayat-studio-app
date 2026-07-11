@@ -445,7 +445,9 @@ class _HomeScreenState extends State<HomeScreen> {
     await _withBusy(() async {
       // PATCH_S86_SCAN_RANGE: with a manual cut set, only the span that
       // will actually be exported gets scanned — proportionally faster.
-      final timeline = await TimelineBuilder.build(
+      // PATCH_S90_HONEST_COVERAGE: build() now also returns the real
+      // decoded duration -- stash it before anything below reads coverage.
+      final result = await TimelineBuilder.build(
         mediaPath: state.videoPath!,
         matcher: matcher,
         scanStart: state.manualTrimSet ? state.trimManualStart : null,
@@ -453,6 +455,8 @@ class _HomeScreenState extends State<HomeScreen> {
         onStatus: (s) => _setBusyStatus(s),
         onProgress: (f) => setState(() => _busyProgress = f),
       );
+      final timeline = result.timeline;
+      state.detectedAudioDurationSec = result.totalSec;
       if (timeline.isEmpty) {
         state.setTimeline([]);
         _toast('لم يتم رصد أي آية معروفة بثقة كافية في هذا الفيديو');

@@ -228,9 +228,22 @@ class StudioState extends ChangeNotifier {
 
   // PATCH_S82_AUTOSYNC_MAX: how much of the clip the detected timeline
   // covers (for the post-scan summary).
+  // PATCH_S90_HONEST_COVERAGE: the real decoded audio duration from the
+  // last scan -- set by TimelineBuilder.build(), which measures it from
+  // actual decoded PCM rather than a container header or the video
+  // player's own (frequently absent, for audio-only files) duration.
+  double detectedAudioDurationSec = 0;
+
   double timelineCoverageFraction() {
     if (timeline.isEmpty) return 0;
-    final total = videoDurationSec > 0 ? videoDurationSec : timeline.last.end;
+    // PATCH_S90_HONEST_COVERAGE: prefer the real decoded duration. Falling
+    // back to timeline.last.end (the old behavior when videoDurationSec
+    // was 0, which is the common case for audio-only files) made coverage
+    // self-referential -- it could never report under-coverage because the
+    // denominator moved with whatever got detected.
+    final total = detectedAudioDurationSec > 0
+        ? detectedAudioDurationSec
+        : (videoDurationSec > 0 ? videoDurationSec : timeline.last.end);
     if (total <= 0) return 0;
     var covered = 0.0;
     for (final s in timeline) {
@@ -483,6 +496,9 @@ class StudioState extends ChangeNotifier {
     trimToIndex = -1;
     // PATCH_S34_PLAYER_CONTROLS_TRIM: and any manual cut from the old clip.
     videoDurationSec = 0;
+    // PATCH_S90_HONEST_COVERAGE: the old scan's real decoded duration is
+    // meaningless for a new file too.
+    detectedAudioDurationSec = 0;
     trimManualStart = 0;
     trimManualEnd = -1;
     // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror are per-clip fixes.
