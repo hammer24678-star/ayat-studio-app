@@ -50,7 +50,13 @@ import 'whisper_service.dart';
 // PATCH_S78_FIX_S77_CLAMP_TYPE_ERROR
 class TimelineBuilder {
   static const double chunkSec = 6; // analysis window length
-  static const double stepSec = 5; // window stride
+  // PATCH_S84_AUTOSYNC_PRECISION_V2: tighter stride -> more overlap between
+  // consecutive scan windows (was 5s stride / 1s overlap; now 2s overlap),
+  // so a phrase sitting right on a window edge gets a full, un-truncated
+  // hearing in at least one of the two windows that cover it, instead of
+  // being cut short on both sides and never transcribing cleanly enough
+  // to match anything.
+  static const double stepSec = 4; // window stride
   static const double minConfidence = 0.32;
   static const double highConfidence = 0.55; // commit off a single window
   // PATCH_S44_CONFIDENCE_RETRANSCRIBE: segments that committed but stayed below this bar get a
@@ -204,8 +210,13 @@ class TimelineBuilder {
         // phrases for corpus matching (single words can't match an ayah),
         // while each word's onset is kept to pace the karaoke lighting.
         // Falls back to the whole window when no timestamps came back.
-        final pieces =
-            _groupWords(transcript.segments, windowDurationSec, transcript.text);
+        // PATCH_S84_AUTOSYNC_PRECISION_V2: pass this window's own audio +
+        // the clip's adaptive silence gate through, so the no-segments
+        // fallback inside _groupWords can trim to where the real speech
+        // actually is instead of trusting the raw window bounds.
+        final pieces = _groupWords(
+            transcript.segments, windowDurationSec, transcript.text,
+            pcm: slice, silenceGate: silenceGate);
 
         for (final (piece, rawOnsets) in pieces) {
           final text = piece.text.trim();
@@ -417,9 +428,22 @@ class TimelineBuilder {
   static List<(TranscriptSegment, List<double>)> _groupWords(
       List<TranscriptSegment> words,
       double windowDurationSec,
-      String fullText) {
+      String fullText, {
+      Int16List? pcm,
+      double silenceGate = vadSilenceRms,
+      }) {
     if (words.isEmpty) {
-      return [(TranscriptSegment(0, windowDurationSec, fullText), const [])];
+      // PATCH_S84_AUTOSYNC_PRECISION_V2: Whisper sometimes returns text but
+      // no segments at all for a window. The old fallback blindly used the
+      // whole 6s scan window as the ayah's span -- if the real speech only
+      // filled part of it, the segment's start/end could be wrong by
+      // however much silence or other-ayah audio shared the window (up to
+      // the full window length, i.e. several seconds). Trim to where this
+      // window's own audio actually crosses the silence gate instead.
+      final (trimStart, trimEnd) = pcm != null
+          ? _trimWindowToSpeech(pcm, windowDurationSec, silenceGate)
+          : (0.0, windowDurationSec);
+      return [(TranscriptSegment(trimStart, trimEnd, fullText), const [])];
     }
     final out = <(TranscriptSegment, List<double>)>[];
     final buf = StringBuffer();
@@ -447,6 +471,42 @@ class TimelineBuilder {
     }
     flush();
     return out;
+  }
+
+  // PATCH_S84_AUTOSYNC_PRECISION_V2: used only by _groupWords' no-segments
+  // fallback above. Scans this window's own PCM in 100ms frames and returns
+  // (firstAboveGate, lastAboveGate) -- the real speech extent inside the
+  // window -- instead of the caller having to trust the window's outer
+  // bounds. Falls back to the full window when nothing clears the gate
+  // (silence-only window that still produced text is rare, but keeping the
+  // full span rather than guessing is the safer failure mode).
+  static const double _trimFrameSec = 0.1;
+  static (double, double) _trimWindowToSpeech(
+      Int16List pcm, double windowDurationSec, double silenceGate) {
+    final frameLen = (_trimFrameSec * sampleRate).round();
+    if (frameLen <= 0 || pcm.length < frameLen) {
+      return (0.0, windowDurationSec);
+    }
+    double? onset;
+    for (var s = 0; s + frameLen <= pcm.length; s += frameLen) {
+      final rms = _rmsEnergy(Int16List.sublistView(pcm, s, s + frameLen));
+      if (rms >= silenceGate) {
+        onset = s / sampleRate;
+        break;
+      }
+    }
+    double? offset;
+    for (var s = pcm.length - frameLen; s >= 0; s -= frameLen) {
+      final rms = _rmsEnergy(Int16List.sublistView(pcm, s, s + frameLen));
+      if (rms >= silenceGate) {
+        offset = (s + frameLen) / sampleRate;
+        break;
+      }
+    }
+    if (onset == null || offset == null || offset <= onset) {
+      return (0.0, windowDurationSec);
+    }
+    return (onset, min(windowDurationSec, offset));
   }
 
   // PATCH_S55_WORD_TIMESTAMPS: sorted-append with dedupe — overlapping scan
@@ -586,7 +646,10 @@ class TimelineBuilder {
   static const double gapChunkSec = 4;
   static const double gapStepSec = 2;
   // Gaps shorter than this can't hold a recitation worth rescuing.
-  static const double minGapToRescan = 2.5;
+  // PATCH_S84_AUTOSYNC_PRECISION_V2: lowered from 2.5s -- a short
+  // mis-heard fragment of an ayah (part of it, not the whole thing) was
+  // falling under the old bar and never getting a rescue attempt at all.
+  static const double minGapToRescan = 1.2;
   // Give up on a gap whose mushaf-order candidate set would be this large —
   // the constrained-candidate prior that justifies the relaxed threshold is
   // gone at that point.
@@ -779,40 +842,89 @@ class TimelineBuilder {
   // the same 3 files and correctly left every boundary untouched instead of
   // moving it on noise.
   static const double _boundaryDipFactor = 0.45;
+
+  // PATCH_S84_AUTOSYNC_PRECISION_V2: extracted from the old shared-boundary
+  // loop below so the same "find the quietest point in [lo, hi], but only
+  // trust it if it's a real relative dip" logic can snap ANY edge -- not
+  // just ones that happen to sit exactly between two touching segments.
+  // Returns null (leave the edge alone) when no qualifying dip is found.
+  static double? _findQuietDip(Int16List pcm, double lo, double hi) {
+    const winSec = 0.24, hopSec = 0.08;
+    if (hi - lo < winSec + 0.05) return null;
+    var bestT = lo;
+    var bestRms = double.infinity;
+    var sumRms = 0.0;
+    var countRms = 0;
+    for (var t = lo; t + winSec <= hi; t += hopSec) {
+      final s = (t * sampleRate).floor();
+      final e = min(pcm.length, ((t + winSec) * sampleRate).floor());
+      if (e <= s || s < 0) continue;
+      final rms = _rmsEnergy(Int16List.sublistView(pcm, s, e));
+      sumRms += rms;
+      countRms++;
+      if (rms < bestRms) {
+        bestRms = rms;
+        bestT = t + winSec / 2;
+      }
+    }
+    // PATCH_S81_REFINE_BOUNDARY_SANITY: only accept the relocation if the
+    // quietest point found is meaningfully below this window's own
+    // average -- otherwise there's no real pause here, so leave the
+    // original (Whisper/VAD-committed) boundary alone.
+    if (countRms == 0) return null;
+    final avgRms = sumRms / countRms;
+    if (bestRms > avgRms * _boundaryDipFactor) return null;
+    return bestT;
+  }
+
   static void _refineBoundaries(
       List<TimelineSegment> timeline, Int16List pcm) {
-    const searchSec = 1.5, winSec = 0.24, hopSec = 0.08;
+    const searchSec = 1.5;
     for (var i = 0; i + 1 < timeline.length; i++) {
       final a = timeline[i], b = timeline[i + 1];
-      if ((b.start - a.end).abs() > 0.01) continue; // only shared boundaries
-      final lo = max(a.start + 0.5, a.end - searchSec);
-      final hi = min(b.end - 0.5, b.start + searchSec);
-      if (hi - lo < winSec + 0.05) continue;
-      var bestT = a.end;
-      var bestRms = double.infinity;
-      var sumRms = 0.0;
-      var countRms = 0;
-      for (var t = lo; t + winSec <= hi; t += hopSec) {
-        final s = (t * sampleRate).floor();
-        final e = min(pcm.length, ((t + winSec) * sampleRate).floor());
-        if (e <= s) break;
-        final rms = _rmsEnergy(Int16List.sublistView(pcm, s, e));
-        sumRms += rms;
-        countRms++;
-        if (rms < bestRms) {
-          bestRms = rms;
-          bestT = t + winSec / 2;
+      final gap = b.start - a.end;
+      if (gap.abs() <= 0.01) {
+        // Touching -- one shared point serves both edges (S81 behaviour,
+        // unchanged).
+        final lo = max(a.start + 0.5, a.end - searchSec);
+        final hi = min(b.end - 0.5, b.start + searchSec);
+        final t = _findQuietDip(pcm, lo, hi);
+        if (t != null) {
+          a.end = t;
+          b.start = t;
         }
+      } else if (gap > 0.01) {
+        // PATCH_S84_AUTOSYNC_PRECISION_V2: a real gap remains here --
+        // normalizeTimeline() only bridges gaps up to bridgeGapSec, so
+        // anything bigger (very often exactly where a whole-window
+        // fallback segment or a rescue-pass segment sits) never reached
+        // the shared-boundary branch above and was left on whatever
+        // coarse bound it started with. Snap each edge independently,
+        // each searching within its own slack, toward real silence.
+        final aLo = max(a.start + 0.5, a.end - searchSec);
+        final aHi = min(b.start - 0.05, a.end + min(searchSec, gap));
+        final aT = _findQuietDip(pcm, aLo, aHi);
+        if (aT != null) a.end = aT;
+        final bLo = max(a.end + 0.05, b.start - min(searchSec, gap));
+        final bHi = min(b.end - 0.5, b.start + searchSec);
+        final bT = _findQuietDip(pcm, bLo, bHi);
+        if (bT != null) b.start = bT;
       }
-      // PATCH_S81_REFINE_BOUNDARY_SANITY: only accept the relocation if the
-      // quietest point found is meaningfully below this window's own
-      // average -- otherwise there's no real pause here, so leave the
-      // original (Whisper/VAD-committed) boundary alone.
-      if (countRms == 0) continue;
-      final avgRms = sumRms / countRms;
-      if (bestRms > avgRms * _boundaryDipFactor) continue;
-      a.end = bestT;
-      b.start = bestT;
+    }
+    // PATCH_S84_AUTOSYNC_PRECISION_V2: the very first segment's start and
+    // the very last segment's end never had a neighbour to pair with in
+    // the loop above, so they never got refined at all -- but a coarse
+    // whole-window-fallback bound is exactly as likely to be wrong there
+    // as anywhere else.
+    if (timeline.isNotEmpty) {
+      final first = timeline.first;
+      final t0 = _findQuietDip(
+          pcm, max(0, first.start - searchSec), first.start + searchSec);
+      if (t0 != null) first.start = max(0, t0);
+      final last = timeline.last;
+      final t1 =
+          _findQuietDip(pcm, last.end - searchSec, last.end + searchSec);
+      if (t1 != null) last.end = t1;
     }
   }
 
