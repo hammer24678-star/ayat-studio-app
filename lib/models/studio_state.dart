@@ -130,6 +130,11 @@ class StudioState extends ChangeNotifier {
   // ---- PATCH_S32_AI_ART_NANO_BANANA: AI art background ----
   bool aiArtEnabled = false;
   bool aiArtBusy = false;
+  // PATCH_S87_AI_ART_ONE_TAP_FLOW: batch generation for the whole
+  // auto-sync segment, tracked separately from the single-ayah
+  // aiArtBusy above so the two flows never fight over one spinner.
+  bool aiArtBatchBusy = false;
+  String? aiArtBatchProgress;
   int? _aiArtSurah;
   int? _aiArtAyahNum;
   String? _aiArtAyahText;
@@ -229,6 +234,15 @@ class StudioState extends ChangeNotifier {
       covered += s.end - s.start;
     }
     return (covered / total).clamp(0.0, 1.0);
+  }
+
+  // PATCH_S88_AUTOSYNC_HONEST_FIX: mean confidence across the detected
+  // timeline -- surfaced in the post-scan summary so a shaky scan reads
+  // as shaky instead of a plain, encouraging-looking list of ayat.
+  double timelineAverageConfidence() {
+    if (timeline.isEmpty) return 0;
+    final total = timeline.fold<double>(0, (sum, s) => sum + s.confidence);
+    return total / timeline.length;
   }
 
   // ---- trim (ayah-boundary indexes into [timeline], -1 = whole clip) ----
@@ -348,6 +362,87 @@ class StudioState extends ChangeNotifier {
     _aiArtSeedOffset = 0;
     await _generateAiArt(
         _lastMatchedSurah!, _lastMatchedAyahNum!, _lastMatchedAyahText!);
+  }
+
+  // PATCH_S87_AI_ART_ONE_TAP_FLOW: one tap generates + caches art for the
+  // first [_aiArtBatchMax] unique ayat of the active auto-sync timeline
+  // (in timeline order), switches the background to the first one, and
+  // leaves aiArtEnabled on so the existing playback path (S84) swaps each
+  // ayah's art in from the now-warm cache as the reciter reaches it --
+  // no separate "follow-along" flag needed, ensureArtForPlayback already
+  // does that whenever aiArtEnabled is true. artFor() is itself
+  // cache-checked, so re-running this after a partial success only retries
+  // whatever didn't finish, and never re-hits the network for ayat that
+  // already have art.
+  static const int _aiArtBatchMax = 6;
+  Future<void> generateArtForTimelineBatch() async {
+    if (aiArtBatchBusy || aiArtBusy) return;
+    if (timeline.isEmpty) {
+      aiArtError = 'شغّل المزامنة التلقائية أولًا لرصد آيات المقطع';
+      notifyListeners();
+      return;
+    }
+    final seen = <String>{};
+    final targets = <Ayah>[];
+    for (final seg in timeline) {
+      final key = '${seg.ayah.surahNum}:${seg.ayah.num}';
+      if (seen.add(key)) {
+        targets.add(seg.ayah);
+        if (targets.length >= _aiArtBatchMax) break;
+      }
+    }
+
+    aiArtBatchBusy = true;
+    aiArtBatchProgress = null;
+    aiArtError = null;
+    notifyListeners();
+    var ok = 0;
+    try {
+      for (var i = 0; i < targets.length; i++) {
+        final ayah = targets[i];
+        aiArtBatchProgress = 'الآية ${i + 1} من ${targets.length}…';
+        notifyListeners();
+        try {
+          final path = await AiArtService.artFor(
+            surahNum: ayah.surahNum,
+            ayahNum: ayah.num,
+            ayahArabic: ayah.ar,
+          );
+          if (path != null) {
+            ok++;
+            if (i == 0) {
+              useCustomBg = true;
+              customBgPath = path;
+              _aiArtSurah = ayah.surahNum;
+              _aiArtAyahNum = ayah.num;
+              _aiArtAyahText = ayah.ar;
+              _aiArtSeedOffset = 0;
+            }
+            _lastMatchedSurah = ayah.surahNum;
+            _lastMatchedAyahNum = ayah.num;
+            _lastMatchedAyahText = ayah.ar;
+          }
+        } on AiArtException catch (e) {
+          aiArtError = e.message; // last error stays visible if all fail
+        } catch (e) {
+          aiArtError = 'تعذر توليد الفن: $e';
+        }
+      }
+      if (ok == 0) {
+        aiArtError ??= 'تعذر توليد الفن لأي من آيات المقطع';
+        aiArtBatchProgress = null;
+      } else if (ok < targets.length) {
+        aiArtError = null;
+        aiArtBatchProgress =
+            'تم توليد فن $ok من ${targets.length} آيات — البقية ستُحاول تلقائيًا أثناء التشغيل';
+      } else {
+        aiArtError = null;
+        aiArtBatchProgress = null;
+      }
+    } finally {
+      aiArtBatchBusy = false;
+      notifyListeners();
+    }
   }
 
   // PATCH_S51_AI_ART_DELETE: wipes every cached file for this ayah from

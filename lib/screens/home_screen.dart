@@ -469,10 +469,21 @@ class _HomeScreenState extends State<HomeScreen> {
           : 'من ${first.surah} ${first.num} إلى ${last.surah} ${last.num}';
       final coverage = (state.timelineCoverageFraction() * 100).round();
       final inferredCount = timeline.where((s) => s.inferred).length;
+      // PATCH_S88_AUTOSYNC_HONEST_FIX: a low-confidence scan used to render
+      // as the exact same success summary as a solid one -- say so plainly
+      // instead, and point at what actually helps.
+      final avgConfidence = state.timelineAverageConfidence();
+      const lowConfidenceWarnBar = 0.5;
+      final qualityWarning = avgConfidence < lowConfidenceWarnBar
+          ? '\n⚠️ متوسط الثقة منخفض (${(avgConfidence * 100).round()}٪) — '
+              'التوقيت قد يكون غير دقيق. '
+              '${state.whisperModelSize == WhisperModelSize.quranTuned ? 'جرّب مقطعًا أوضح صوتًا وأقل ضجيجًا.' : 'ارفع دقة التعرف (حجم النموذج) من الإعدادات إلى النموذج المخصص للقرآن للحصول على نتيجة أدق.'}'
+          : '';
       state.update(() {
         state.matchConfidenceText =
             'تم رصد ${timeline.length} آية ($range) تغطي $coverage٪ من المقطع'
-            '${inferredCount > 0 ? ' — منها $inferredCount مستنتجة من تسلسل المصحف، راجعها في «مراجعة الآيات المرصودة»' : ''}';
+            '${inferredCount > 0 ? ' — منها $inferredCount مستنتجة من تسلسل المصحف، راجعها في «مراجعة الآيات المرصودة»' : ''}'
+            '$qualityWarning';
         state.detectedLabel = 'مزامنة تلقائية مفعّلة — التصدير سيستخدم نفس التوقيت';
       });
       HapticFeedback.mediumImpact(); // PATCH_S83_SYNC_QOL
@@ -2765,24 +2776,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 .bodyMedium
                 ?.copyWith(color: AyatColors.goldBright),
           ),
-          // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: generation now works with this
-          // field left blank -- it's an optional advanced field only.
+          // PATCH_S87_AI_ART_ONE_TAP_FLOW: the API-key field used to sit in
+          // plain view and read like a requirement to use the feature at
+          // all -- it's optional (S80 made generation fully keyless), so
+          // it now lives behind a collapsed "خيارات متقدمة" expander.
           const SizedBox(height: 8),
-          TextField(
-            controller: TextEditingController(text: state.pollinationsApiKey)
-              ..selection = TextSelection.collapsed(
-                  offset: state.pollinationsApiKey.length),
-            style: const TextStyle(fontSize: 13),
-            decoration: const InputDecoration(
-              labelText: 'مفتاح Pollinations (اختياري)',
-              helperText: 'التوليد يعمل بدون مفتاح -- اتركه فارغًا. أدخل مفتاحك الشخصي فقط لرفع الحد لاحقًا',
-              helperMaxLines: 2,
-              isDense: true,
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: const Text('خيارات متقدمة',
+                  style: TextStyle(fontSize: 13, color: AyatColors.parchmentDim)),
+              children: [
+                TextField(
+                  controller: TextEditingController(text: state.pollinationsApiKey)
+                    ..selection = TextSelection.collapsed(
+                        offset: state.pollinationsApiKey.length),
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: 'مفتاح Pollinations (اختياري)',
+                    helperText: 'التوليد يعمل بدون مفتاح -- اتركه فارغًا. أدخل مفتاحك الشخصي فقط لرفع الحد لاحقًا',
+                    helperMaxLines: 2,
+                    isDense: true,
+                  ),
+                  onChanged: (v) => state.update(() {
+                    state.pollinationsApiKey = v.trim();
+                    AiArtService.apiKey = state.pollinationsApiKey;
+                  }),
+                ),
+              ],
             ),
-            onChanged: (v) => state.update(() {
-              state.pollinationsApiKey = v.trim();
-              AiArtService.apiKey = state.pollinationsApiKey;
-            }),
           ),
           const SizedBox(height: 8),
           if (state.aiArtError != null)
@@ -2796,7 +2820,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     ?.copyWith(color: Colors.redAccent),
               ),
             ),
-          if (state.aiArtBusy)
+          // PATCH_S87_AI_ART_ONE_TAP_FLOW: one obvious flow instead of three
+          // half-explained states. With an auto-sync timeline active this
+          // batch-generates + caches art for the segment's ayat (up to 6)
+          // in one tap with live progress; without one it falls back to
+          // the single current-ayah path (previous behavior, unchanged).
+          if (state.aiArtBatchBusy)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 8),
+                Expanded(
+                    child:
+                        Text(state.aiArtBatchProgress ?? 'جارٍ توليد الفن...')),
+              ]),
+            )
+          else if (state.aiArtBusy)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
@@ -2808,29 +2851,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('جارٍ توليد الفن...'),
               ]),
             )
-          else if (state.hasAiArt) ...[
-            OutlinedButton.icon(
-              onPressed: () => state.regenerateAiArt(),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('إعادة توليد فن هذه الآية'),
-            ),
-            const SizedBox(height: 6),
-            // PATCH_S51_AI_ART_DELETE: distinct from regenerate -- wipes
-            // the cached image from disk and drops back to the preset
-            // background instead of making a new one.
-            OutlinedButton.icon(
-              onPressed: () => state.deleteAiArt(),
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: const Text('حذف الفن المولّد لهذه الآية'),
-            ),
-          ] else
-            // PATCH_S69_AI_ART_FIX: previously nothing rendered here at all when no
-            // art existed yet -- this was the actual "does nothing" bug.
+          else ...[
+            if (state.aiArtBatchProgress != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(state.aiArtBatchProgress!,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: AyatColors.goldBright)),
+              ),
             ElevatedButton.icon(
-              onPressed: () => state.generateAiArtNow(),
+              onPressed: () => state.timelineActive
+                  ? state.generateArtForTimelineBatch()
+                  : state.generateAiArtNow(),
               icon: const Icon(Icons.auto_awesome, size: 18),
-              label: const Text('توليد الآن'),
+              label: Text(state.timelineActive
+                  ? 'توليد الفن لآيات المقطع (حتى 6 آيات)'
+                  : 'توليد فن للآية الحالية'),
             ),
+            if (state.hasAiArt) ...[
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () => state.regenerateAiArt(),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('إعادة توليد فن هذه الآية'),
+              ),
+              const SizedBox(height: 6),
+              // PATCH_S51_AI_ART_DELETE: distinct from regenerate -- wipes
+              // the cached image from disk and drops back to the preset
+              // background instead of making a new one.
+              OutlinedButton.icon(
+                onPressed: () => state.deleteAiArt(),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('حذف الفن المولّد لهذه الآية'),
+              ),
+            ],
+          ],
         ],
         const SizedBox(height: 10),
         // PATCH_S82_CUSTOM_BG_LIBRARY: the old single numbered slot

@@ -343,6 +343,9 @@ class TimelineBuilder {
       // first: repair → hear what the gaps actually contain → re-merge any
       // rescued pieces → only then infer what still couldn't be heard.
       repairTimeline(timeline);
+      // PATCH_S88_AUTOSYNC_HONEST_FIX: drop out-of-mushaf-order weak
+      // detections before anything downstream can build on them.
+      _enforceMushafOrderChain(timeline);
       await _rescanGaps(
         timeline: timeline,
         pcm: pcm,
@@ -375,6 +378,68 @@ class TimelineBuilder {
       File(wavPath).delete().ignore();
     }
     return timeline;
+  }
+
+  // PATCH_S88_AUTOSYNC_HONEST_FIX: a detection strong enough to stand on
+  // its own outside the chain -- a clearly-heard deliberate repeat, or a
+  // genuinely correct out-of-order match -- without needing chain support.
+  static const double chainKeepConfidence = 0.5;
+
+  /// PATCH_S88_AUTOSYNC_HONEST_FIX: the deepest structural flaw in the old
+  /// pipeline was that ANY single scan window scoring above [minConfidence]
+  /// got committed to the timeline as-is, so one garbled window = one wrong
+  /// ayah in the results. Recitation follows mushaf order, so this finds
+  /// the maximum-weight (duration × confidence) subsequence of [timeline]
+  /// whose ayat are in strictly increasing mushaf order (surah, then ayah
+  /// number) and drops everything outside that chain UNLESS it's
+  /// individually strong enough ([chainKeepConfidence]+) to survive on its
+  /// own -- a clearly-heard deliberate repeat necessarily breaks strict
+  /// order, so it has to earn its place by confidence rather than by chain
+  /// membership. Runs before the gap-rescue/inference passes so a wrong
+  /// ayah here can't go on to anchor wrong inferences or wrong rescue
+  /// matches around it.
+  static void _enforceMushafOrderChain(List<TimelineSegment> timeline) {
+    final n = timeline.length;
+    if (n < 2) return;
+
+    int key(TimelineSegment s) => s.ayah.surahNum * 10000 + s.ayah.num;
+    final weight = [
+      for (final s in timeline) (s.end - s.start) * s.confidence
+    ];
+
+    // dp[i] = best total weight of an in-order chain ending at segment i.
+    final dp = List<double>.filled(n, 0);
+    final prev = List<int>.filled(n, -1);
+    for (var i = 0; i < n; i++) {
+      dp[i] = weight[i];
+      for (var j = 0; j < i; j++) {
+        if (key(timeline[j]) < key(timeline[i]) &&
+            dp[j] + weight[i] > dp[i]) {
+          dp[i] = dp[j] + weight[i];
+          prev[i] = j;
+        }
+      }
+    }
+
+    var bestEnd = 0;
+    for (var i = 1; i < n; i++) {
+      if (dp[i] > dp[bestEnd]) bestEnd = i;
+    }
+
+    final inChain = List<bool>.filled(n, false);
+    for (var cur = bestEnd; cur != -1; cur = prev[cur]) {
+      inChain[cur] = true;
+    }
+
+    final kept = <TimelineSegment>[
+      for (var i = 0; i < n; i++)
+        if (inChain[i] || timeline[i].confidence >= chainKeepConfidence)
+          timeline[i],
+    ];
+    if (kept.length == timeline.length) return; // nothing to drop
+    timeline
+      ..clear()
+      ..addAll(kept);
   }
 
   // PATCH_S44_CONFIDENCE_RETRANSCRIBE: re-transcribes each committed segment that stayed below
