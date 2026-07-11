@@ -101,6 +101,10 @@ class StudioState extends ChangeNotifier {
   int bgIndex = 0;
   bool useCustomBg = false;
   String? customBgPath;
+  // PATCH_S82_CUSTOM_BG_LIBRARY: every uploaded background is kept here,
+  // uncapped -- no limit on how many. customBgPath just points at whichever
+  // one is currently active.
+  List<String> customBgLibrary = [];
   bool bgAnimated = true; // PATCH_S29_BG_ANIMATION_TOGGLE: animated sheen on/off (preset backgrounds only)
 
   // ---- PATCH_S32_AI_ART_NANO_BANANA: AI art background ----

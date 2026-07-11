@@ -200,6 +200,14 @@ class SettingsService {
       } else if (savedUseCustomBg) {
         state.useCustomBg = false;
       }
+      // PATCH_S82_CUSTOM_BG_LIBRARY: restore the full uploaded-background
+      // library, uncapped. Paths whose file no longer exists on disk (app
+      // storage cleared, etc.) are dropped silently instead of showing a
+      // broken thumbnail.
+      final savedLibrary = read<List<String>>('customBgLibrary') ?? const [];
+      state.customBgLibrary
+        ..clear()
+        ..addAll(savedLibrary.where((p) => p.isNotEmpty && File(p).existsSync()));
     });
   }
 
@@ -274,6 +282,9 @@ class SettingsService {
       // PATCH_S64_BG_UPLOAD_PERSIST
       p.setString('${_prefix}customBgPath', state.customBgPath ?? ''),
       p.setBool('${_prefix}useCustomBg', state.useCustomBg),
+      // PATCH_S82_CUSTOM_BG_LIBRARY: the full list, uncapped -- every
+      // upload the user has ever kept is saved as-is, no truncation.
+      p.setStringList('${_prefix}customBgLibrary', state.customBgLibrary),
     ]);
   }
 }

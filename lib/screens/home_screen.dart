@@ -634,10 +634,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // for AI-art backgrounds -- and store THAT path instead.
     final permanentPath = await _copyToPermanentBgStorage(pickedPath);
     state.update(() {
+      // PATCH_S82_CUSTOM_BG_LIBRARY: kept, not overwritten -- every upload
+      // stays available to reuse later instead of replacing the last one.
+      state.customBgLibrary.add(permanentPath);
       state.useCustomBg = true;
       state.customBgPath = permanentPath;
     });
-    _toast('تم رفع الخلفية ✓');
+    _toast('تم رفع الخلفية وحفظها في مكتبتك ✓');
   }
 
   // PATCH_S64_BG_UPLOAD_PERSIST
@@ -2636,36 +2639,72 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
         const SizedBox(height: 10),
-        // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE: give the custom upload the same numbered
-        // badge the 14 preset tiles get (kBackgrounds.length + 1),
-        // so it reads as part of the same numbered set instead of
-        // an unrelated extra option.
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 12,
-              backgroundColor: state.useCustomBg
-                  ? AyatColors.goldBright
-                  : Colors.white.withValues(alpha: 0.08),
-              child: Text(
-                '${kBackgrounds.length + 1}',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: state.useCustomBg ? Colors.black : AyatColors.parchmentDim,
-                ),
-              ),
+        // PATCH_S82_CUSTOM_BG_LIBRARY: the old single numbered slot
+        // (kBackgrounds.length + 1) only made sense for exactly one custom
+        // background. Now that every upload is kept, they're shown as their
+        // own scrollable gallery instead -- tap to use, long-press to
+        // remove from the library (storage itself is uncapped).
+        if (state.customBgLibrary.isNotEmpty) ...[
+          Text('خلفياتك المرفوعة (${state.customBgLibrary.length})',
+              style: const TextStyle(fontSize: 11, color: AyatColors.parchmentDim)),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 92,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: state.customBgLibrary.length,
+              itemBuilder: (context, i) {
+                final path = state.customBgLibrary[i];
+                final isActive =
+                    state.useCustomBg && state.customBgPath == path;
+                return Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: GestureDetector(
+                    onTap: () => state.update(() {
+                      state.useCustomBg = true;
+                      state.customBgPath = path;
+                    }),
+                    onLongPress: () => state.update(() {
+                      state.customBgLibrary.removeAt(i);
+                      if (state.customBgPath == path) {
+                        state.useCustomBg = false;
+                        state.customBgPath = null;
+                      }
+                    }),
+                    child: Container(
+                      width: 64,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isActive
+                              ? AyatColors.goldBright
+                              : Colors.white.withValues(alpha: 0.08),
+                          width: isActive ? 2 : 1,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: File(path).existsSync()
+                          ? Image.file(File(path),
+                              fit: BoxFit.cover, cacheWidth: 160)
+                          : Container(
+                              color: Colors.white.withValues(alpha: 0.05)),
+                    ),
+                  ),
+                );
+              },
             ),
-            const SizedBox(width: 8),
-            Text('خلفية ${kBackgrounds.length + 1} — خلفيتك المخصصة',
-                style: const TextStyle(fontSize: 11, color: AyatColors.parchmentDim)),
-          ],
-        ),
-        const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 4),
+          Text('اضغط مطولًا على أي صورة لحذفها من المكتبة',
+              style: TextStyle(
+                  fontSize: 10,
+                  color: AyatColors.parchmentDim.withValues(alpha: 0.7))),
+          const SizedBox(height: 10),
+        ],
         ElevatedButton.icon(
           onPressed: _pickCustomBg,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-          label: const Text('أو ارفع خلفية خاصة بك'),
+          label: const Text('ارفع خلفية جديدة'),
         ),
         if (state.useCustomBg) ...[
           const SizedBox(height: 10),
@@ -2682,7 +2721,7 @@ class _HomeScreenState extends State<HomeScreen> {
               state.useCustomBg = false;
               state.customBgPath = null;
             }),
-            child: const Text('إزالة الخلفية المخصصة والعودة للخلفيات الجاهزة'),
+            child: const Text('إلغاء التفعيل والعودة للخلفيات الجاهزة'),
           ),
         ],
       ],
