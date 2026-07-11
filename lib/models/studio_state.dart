@@ -148,6 +148,9 @@ class StudioState extends ChangeNotifier {
   int? _lastMatchedSurah;
   int? _lastMatchedAyahNum;
   String? _lastMatchedAyahText;
+  // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: the ayah's English meaning,
+  // kept alongside the Arabic so AI art can describe the actual scene.
+  String? _lastMatchedAyahEn;
   // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: the S69b hardcoded key is removed.
   // It was a *secret* sk_ key baked into a public APK and committed to git
   // history, which was never a safe place for it, and it's no longer
@@ -278,15 +281,17 @@ class StudioState extends ChangeNotifier {
       _lastMatchedSurah = surahNum;
       _lastMatchedAyahNum = ayahNum;
       _lastMatchedAyahText = ar;
+      _lastMatchedAyahEn = en; // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
     }
     if (aiArtEnabled && surahNum != null && ayahNum != null) {
       _aiArtSeedOffset = 0;
-      _generateAiArt(surahNum, ayahNum, ar);
+      _generateAiArt(surahNum, ayahNum, ar, en);
     }
   }
 
   // PATCH_S32_AI_ART_NANO_BANANA
-  Future<void> _generateAiArt(int surahNum, int ayahNum, String arText) async {
+  Future<void> _generateAiArt(
+      int surahNum, int ayahNum, String arText, String enText) async {
     _aiArtSurah = surahNum;
     _aiArtAyahNum = ayahNum;
     _aiArtAyahText = arText;
@@ -298,6 +303,7 @@ class StudioState extends ChangeNotifier {
         surahNum: surahNum,
         ayahNum: ayahNum,
         ayahArabic: arText,
+        ayahEnglish: enText, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
         seedOffset: _aiArtSeedOffset,
       );
       if (path != null) {
@@ -321,7 +327,8 @@ class StudioState extends ChangeNotifier {
       return;
     }
     _aiArtSeedOffset += 1;
-    await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!);
+    await _generateAiArt(_aiArtSurah!, _aiArtAyahNum!, _aiArtAyahText!,
+        _lastMatchedAyahEn ?? ''); // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
   }
 
   // PATCH_S84_AI_ART_FOLLOWS_PLAYBACK: called every karaoke tick with the
@@ -344,8 +351,9 @@ class StudioState extends ChangeNotifier {
     _lastMatchedSurah = ayah.surahNum;
     _lastMatchedAyahNum = ayah.num;
     _lastMatchedAyahText = ayah.ar;
+    _lastMatchedAyahEn = ayah.en; // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
     _aiArtSeedOffset = 0;
-    _generateAiArt(ayah.surahNum, ayah.num, ayah.ar);
+    _generateAiArt(ayah.surahNum, ayah.num, ayah.ar, ayah.en);
   }
 
   // PATCH_S69_AI_ART_FIX: standalone manual entry point -- works from whatever ayah
@@ -360,8 +368,9 @@ class StudioState extends ChangeNotifier {
       return;
     }
     _aiArtSeedOffset = 0;
-    await _generateAiArt(
-        _lastMatchedSurah!, _lastMatchedAyahNum!, _lastMatchedAyahText!);
+    await _generateAiArt(_lastMatchedSurah!, _lastMatchedAyahNum!,
+        _lastMatchedAyahText!,
+        _lastMatchedAyahEn ?? ''); // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
   }
 
   // PATCH_S87_AI_ART_ONE_TAP_FLOW: one tap generates + caches art for the
@@ -407,6 +416,7 @@ class StudioState extends ChangeNotifier {
             surahNum: ayah.surahNum,
             ayahNum: ayah.num,
             ayahArabic: ayah.ar,
+            ayahEnglish: ayah.en, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
           );
           if (path != null) {
             ok++;
@@ -421,6 +431,7 @@ class StudioState extends ChangeNotifier {
             _lastMatchedSurah = ayah.surahNum;
             _lastMatchedAyahNum = ayah.num;
             _lastMatchedAyahText = ayah.ar;
+            _lastMatchedAyahEn = ayah.en; // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
           }
         } on AiArtException catch (e) {
           aiArtError = e.message; // last error stays visible if all fail

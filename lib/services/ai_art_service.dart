@@ -137,7 +137,7 @@ class AiArtService {
     return null;
   }
 
-  static String _buildPrompt(String ayahArabic) {
+  static String _buildPrompt(String ayahArabic, String ayahEnglish) {
     final prophet = _matchedProphet(ayahArabic);
     if (prophet != null) {
       return '$_styleBase, a single tall pillar of soft glowing white light '
@@ -146,9 +146,16 @@ class AiArtService {
           'Arabic calligraphy name "$prophet" written in elegant thuluth '
           'script, $_noFacesRule';
     }
+    // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: the old prompt said "scene
+    // inspired by the theme of this Quranic ayah" and never said what that
+    // theme actually was -- the model had nothing to draw a scene from.
+    // Feed it the ayah's own English meaning as the scene description.
+    final scene = ayahEnglish.trim().isEmpty
+        ? 'a scene inspired by this Quranic ayah'
+        : 'a scene depicting: ${ayahEnglish.trim()}';
     return '$_styleBase, faceless glowing silhouette figures only if the '
-        'scene calls for people, otherwise an empty landscape, scene '
-        'inspired by the theme of this Quranic ayah, $_noFacesRule';
+        'scene calls for people, otherwise an empty landscape, $scene, '
+        '$_noFacesRule';
   }
 
   /// Returns a local file path to the cached (or freshly generated) art for
@@ -160,12 +167,17 @@ class AiArtService {
     required int surahNum,
     required int ayahNum,
     required String ayahArabic,
+    // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: optional so existing call
+    // sites keep compiling; empty just falls back to the old vague prompt
+    // instead of crashing -- but every call site below is updated to pass
+    // the real translation.
+    String ayahEnglish = '',
     int seedOffset = 0,
   }) async {
     final cached = await _fileFor(surahNum, ayahNum, seedOffset);
     if (await cached.exists()) return cached.path;
 
-    final prompt = _buildPrompt(ayahArabic);
+    final prompt = _buildPrompt(ayahArabic, ayahEnglish);
     // Deterministic seed from surah:ayah (+ offset) -- same ayah always
     // reproduces the same art; a regenerate tap bumps the offset for a
     // genuinely different result.

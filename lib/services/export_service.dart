@@ -57,6 +57,34 @@ class ExportService {
     if (_cancelRequested) throw Exception('تم إلغاء التصدير');
   }
 
+  // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: ffprobe's `duration` comes
+  // straight from the container header, and this codebase has already hit
+  // that header being wrong once (MediaRecorder-produced webm/opus never
+  // finalizing proper duration metadata -- see MediaService). A short/bad
+  // header here doesn't just mislead a progress bar, it silently CUTS the
+  // export short. This runs a real decode (`-f null -`, no output file
+  // written) and reads the LAST "time=" marker ffmpeg prints as it
+  // actually decodes -- that tracks real decoded time, not the header --
+  // and trusts whichever of {probed, decoded} is longer.
+  static Future<double> _reliableDuration(String path, double? probed) async {
+    final fallback = probed ?? 8.0;
+    try {
+      final session = await FFmpegKit.execute('-i "$path" -f null -');
+      final log = (await session.getOutput()) ?? '';
+      final matches =
+          RegExp(r'time=(\d+):(\d+):(\d+)\.(\d+)').allMatches(log);
+      if (matches.isEmpty) return fallback;
+      final m = matches.last;
+      final decoded = int.parse(m.group(1)!) * 3600 +
+          int.parse(m.group(2)!) * 60 +
+          int.parse(m.group(3)!) +
+          int.parse(m.group(4)!) / 100;
+      return decoded > fallback ? decoded : fallback;
+    } catch (_) {
+      return fallback; // never let the cross-check itself break export
+    }
+  }
+
   static Future<String> export({
     required StudioState state,
     void Function(String status)? onStatus,
@@ -84,7 +112,10 @@ class ExportService {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
         videoHasVideoStream = info.hasVideo;
-        final full = info.duration ?? 8;
+        // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: don't trust the
+        // container header alone -- cross-check against a real decode so a
+        // bad/short header can't silently truncate the export.
+        final full = await _reliableDuration(state.videoPath!, info.duration);
         if (info.width != null &&
             info.height != null &&
             info.width! > 0 &&
