@@ -11,11 +11,17 @@ class TimelineSegment {
   double end;
   final Ayah ayah;
   double confidence;
+  // PATCH_S42_AUTOSYNC_MAX: true when this segment was never acoustically
+  // matched — it was inserted because its neighbours are the same surah with
+  // exactly this ayah missing between them and there was recitation time in
+  // the gap. The UI flags these so the user knows to double-check them.
+  final bool inferred;
   TimelineSegment({
     required this.start,
     required this.end,
     required this.ayah,
     required this.confidence,
+    this.inferred = false,
   });
 }
 
@@ -101,6 +107,28 @@ class StudioState extends ChangeNotifier {
   // ---- auto-sync timeline ----
   List<TimelineSegment> timeline = [];
   bool timelineActive = false;
+
+  // PATCH_S42_AUTOSYNC_MAX: the segment playing at clip-time [t], if any —
+  // shared by the karaoke ticker, the loop-one-ayah control and the ribbon.
+  TimelineSegment? segmentAt(double t) {
+    for (final s in timeline) {
+      if (t >= s.start && t < s.end) return s;
+    }
+    return null;
+  }
+
+  // PATCH_S42_AUTOSYNC_MAX: how much of the clip the detected timeline
+  // covers (for the post-scan summary).
+  double timelineCoverageFraction() {
+    if (timeline.isEmpty) return 0;
+    final total = videoDurationSec > 0 ? videoDurationSec : timeline.last.end;
+    if (total <= 0) return 0;
+    var covered = 0.0;
+    for (final s in timeline) {
+      covered += s.end - s.start;
+    }
+    return (covered / total).clamp(0.0, 1.0);
+  }
 
   // ---- trim (ayah-boundary indexes into [timeline], -1 = whole clip) ----
   int trimFromIndex = -1;
@@ -190,10 +218,22 @@ class StudioState extends ChangeNotifier {
 
   // PATCH_S36_TIMELINE_EDITOR: remove one wrongly detected segment. The trim
   // range indexes into [timeline], so it resets rather than dangle.
-  void removeTimelineSegment(int index) {
-    if (index < 0 || index >= timeline.length) return;
-    timeline.removeAt(index);
+  // PATCH_S42_SYNC_QOL: returns the removed segment so the UI can offer undo.
+  TimelineSegment? removeTimelineSegment(int index) {
+    if (index < 0 || index >= timeline.length) return null;
+    final removed = timeline.removeAt(index);
     timelineActive = timeline.isNotEmpty;
+    trimFromIndex = -1;
+    trimToIndex = -1;
+    notifyListeners();
+    return removed;
+  }
+
+  // PATCH_S42_SYNC_QOL: undo of removeTimelineSegment — puts the segment
+  // back where it was. Trim indexes reset for the same dangling reason.
+  void insertTimelineSegment(int index, TimelineSegment segment) {
+    timeline.insert(index.clamp(0, timeline.length), segment);
+    timelineActive = true;
     trimFromIndex = -1;
     trimToIndex = -1;
     notifyListeners();

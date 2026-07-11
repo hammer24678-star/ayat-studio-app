@@ -23,6 +23,17 @@
 //      consecutive segments are normalized away and each shared boundary is
 //      snapped to the quietest instant nearby — the reciter's breath pause
 //      between ayat — which makes the karaoke word timing noticeably tighter.
+//   6. PATCH_S42_AUTOSYNC_MAX: three robustness passes on top:
+//      • the silence gate adapts to the clip's own noise floor instead of a
+//        fixed -42 dBFS, so noisy room tone no longer reaches Whisper (which
+//        hallucinates on it) and unusually clean/quiet recordings keep the
+//        proven fixed gate;
+//      • a short weak mis-detection sandwiched between two halves of the
+//        SAME ayah is recognized as noise and merged away;
+//      • when detection jumps ayah N → N+2 (or +3) within one surah and the
+//        gap between them holds enough recitation time, the skipped ayat are
+//        inferred into the gap (flagged `inferred` so the UI can show them
+//        for review) — one garbled window no longer silently drops an ayah.
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -69,6 +80,17 @@ class TimelineBuilder {
     final totalSec = pcm.length / sampleRate;
     final totalChunks = max(1, (totalSec / stepSec).ceil());
 
+    // PATCH_S42_AUTOSYNC_MAX: one cheap pre-pass over the whole clip to
+    // learn its noise floor, so the silence gate below fits THIS recording.
+    final windowRms = <double>[];
+    for (double t = 0; t < totalSec; t += stepSec) {
+      final s = (t * sampleRate).floor();
+      final e = min(pcm.length, ((t + chunkSec) * sampleRate).floor());
+      windowRms
+          .add(e > s ? _rmsEnergy(Int16List.sublistView(pcm, s, e)) : 0.0);
+    }
+    final silenceGate = adaptiveSilenceThreshold(windowRms);
+
     final tempDir = Directory.systemTemp.createTempSync('ayat_timeline');
     final timeline = <TimelineSegment>[];
     // A borderline match (below highConfidence) only commits once the *next*
@@ -76,6 +98,7 @@ class TimelineBuilder {
     // minConfidence by chance, two in a row on the same ayah almost never do.
     TimelineSegment? pending;
     var chunkIndex = 0;
+    final elapsed = Stopwatch()..start(); // PATCH_S42_SYNC_QOL: drives the ETA
 
     try {
       for (double t = 0; t < totalSec; t += stepSec) {
@@ -83,7 +106,15 @@ class TimelineBuilder {
           throw Exception('تم إلغاء المزامنة'); // PATCH_S37_CANCEL_LONG_JOBS
         }
         chunkIndex++;
-        onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks…');
+        // PATCH_S42_SYNC_QOL: after a few windows the average pace is a fair
+        // predictor — long clips finally get a "time remaining" readout.
+        var eta = '';
+        if (chunkIndex > 3) {
+          final secPerChunk =
+              elapsed.elapsedMilliseconds / 1000 / (chunkIndex - 1);
+          eta = ' — يتبقى نحو ${_fmtEta((totalChunks - chunkIndex + 1) * secPerChunk)}';
+        }
+        onStatus?.call('جارٍ رصد الآيات: مقطع $chunkIndex من $totalChunks$eta…');
         onProgress?.call(chunkIndex / totalChunks);
 
         final startSample = (t * sampleRate).floor();
@@ -92,7 +123,10 @@ class TimelineBuilder {
         if (endSample - startSample < sampleRate * 1.2) continue; // tiny tail
 
         final slice = Int16List.sublistView(pcm, startSample, endSample);
-        if (_rmsEnergy(slice) < vadSilenceRms) {
+        if ((chunkIndex - 1 < windowRms.length
+                ? windowRms[chunkIndex - 1]
+                : _rmsEnergy(slice)) <
+            silenceGate) {
           pending = null; // near-silent window — nothing to transcribe
           continue;
         }
@@ -113,7 +147,10 @@ class TimelineBuilder {
         // stayed below the single-window commit bar, re-score just the ayat
         // the mushaf order predicts here (current ayah continuing, next,
         // next-after) with a relaxed threshold and a small prior bonus.
-        final anchor = timeline.isEmpty ? null : timeline.last.ayah;
+        // PATCH_S42_AUTOSYNC_MAX: an uncommitted pending match anchors too —
+        // the very first ayah of a clip used to get no context help at all.
+        final anchor =
+            timeline.isEmpty ? pending?.ayah : timeline.last.ayah;
         if (anchor != null &&
             (match == null || match.confidence < highConfidence)) {
           final expected = _expectedNext(matcher.ayaat, anchor);
@@ -167,6 +204,11 @@ class TimelineBuilder {
               confidence: match.confidence);
         }
       }
+      // PATCH_S42_AUTOSYNC_MAX: structural repairs first (they need the raw
+      // gaps normalization would bridge away), then the S35 grid cleanup and
+      // breath-pause boundary snapping.
+      repairTimeline(timeline);
+      inferSkippedAyat(timeline, matcher.ayaat);
       // PATCH_S35_SMARTER_DETECTION: clean the step-grid quantization up and
       // snap ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
@@ -180,10 +222,129 @@ class TimelineBuilder {
 
   // PATCH_S35_SMARTER_DETECTION: the ayat mushaf order predicts after
   // [anchor]: the anchor itself (still being recited) and the next two.
+  // PATCH_S42_AUTOSYNC_MAX: plus the ayah BEFORE the anchor — repeating the
+  // previous ayah is common in memorization/practice recordings.
   static List<Ayah> _expectedNext(List<Ayah> ayaat, Ayah anchor) {
     final i = ayaat.indexOf(anchor); // identity ==, Ayah defines no operator==
     if (i < 0) return [anchor];
-    return ayaat.sublist(i, min(ayaat.length, i + 3));
+    return [
+      if (i > 0) ayaat[i - 1],
+      ...ayaat.sublist(i, min(ayaat.length, i + 3)),
+    ];
+  }
+
+  // PATCH_S42_AUTOSYNC_MAX --------------------------------------------------
+
+  /// Picks the silence gate for THIS clip from the RMS of all its analysis
+  /// windows. The clip's quietest windows are its room tone; anything within
+  /// ~2.2× of that is still "silence". The result never drops below the
+  /// proven fixed gate ([vadSilenceRms]) and is capped both absolutely and
+  /// relative to the clip's loud (speech) windows, so a clip that is
+  /// wall-to-wall recitation can never gate real speech away. Pure and
+  /// public for unit tests.
+  static double adaptiveSilenceThreshold(List<double> windowRms) {
+    if (windowRms.length < 4) return vadSilenceRms;
+    final sorted = [...windowRms]..sort();
+    double at(double q) =>
+        sorted[(sorted.length * q).floor().clamp(0, sorted.length - 1)];
+    final noiseFloor = at(0.1);
+    final speechLevel = at(0.85);
+    final cap = min(0.02, max(vadSilenceRms, speechLevel * 0.35));
+    return (noiseFloor * 2.2).clamp(vadSilenceRms, cap);
+  }
+
+  /// Structural cleanup of the raw scan output. Two repairs, both pure and
+  /// public for unit tests:
+  ///   • adjacent segments of the same ayah merge (belt-and-braces — the
+  ///     scan loop extends in place, but editing/inference can reintroduce
+  ///     them);
+  ///   • an A-B-A "sandwich": a single short window that matched some other
+  ///     ayah B in the middle of ayah A's span, weaker than both A halves —
+  ///     that's a garbled window, not a real jump away and back, so B is
+  ///     dropped and the halves merge.
+  static void repairTimeline(List<TimelineSegment> timeline) {
+    for (var i = 0; i + 1 < timeline.length;) {
+      final a = timeline[i], b = timeline[i + 1];
+      if (identical(a.ayah, b.ayah) && b.start - a.end <= stepSec + 0.01) {
+        a.end = max(a.end, b.end);
+        a.confidence = max(a.confidence, b.confidence);
+        timeline.removeAt(i + 1);
+      } else {
+        i++;
+      }
+    }
+    for (var i = 0; i + 2 < timeline.length;) {
+      final a = timeline[i], mid = timeline[i + 1], b = timeline[i + 2];
+      if (identical(a.ayah, b.ayah) &&
+          !identical(mid.ayah, a.ayah) &&
+          mid.end - mid.start <= chunkSec + 0.01 &&
+          mid.confidence < min(a.confidence, b.confidence)) {
+        a.end = b.end;
+        a.confidence = max(a.confidence, b.confidence);
+        timeline.removeAt(i + 2);
+        timeline.removeAt(i + 1);
+        // stay at i — the merged segment has new neighbours to re-check
+      } else {
+        i++;
+      }
+    }
+  }
+
+  // An ayah can't realistically be recited in less than this many seconds —
+  // gates how many missing ayat a gap is allowed to absorb.
+  static const double _minSecPerInferredAyah = 1.5;
+
+  /// When detection jumps from ayah N to ayah N+2/N+3 of the same surah and
+  /// the gap between the two segments holds enough recitation time, the
+  /// skipped ayat almost certainly WERE recited — their windows just came
+  /// back garbled (reverb, overlapping madd, a sneeze…). Insert them across
+  /// the gap, splitting it proportionally to each ayah's word count, flagged
+  /// [TimelineSegment.inferred] for the UI. Runs BEFORE normalizeTimeline,
+  /// which would otherwise bridge exactly the gaps this pass reads. Pure and
+  /// public for unit tests.
+  static void inferSkippedAyat(
+      List<TimelineSegment> timeline, List<Ayah> ayaat) {
+    for (var i = 0; i + 1 < timeline.length; i++) {
+      final a = timeline[i], b = timeline[i + 1];
+      if (a.ayah.surahNum != b.ayah.surahNum) continue;
+      final missingCount = b.ayah.num - a.ayah.num - 1;
+      if (missingCount < 1 || missingCount > 3) continue;
+      final gap = b.start - a.end;
+      if (gap < _minSecPerInferredAyah * missingCount) continue;
+      final ai = ayaat.indexOf(a.ayah); // identity ==
+      if (ai < 0 || ai + missingCount + 1 >= ayaat.length) continue;
+      // the corpus must really place b right after the presumed-missing run
+      if (!identical(ayaat[ai + missingCount + 1], b.ayah)) continue;
+      final missing = ayaat.sublist(ai + 1, ai + 1 + missingCount);
+      final weights = [
+        for (final m in missing)
+          m.ar.trim().split(RegExp(r'\s+')).length.toDouble()
+      ];
+      final totalWeight = weights.fold(0.0, (s, w) => s + w);
+      var t = a.end;
+      for (var j = 0; j < missing.length; j++) {
+        final end =
+            j == missing.length - 1 ? b.start : t + gap * weights[j] / totalWeight;
+        timeline.insert(
+            i + 1 + j,
+            TimelineSegment(
+              start: t,
+              end: end,
+              ayah: missing[j],
+              confidence: 0.3,
+              inferred: true,
+            ));
+        t = end;
+      }
+      i += missing.length; // continue after the inserted run
+    }
+  }
+
+  // PATCH_S42_SYNC_QOL: human-readable remaining-time estimate.
+  static String _fmtEta(double seconds) {
+    final s = max(0, seconds.round());
+    if (s < 60) return '$s ث';
+    return '${s ~/ 60} د ${s % 60} ث';
   }
 
   /// PATCH_S35_SMARTER_DETECTION: resolves the 6s-window/5s-step grid

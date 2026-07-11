@@ -10,7 +10,8 @@ import 'dart:typed_data' show ByteData;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show FontLoader;
+import 'package:flutter/services.dart'
+    show FontLoader, HapticFeedback; // PATCH_S42_SYNC_QOL: tactile feedback
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -32,6 +33,7 @@ import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
 import '../widgets/gold_switch.dart';
 import '../widgets/stage_preview.dart';
+import '../widgets/timeline_ribbon.dart'; // PATCH_S42_SYNC_QOL
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -62,6 +64,12 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedTab = 0;
   int _customFontCounter = 0;
   int _selectedSurah = 1;
+
+  // PATCH_S42_SYNC_QOL: playback aids for reviewing a detected timeline.
+  static const _speeds = [1.0, 1.25, 1.5, 0.75];
+  double _playbackSpeed = 1.0;
+  bool _loopAyah = false;
+  TimelineSegment? _loopSeg; // the ayah the loop control snaps back to
 
   final _customArCtrl = TextEditingController();
   final _customEnCtrl = TextEditingController();
@@ -192,6 +200,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (path == null) return;
     await _video?.dispose();
     _liveOverlay.value = null;
+    // PATCH_S42_SYNC_QOL: playback aids belong to the previous clip
+    _playbackSpeed = 1.0;
+    _loopAyah = false;
+    _loopSeg = null;
     final controller = VideoPlayerController.file(File(path));
     _video = controller;
     state.setVideo(path);
@@ -355,11 +367,23 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       state.setTimeline(timeline);
+      _loopSeg = null; // PATCH_S42_SYNC_QOL: old loop target no longer exists
+      // PATCH_S42_SYNC_QOL: a real summary — which ayat, how much of the
+      // clip they cover, and whether any were inferred and deserve review.
+      final first = timeline.first.ayah;
+      final last = timeline.last.ayah;
+      final range = first.surahNum == last.surahNum
+          ? 'سورة ${first.surah}: ${first.num}–${last.num}'
+          : 'من ${first.surah} ${first.num} إلى ${last.surah} ${last.num}';
+      final coverage = (state.timelineCoverageFraction() * 100).round();
+      final inferredCount = timeline.where((s) => s.inferred).length;
       state.update(() {
         state.matchConfidenceText =
-            'تم رصد ${timeline.length} آية على طول الفيديو — شغّله لعرضها تلقائيًا بالكتابة الحيّة';
+            'تم رصد ${timeline.length} آية ($range) تغطي $coverage٪ من المقطع'
+            '${inferredCount > 0 ? ' — منها $inferredCount مستنتجة من تسلسل المصحف، راجعها في «مراجعة الآيات المرصودة»' : ''}';
         state.detectedLabel = 'مزامنة تلقائية مفعّلة — التصدير سيستخدم نفس التوقيت';
       });
+      HapticFeedback.mediumImpact(); // PATCH_S42_SYNC_QOL
       _toast('تم رصد ${timeline.length} آية ✓ — التصدير سيستخدم نفس التوقيت تلقائيًا');
       await _video?.play();
     });
@@ -378,13 +402,22 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final t = controller.value.position.inMilliseconds / 1000.0;
-    TimelineSegment? seg;
-    for (final s in state.timeline) {
-      if (t >= s.start && t < s.end) {
-        seg = s;
-        break;
-      }
+    // PATCH_S42_SYNC_QOL: loop-one-ayah — once the playhead crosses the end
+    // of the ayah it was inside, snap back to that ayah's start. The narrow
+    // trigger window means a deliberate manual seek far past the end simply
+    // leaves the loop and adopts the new ayah.
+    final loopSeg = _loopSeg;
+    if (_loopAyah &&
+        loopSeg != null &&
+        controller.value.isPlaying &&
+        t >= loopSeg.end - 0.05 &&
+        t <= loopSeg.end + 1.0) {
+      controller
+          .seekTo(Duration(milliseconds: (loopSeg.start * 1000).round() + 30));
+      return;
     }
+    final seg = state.segmentAt(t);
+    if (seg != null) _loopSeg = seg;
     if (seg == null) return; // keep the last ayah on screen between segments
     final cue = karaokeCueAt(buildKaraokeChunks(seg), t);
     // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-part key so StagePreview only fades when
@@ -451,6 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     });
     if (path == null || !mounted) return;
+    HapticFeedback.mediumImpact(); // PATCH_S42_SYNC_QOL
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -717,14 +751,27 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           if (_busy) ...[
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: _busyProgress,
-                minHeight: 6,
-                backgroundColor: AyatColors.surface3,
-                valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
-              ),
+            // PATCH_S42_SYNC_QOL: a numeric ٪ readout beside the bar
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: _busyProgress,
+                      minHeight: 6,
+                      backgroundColor: AyatColors.surface3,
+                      valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
+                    ),
+                  ),
+                ),
+                if (_busyProgress != null) ...[
+                  const SizedBox(width: 8),
+                  Text('${(_busyProgress! * 100).round()}٪',
+                      style: const TextStyle(
+                          fontSize: 11, color: AyatColors.goldBright)),
+                ],
+              ],
             ),
             // PATCH_S37_CANCEL_LONG_JOBS: abort export / auto-sync scan
             if (_busyCancelAction != null) ...[
@@ -881,8 +928,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$m:${sec.toString().padLeft(2, '0')}';
   }
 
+  // PATCH_S42_SYNC_QOL: tenth-of-a-second precision for the timing editor —
+  // whole seconds are useless when nudging by ±0.1s.
+  static String _fmtSecFine(double s) {
+    final m = s ~/ 60;
+    final sec = s - m * 60;
+    return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
+  }
+
+  // PATCH_S42_SYNC_QOL: cycle 1× → 1.25× → 1.5× → 0.75× — reviewing a long
+  // detected timeline is much faster above 1× and fixing timings easier
+  // below it.
+  Future<void> _cycleSpeed() async {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    final i = _speeds.indexOf(_playbackSpeed);
+    final next = _speeds[(i + 1) % _speeds.length];
+    await c.setPlaybackSpeed(next);
+    if (mounted) setState(() => _playbackSpeed = next);
+  }
+
+  static String _speedLabel(double s) =>
+      s == s.roundToDouble() ? '${s.round()}×' : '$s×';
+
   /// Play/pause + seek bar for the uploaded clip. Tapping the stage itself
   /// also pauses/resumes (see StagePreview).
+  /// PATCH_S42_SYNC_QOL: plus the ayah ribbon (tap-to-seek map of the
+  /// detected timeline), loop-one-ayah and playback speed.
   Widget _transportBar() {
     final c = _video!;
     return _card(
@@ -892,53 +964,97 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context, v, _) {
           final durMs = max(1, v.duration.inMilliseconds);
           final posMs = v.position.inMilliseconds.clamp(0, durMs);
-          return Row(
+          return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // PATCH_S36_TIMELINE_EDITOR: jump between detected ayat
               if (state.timelineActive)
-                IconButton(
-                  onPressed: () => _seekToAdjacentAyah(-1),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 34, minHeight: 40),
-                  icon: const Icon(Icons.skip_previous_outlined,
-                      color: AyatColors.parchmentDim, size: 20),
-                  tooltip: 'الآية السابقة',
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
+                  child: TimelineRibbon(state: state, controller: c),
                 ),
-              IconButton(
-                onPressed: () => v.isPlaying ? c.pause() : c.play(),
-                icon: Icon(
-                  v.isPlaying
-                      ? Icons.pause_circle_outline
-                      : Icons.play_circle_outline,
-                  color: AyatColors.goldBright,
-                ),
-                tooltip: 'تشغيل/إيقاف',
+              Row(
+                children: [
+                  // PATCH_S36_TIMELINE_EDITOR: jump between detected ayat
+                  if (state.timelineActive)
+                    IconButton(
+                      onPressed: () => _seekToAdjacentAyah(-1),
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 34, minHeight: 40),
+                      icon: const Icon(Icons.skip_previous_outlined,
+                          color: AyatColors.parchmentDim, size: 20),
+                      tooltip: 'الآية السابقة',
+                    ),
+                  IconButton(
+                    onPressed: () => v.isPlaying ? c.pause() : c.play(),
+                    icon: Icon(
+                      v.isPlaying
+                          ? Icons.pause_circle_outline
+                          : Icons.play_circle_outline,
+                      color: AyatColors.goldBright,
+                    ),
+                    tooltip: 'تشغيل/إيقاف',
+                  ),
+                  if (state.timelineActive)
+                    IconButton(
+                      onPressed: () => _seekToAdjacentAyah(1),
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 34, minHeight: 40),
+                      icon: const Icon(Icons.skip_next_outlined,
+                          color: AyatColors.parchmentDim, size: 20),
+                      tooltip: 'الآية التالية',
+                    ),
+                  if (state.timelineActive)
+                    IconButton(
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _loopAyah = !_loopAyah);
+                        _toast(_loopAyah
+                            ? 'تكرار الآية الحالية مفعّل'
+                            : 'تم إيقاف تكرار الآية');
+                      },
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 34, minHeight: 40),
+                      icon: Icon(Icons.repeat_one,
+                          color: _loopAyah
+                              ? AyatColors.goldBright
+                              : AyatColors.parchmentDim,
+                          size: 20),
+                      tooltip: 'تكرار الآية الحالية',
+                    ),
+                  Text(_fmtSec(posMs / 1000),
+                      style: const TextStyle(
+                          fontSize: 11, color: AyatColors.parchmentDim)),
+                  Expanded(
+                    child: Slider(
+                      value: posMs.toDouble(),
+                      max: durMs.toDouble(),
+                      onChanged: (x) =>
+                          c.seekTo(Duration(milliseconds: x.round())),
+                    ),
+                  ),
+                  Text(_fmtSec(durMs / 1000),
+                      style: const TextStyle(
+                          fontSize: 11, color: AyatColors.parchmentDim)),
+                  TextButton(
+                    onPressed: _cycleSpeed,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(38, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                    ),
+                    child: Text(
+                      _speedLabel(_playbackSpeed),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: _playbackSpeed == 1.0
+                              ? AyatColors.parchmentDim
+                              : AyatColors.goldBright),
+                    ),
+                  ),
+                ],
               ),
-              if (state.timelineActive)
-                IconButton(
-                  onPressed: () => _seekToAdjacentAyah(1),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 34, minHeight: 40),
-                  icon: const Icon(Icons.skip_next_outlined,
-                      color: AyatColors.parchmentDim, size: 20),
-                  tooltip: 'الآية التالية',
-                ),
-              Text(_fmtSec(posMs / 1000),
-                  style: const TextStyle(
-                      fontSize: 11, color: AyatColors.parchmentDim)),
-              Expanded(
-                child: Slider(
-                  value: posMs.toDouble(),
-                  max: durMs.toDouble(),
-                  onChanged: (x) =>
-                      c.seekTo(Duration(milliseconds: x.round())),
-                ),
-              ),
-              Text(_fmtSec(durMs / 1000),
-                  style: const TextStyle(
-                      fontSize: 11, color: AyatColors.parchmentDim)),
             ],
           );
         },
@@ -1002,12 +1118,40 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('سورة ${seg.ayah.surah} — آية ${seg.ayah.num}',
-                      style: Theme.of(context).textTheme.bodyLarge),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text('سورة ${seg.ayah.surah} — آية ${seg.ayah.num}',
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyLarge),
+                      ),
+                      // PATCH_S42_AUTOSYNC_MAX: this ayah was inferred from
+                      // mushaf order, not heard — flag it for review.
+                      if (seg.inferred) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: AyatColors.goldDim),
+                          ),
+                          child: const Text('مستنتجة',
+                              style: TextStyle(
+                                  fontSize: 9.5, color: AyatColors.goldBright)),
+                        ),
+                      ],
+                    ],
+                  ),
                   Text(
                     '${_fmtSec(seg.start)} — ${_fmtSec(seg.end)} · ثقة ${(seg.confidence * 100).round()}٪',
-                    style: const TextStyle(
-                        fontSize: 10.5, color: AyatColors.parchmentDim),
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        // PATCH_S42_SYNC_QOL: low-confidence detections stand
+                        // out at a glance instead of hiding in the list.
+                        color: seg.confidence < 0.4
+                            ? AyatColors.goldBright
+                            : AyatColors.parchmentDim),
                   ),
                 ],
               ),
@@ -1021,8 +1165,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           IconButton(
             onPressed: () {
-              state.removeTimelineSegment(i);
-              _toast('تم حذف الآية من الخط الزمني');
+              // PATCH_S42_SYNC_QOL: deletion is undoable from the snackbar —
+              // no more re-running a whole scan over one slip of the finger.
+              final removed = state.removeTimelineSegment(i);
+              if (removed == null) return;
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(
+                  content: const Text('تم حذف الآية من الخط الزمني',
+                      textAlign: TextAlign.center),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 5),
+                  action: SnackBarAction(
+                    label: 'تراجع',
+                    textColor: AyatColors.goldBright,
+                    onPressed: () => state.insertTimelineSegment(i, removed),
+                  ),
+                ));
             },
             icon: const Icon(Icons.delete_outline,
                 size: 18, color: AyatColors.parchmentDim),
@@ -1042,6 +1201,9 @@ class _HomeScreenState extends State<HomeScreen> {
             return const SizedBox.shrink();
           }
           final seg = state.timeline[i];
+          // PATCH_S42_SYNC_QOL: fine ±0.1s nudges next to the coarse ±0.5s
+          // ones, and "from the playhead": pause where the ayah really
+          // starts/ends and stamp that exact moment as the boundary.
           Widget nudgeRow(String label, double value,
               void Function(double delta) onNudge) {
             Widget btn(String text, double d) => OutlinedButton(
@@ -1050,22 +1212,52 @@ class _HomeScreenState extends State<HomeScreen> {
                     setDialogState(() {});
                   },
                   style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(52, 34),
+                    minimumSize: const Size(48, 34),
                     padding: EdgeInsets.zero,
                     side: const BorderSide(color: AyatColors.hairline),
                   ),
                   child: Text(text, style: const TextStyle(fontSize: 12)),
                 );
+            final video = _video;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                      child: Text('$label: ${_fmtSec(value)}',
-                          style: Theme.of(context).textTheme.bodyLarge)),
-                  btn('-٠٫٥ث', -0.5),
-                  const SizedBox(width: 6),
-                  btn('+٠٫٥ث', 0.5),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: Text('$label: ${_fmtSecFine(value)}',
+                              style: Theme.of(context).textTheme.bodyLarge)),
+                      TextButton.icon(
+                        onPressed: video == null || !video.value.isInitialized
+                            ? null
+                            : () {
+                                final pos =
+                                    video.value.position.inMilliseconds /
+                                        1000.0;
+                                onNudge(pos - value);
+                                setDialogState(() {});
+                              },
+                        icon: const Icon(Icons.my_location,
+                            size: 14, color: AyatColors.goldDim),
+                        label: const Text('من موضع التشغيل',
+                            style: TextStyle(
+                                fontSize: 11, color: AyatColors.goldDim)),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      btn('-٠٫٥', -0.5),
+                      const SizedBox(width: 5),
+                      btn('-٠٫١', -0.1),
+                      const SizedBox(width: 5),
+                      btn('+٠٫١', 0.1),
+                      const SizedBox(width: 5),
+                      btn('+٠٫٥', 0.5),
+                    ],
+                  ),
                 ],
               ),
             );
@@ -1080,12 +1272,33 @@ class _HomeScreenState extends State<HomeScreen> {
             title: Text('توقيت آية ${seg.ayah.num} — ${seg.ayah.surah}'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 nudgeRow('البداية', seg.start,
                     (d) => state.nudgeTimelineSegment(i, startDelta: d)),
                 nudgeRow('النهاية', seg.end,
                     (d) => state.nudgeTimelineSegment(i, endDelta: d)),
                 const SizedBox(height: 4),
+                // PATCH_S42_SYNC_QOL: hear the result without leaving the dialog
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final c = _video;
+                    if (c != null && c.value.isInitialized) {
+                      c.seekTo(Duration(
+                          milliseconds:
+                              (state.timeline[i].start * 1000).round() + 30));
+                      c.play();
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AyatColors.hairline),
+                  ),
+                  icon: const Icon(Icons.play_arrow,
+                      size: 16, color: AyatColors.goldBright),
+                  label: const Text('استمع من بداية الآية',
+                      style: TextStyle(fontSize: 12)),
+                ),
+                const SizedBox(height: 8),
                 Text(
                   'التعديل يظهر فورًا في المعاينة وفي إضاءة الكلمات، ويلتزم به التصدير.',
                   style: Theme.of(context).textTheme.bodyMedium,
@@ -1243,7 +1456,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     : AyatColors.parchmentDim),
             label: Text(_tabs[i].$2),
             selected: _selectedTab == i,
-            onSelected: (_) => setState(() => _selectedTab = i),
+            onSelected: (_) {
+              HapticFeedback.selectionClick(); // PATCH_S42_SYNC_QOL
+              setState(() => _selectedTab = i);
+            },
           ),
       ],
     );
@@ -1675,6 +1891,7 @@ class _HomeScreenState extends State<HomeScreen> {
         for (var i = 0; i < kTemplates.length; i++)
           GestureDetector(
             onTap: () {
+              HapticFeedback.selectionClick(); // PATCH_S42_SYNC_QOL
               state.applyTemplate(i);
               _toast('تم تطبيق قالب: ${kTemplates[i].name}');
             },

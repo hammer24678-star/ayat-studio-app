@@ -85,6 +85,144 @@ void main() {
     });
   });
 
+  // PATCH_S42_AUTOSYNC_MAX -----------------------------------------------
+
+  group('TimelineBuilder.adaptiveSilenceThreshold', () {
+    test('keeps the fixed gate for tiny inputs and quiet clean clips', () {
+      expect(TimelineBuilder.adaptiveSilenceThreshold([]),
+          TimelineBuilder.vadSilenceRms);
+      expect(TimelineBuilder.adaptiveSilenceThreshold([0.001, 0.05]),
+          TimelineBuilder.vadSilenceRms);
+      // near-zero room tone → adaptive value would be below the fixed gate,
+      // which stays as the floor
+      final quiet = [
+        ...List.filled(3, 0.0005),
+        ...List.filled(7, 0.05),
+      ];
+      expect(TimelineBuilder.adaptiveSilenceThreshold(quiet),
+          TimelineBuilder.vadSilenceRms);
+    });
+
+    test('rises above noisy room tone but never swallows speech', () {
+      // room tone ~0.012 (louder than the fixed 0.008 gate), speech ~0.1
+      final noisy = [
+        ...List.filled(3, 0.012),
+        ...List.filled(7, 0.1),
+      ];
+      final gate = TimelineBuilder.adaptiveSilenceThreshold(noisy);
+      expect(gate, greaterThan(0.012)); // gates the room tone away
+      expect(gate, lessThan(0.1)); // never gates the speech windows
+      expect(gate, lessThanOrEqualTo(0.02)); // absolute cap
+    });
+
+    test('wall-to-wall loud speech is never gated', () {
+      final loud = List.filled(20, 0.08);
+      final gate = TimelineBuilder.adaptiveSilenceThreshold(loud);
+      expect(gate, lessThan(0.08));
+    });
+  });
+
+  group('TimelineBuilder.repairTimeline', () {
+    test('merges adjacent segments of the same ayah', () {
+      final t = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.5),
+        TimelineSegment(start: 7, end: 12, ayah: corpus[0], confidence: 0.8),
+      ];
+      TimelineBuilder.repairTimeline(t);
+      expect(t.length, 1);
+      expect(t.single.start, 0);
+      expect(t.single.end, 12);
+      expect(t.single.confidence, 0.8);
+    });
+
+    test('drops a short weak mis-detection sandwiched inside one ayah', () {
+      final t = [
+        TimelineSegment(start: 0, end: 10, ayah: corpus[0], confidence: 0.7),
+        TimelineSegment(start: 10, end: 15, ayah: corpus[4], confidence: 0.35),
+        TimelineSegment(start: 15, end: 25, ayah: corpus[0], confidence: 0.75),
+      ];
+      TimelineBuilder.repairTimeline(t);
+      expect(t.length, 1);
+      expect(t.single.ayah.num, 1);
+      expect(t.single.start, 0);
+      expect(t.single.end, 25);
+    });
+
+    test('keeps a long or confident middle segment', () {
+      final confident = [
+        TimelineSegment(start: 0, end: 10, ayah: corpus[0], confidence: 0.6),
+        TimelineSegment(start: 10, end: 15, ayah: corpus[4], confidence: 0.9),
+        TimelineSegment(start: 15, end: 25, ayah: corpus[0], confidence: 0.6),
+      ];
+      TimelineBuilder.repairTimeline(confident);
+      expect(confident.length, 3);
+      final long = [
+        TimelineSegment(start: 0, end: 10, ayah: corpus[0], confidence: 0.7),
+        TimelineSegment(start: 10, end: 22, ayah: corpus[4], confidence: 0.4),
+        TimelineSegment(start: 22, end: 30, ayah: corpus[0], confidence: 0.7),
+      ];
+      TimelineBuilder.repairTimeline(long);
+      expect(long.length, 3);
+    });
+  });
+
+  group('TimelineBuilder.inferSkippedAyat', () {
+    test('fills a skipped ayah into a same-surah gap with enough time', () {
+      // 112:1 then 112:3 with a 4s gap — 112:2 was recited but never matched
+      final t = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.8),
+        TimelineSegment(start: 10, end: 16, ayah: corpus[2], confidence: 0.8),
+      ];
+      TimelineBuilder.inferSkippedAyat(t, corpus);
+      expect(t.length, 3);
+      expect(t[1].ayah.num, 2);
+      expect(t[1].inferred, isTrue);
+      expect(t[1].start, 6);
+      expect(t[1].end, 10);
+      expect(t[0].inferred, isFalse);
+    });
+
+    test('splits a two-ayah gap proportionally to word counts', () {
+      // 112:1 then 112:4 — 112:2 (2 words) and 112:3 (4 words) missing
+      final t = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.8),
+        TimelineSegment(start: 12, end: 18, ayah: corpus[3], confidence: 0.8),
+      ];
+      TimelineBuilder.inferSkippedAyat(t, corpus);
+      expect(t.length, 4);
+      expect(t[1].ayah.num, 2);
+      expect(t[2].ayah.num, 3);
+      expect(t[2].end, 12);
+      // 6s gap split 2:4 by word count
+      expect(t[1].end - t[1].start, closeTo(2.0, 1e-9));
+      expect(t[2].end - t[2].start, closeTo(4.0, 1e-9));
+    });
+
+    test('leaves gaps alone when too short, cross-surah, or non-consecutive',
+        () {
+      final tooShort = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.8),
+        TimelineSegment(start: 7, end: 13, ayah: corpus[2], confidence: 0.8),
+      ];
+      TimelineBuilder.inferSkippedAyat(tooShort, corpus);
+      expect(tooShort.length, 2);
+
+      final crossSurah = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[3], confidence: 0.8),
+        TimelineSegment(start: 12, end: 18, ayah: corpus[4], confidence: 0.8),
+      ];
+      TimelineBuilder.inferSkippedAyat(crossSurah, corpus);
+      expect(crossSurah.length, 2);
+
+      final consecutive = [
+        TimelineSegment(start: 0, end: 6, ayah: corpus[0], confidence: 0.8),
+        TimelineSegment(start: 12, end: 18, ayah: corpus[1], confidence: 0.8),
+      ];
+      TimelineBuilder.inferSkippedAyat(consecutive, corpus);
+      expect(consecutive.length, 2);
+    });
+  });
+
   group('StudioState timeline editing', () {
     StudioState freshState() {
       final s = StudioState();
@@ -124,6 +262,34 @@ void main() {
       expect(s.trimFromIndex, -1);
       expect(s.trimToIndex, -1);
       expect(s.timelineActive, isTrue);
+    });
+
+    // PATCH_S42_SYNC_QOL: undo of a deletion restores the exact segment
+    test('remove returns the segment and insert puts it back', () {
+      final s = freshState();
+      final removed = s.removeTimelineSegment(1);
+      expect(removed, isNotNull);
+      expect(s.timeline.length, 2);
+      s.insertTimelineSegment(1, removed!);
+      expect(s.timeline.length, 3);
+      expect(identical(s.timeline[1], removed), isTrue);
+      expect(s.removeTimelineSegment(99), isNull);
+    });
+
+    // PATCH_S42_AUTOSYNC_MAX
+    test('segmentAt finds the playing segment, null in gaps', () {
+      final s = freshState();
+      expect(s.segmentAt(5)!.ayah.num, 1);
+      expect(s.segmentAt(10)!.ayah.num, 2);
+      expect(s.segmentAt(29.9)!.ayah.num, 3);
+      expect(s.segmentAt(31), isNull);
+    });
+
+    test('timelineCoverageFraction reports detected share of the clip', () {
+      final s = freshState(); // 3 × 10s segments over a 60s clip
+      expect(s.timelineCoverageFraction(), closeTo(0.5, 1e-9));
+      final empty = StudioState();
+      expect(empty.timelineCoverageFraction(), 0);
     });
   });
 }
