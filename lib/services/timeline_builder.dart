@@ -363,7 +363,9 @@ class TimelineBuilder {
         onProgress: onProgress,
       );
       repairTimeline(timeline);
-      inferSkippedAyat(timeline, matcher.ayaat);
+      // PATCH_S92_TRAILING_INFERENCE: also needs to know where the real
+      // recording actually ends.
+      inferSkippedAyat(timeline, matcher.ayaat, rangeEnd);
       // PATCH_S35_SMARTER_DETECTION: resolve overlaps/small gaps and snap
       // ayah boundaries to the reciter's breath pauses.
       normalizeTimeline(timeline, totalSec);
@@ -737,7 +739,10 @@ class TimelineBuilder {
   /// which would otherwise bridge exactly the gaps this pass reads. Pure and
   /// public for unit tests.
   static void inferSkippedAyat(
-      List<TimelineSegment> timeline, List<Ayah> ayaat) {
+      List<TimelineSegment> timeline, List<Ayah> ayaat,
+      // PATCH_S92_TRAILING_INFERENCE: needed to know how much real
+      // recording time is left after the last detected segment.
+      double clipEnd) {
     for (var i = 0; i + 1 < timeline.length; i++) {
       final a = timeline[i], b = timeline[i + 1];
       if (a.ayah.surahNum != b.ayah.surahNum) continue;
@@ -772,6 +777,47 @@ class TimelineBuilder {
         t = end;
       }
       i += missing.length; // continue after the inserted run
+    }
+    // PATCH_S92_TRAILING_INFERENCE: the loop above only ever looks BETWEEN
+    // two already-detected segments -- a gap after the very LAST segment
+    // (the reciter kept going, but nothing after it was ever confidently
+    // heard, not even by the gap-rescue pass) had no inference path at
+    // all, so real recited ayat at the tail of a clip silently vanished
+    // from the timeline instead of at least showing up flagged for
+    // review like every other missed-but-inferable ayah does.
+    if (timeline.isEmpty) return;
+    final last = timeline.last;
+    final remaining = clipEnd - last.end;
+    if (remaining < _minSecPerInferredAyah) return;
+    final li = ayaat.indexOf(last.ayah); // identity ==
+    if (li < 0) return;
+    final maxByTime = (remaining / _minSecPerInferredAyah).floor();
+    final missing = <Ayah>[];
+    for (var k = 1; k <= min(3, maxByTime); k++) {
+      final idx = li + k;
+      if (idx >= ayaat.length) break;
+      final cand = ayaat[idx];
+      if (cand.surahNum != last.ayah.surahNum) break; // don't guess across surahs
+      missing.add(cand);
+    }
+    if (missing.isEmpty) return;
+    final tailWeights = [
+      for (final m in missing) m.ar.trim().split(RegExp(r'\s+')).length.toDouble()
+    ];
+    final tailTotalWeight = tailWeights.fold(0.0, (s, w) => s + w);
+    var tt = last.end;
+    for (var j = 0; j < missing.length; j++) {
+      final end = j == missing.length - 1
+          ? clipEnd
+          : tt + remaining * tailWeights[j] / tailTotalWeight;
+      timeline.add(TimelineSegment(
+        start: tt,
+        end: end,
+        ayah: missing[j],
+        confidence: 0.3,
+        inferred: true,
+      ));
+      tt = end;
     }
   }
 
