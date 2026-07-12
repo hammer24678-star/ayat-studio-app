@@ -166,6 +166,11 @@ class TimelineBuilder {
         // PATCH_S82_AUTOSYNC_MAX: the head 90% — the gap-rescue pass owns
         // the remainder.
         onProgress?.call(0.9 * chunkIndex / totalChunks);
+        // PATCH_S95_UI_RESPONSIVE_SCAN: a clean scheduling point between
+        // chunks -- an unbroken run of native transcription calls can
+        // otherwise leave the UI thread starved long enough for Android to
+        // treat the app as unresponsive.
+        await Future<void>.delayed(Duration.zero);
 
         final startSample = (t * sampleRate).floor();
         final endSample =
@@ -476,6 +481,9 @@ class TimelineBuilder {
 
       onStatus?.call(
           'تحسين دقة آية ذات ثقة منخفضة (${i + 1}/${timeline.length})…');
+      // PATCH_S95_UI_RESPONSIVE_SCAN: same responsiveness yield as the
+      // main scan loop.
+      await Future<void>.delayed(Duration.zero);
       final slice = Int16List.sublistView(pcm, startSample, endSample);
       final chunkPath = '${tempDir.path}/retrans_$i.wav';
       String text;
@@ -908,6 +916,9 @@ class TimelineBuilder {
         done++;
         onStatus?.call('جارٍ فحص الفجوات بدقة أعلى: $done من $totalWindows…');
         onProgress?.call(0.9 + 0.1 * min(1, done / totalWindows));
+        // PATCH_S95_UI_RESPONSIVE_SCAN: same responsiveness yield as the
+        // main scan loop.
+        await Future<void>.delayed(Duration.zero);
 
         final startSample = (t * sampleRate).floor();
         final endSample = min(
