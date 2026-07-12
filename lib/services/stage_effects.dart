@@ -218,24 +218,61 @@ class StageEffects {
   // (far/mid/near blur + wind-gust slant drift + motion-blur trails) with a
   // single uniform layer -- the plain, flat "rain overlay" look used in
   // most recitation-video edits, not a simulated rain shower.
+  // PATCH_S93_WINDOW_RAIN: sparse, large droplets clinging to glass and
+  // sliding down, each trailing a fading wet streak -- reads as rain
+  // hitting a window, not a generic falling-streak downpour. Still a pure
+  // function of (i, t) with whole cycles per loopSeconds, so the exported
+  // PNG loop stays seamless like every other effect here.
   static void _paintRain(
       Canvas canvas, Size size, double t, double intensity) {
     final w = size.width, h = size.height;
-    final count = (90 * intensity).round();
-    const slant = 0.08; // fixed gentle slant, no wind-gust drift
+    // "A couple of big drops" -- intensity nudges the count a little, it
+    // never turns this into a wall of rain even at max.
+    final count = (3 + 5 * intensity).round().clamp(2, 8);
     for (var i = 0; i < count; i++) {
-      final len = h * 0.05;
-      final range = h + len;
-      final v = range / loopSeconds; // one traversal per loop
-      final y = ((_rand(i, 2) * range + v * t) % range) - len;
-      final x = _rand(i, 3) * w;
-      final start = Offset(x, y);
-      final end = Offset(x + len * slant, y + len);
-      final paint = Paint()
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 1.4 * w / 1080
-        ..color = Colors.white.withValues(alpha: 0.22 * intensity);
-      canvas.drawLine(start, end, paint);
+      final depth = _rand(i, 1); // 0..1: bigger/heavier drops slide faster
+      final r = (5.0 + 4.0 * depth) * w / 1080; // big, glassy drops
+      final range = h + r * 6;
+      // clinging to glass, not falling through air -- far slower than the
+      // old free-falling streaks, heavier drops a little faster than light ones.
+      final v = (range / loopSeconds) * (0.35 + 0.25 * depth);
+      final y = ((_rand(i, 2) * range + v * t) % range) - r * 3;
+      // a real droplet on glass doesn't fall straight -- surface tension
+      // catches and releases it in a slight zigzag. Whole sway cycles per
+      // loop keep the wrap seamless, same convention as _paintSnow.
+      final swayCycles = 1 + (i % 2);
+      final phase = _rand(i, 4) * 2 * pi;
+      final swayRaw = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final x = _rand(i, 3) * w + _easedOscillate(swayRaw) * w * 0.01;
+
+      // the wet track it leaves behind as it slides.
+      final trailLen = min(y + r * 3, h * 0.22);
+      if (trailLen > 1) {
+        final trailTop = Offset(x, y - trailLen);
+        final trailBottom = Offset(x, y);
+        final trailPaint = Paint()
+          ..strokeWidth = r * 0.55
+          ..strokeCap = StrokeCap.round
+          ..shader = ui.Gradient.linear(
+            trailTop,
+            trailBottom,
+            [
+              Colors.white.withValues(alpha: 0),
+              Colors.white.withValues(alpha: 0.16 * intensity),
+            ],
+          );
+        canvas.drawLine(trailTop, trailBottom, trailPaint);
+      }
+
+      // the drop itself: a soft body plus a small bright highlight, like
+      // light catching the curve of water on glass.
+      final bodyPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.30 * intensity);
+      canvas.drawCircle(Offset(x, y), r, bodyPaint);
+      final highlightPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.55 * intensity);
+      canvas.drawCircle(
+          Offset(x - r * 0.3, y - r * 0.35), r * 0.35, highlightPaint);
     }
   }
 
