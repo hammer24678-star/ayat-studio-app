@@ -47,7 +47,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver { // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE
   final StudioState state = StudioState();
 
   VideoPlayerController? _video;
@@ -128,6 +129,12 @@ class _HomeScreenState extends State<HomeScreen> {
       _staticDurCtrl.text = '${state.staticDurationSec}';
     });
     state.addListener(_schedulePersist);
+    // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: dispose() only fires when
+    // Flutter tears this widget down, not when Android backgrounds the app
+    // (home button, app-switch, later process kill) -- which is how this
+    // app actually "closes" on a phone almost every time. Without this
+    // observer nothing saves at that moment at all.
+    WidgetsBinding.instance.addObserver(this);
   }
 
   // PATCH_S37_PERSISTENT_SETTINGS
@@ -139,11 +146,26 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: paused is the last
+  // reliable checkpoint before Android may kill the process outright --
+  // flush immediately instead of hoping the 800ms debounce already fired.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    if (appState == AppLifecycleState.paused && _settingsRestored) {
+      _persistDebounce?.cancel();
+      SettingsService.persist(state);
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance
+        .removeObserver(this); // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE
     state.removeListener(_schedulePersist); // PATCH_S37_PERSISTENT_SETTINGS
+    // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: flush, don't just drop,
+    // whatever change was still waiting on the debounce.
     _persistDebounce?.cancel();
-    _syncTimer?.cancel();
+    if (_settingsRestored) SettingsService.persist(state);
     _video?.dispose();
     _reciterPreview?.dispose();
     _liveOverlay.dispose();

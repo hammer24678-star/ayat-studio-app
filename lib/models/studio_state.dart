@@ -635,7 +635,12 @@ class StudioState extends ChangeNotifier {
       end: seg.end,
       ayah: ayah,
       confidence: 1.0,
-      wordStarts: seg.wordStarts,
+      // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: seg.wordStarts are
+      // Whisper onsets measured against the OLD (wrong) ayah's words --
+      // carrying them into a different ayah desyncs karaoke lighting
+      // (wrong word count, wrong text). Drop them; karaoke.dart's
+      // letter-weighted fallback paces the new ayah honestly instead.
+      wordStarts: const [],
     );
     notifyListeners();
   }
