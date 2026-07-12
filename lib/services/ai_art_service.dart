@@ -73,14 +73,17 @@ class AiArtService {
     return File('${dir.path}/${surahNum}_$ayahNum$suffix.png');
   }
 
-  /// Fixed house style -- matches the glowing monochrome line-art reference
+  /// Fixed house STYLE -- matches the glowing monochrome line-art reference
   /// frames (ayat_studio-22.html). Never surfaced as editable text.
+  // PATCH_S94_SCENE_NOT_TEMPLATE: this used to also hard-code "starry
+  // night sky" and "desert architecture silhouettes" as fixed elements of
+  // EVERY prompt -- so every image looked the same regardless of what the
+  // ayah was about, no matter what the scene description below said. Only
+  // the visual STYLE belongs here; the setting comes from the scene itself.
   static const String _styleBase =
       'monochrome glowing line-art illustration, deep black background, '
-      'thin luminous white outline strokes, subtle starry night sky, '
-      'minimal Middle-Eastern desert architecture silhouettes in the '
-      'background, quiet reverent mood, high contrast, no color, '
-      'digital line-art poster style';
+      'thin luminous white outline strokes, high contrast, no color, '
+      'digital line-art poster style, quiet reverent mood';
 
   /// Repeated at the END of every prompt on purpose -- placing it last
   /// keeps it from being diluted/overridden by earlier scene-description
@@ -130,9 +133,20 @@ class AiArtService {
     'محمد': 'محمد',
   };
 
+  // PATCH_S94_SCENE_NOT_TEMPLATE: was ayahArabic.contains(name) -- a
+  // substring match anywhere in the ayah's text, including inside a
+  // completely unrelated word. A false positive here doesn't just
+  // mislabel something -- it throws away the whole scene prompt and
+  // replaces it with the light-pillar template instead. Whole-word match
+  // only (common attached prefixes و ف ب ل ك stripped first, since
+  // "وموسى"/"لعيسى" etc. are legitimate attached forms of the name).
   static String? _matchedProphet(String ayahArabic) {
-    for (final entry in _prophetNames.entries) {
-      if (ayahArabic.contains(entry.key)) return entry.value;
+    final prefixes = RegExp(r'^[وفبلك]');
+    for (final w in ayahArabic.split(RegExp(r'\s+'))) {
+      final stripped = w.replaceFirst(prefixes, '');
+      for (final entry in _prophetNames.entries) {
+        if (w == entry.key || stripped == entry.key) return entry.value;
+      }
     }
     return null;
   }
@@ -150,12 +164,16 @@ class AiArtService {
     // inspired by the theme of this Quranic ayah" and never said what that
     // theme actually was -- the model had nothing to draw a scene from.
     // Feed it the ayah's own English meaning as the scene description.
+    // PATCH_S94_SCENE_NOT_TEMPLATE: and don't cap it at "one silhouette or
+    // an empty landscape" -- let it actually draw what the scene contains:
+    // multiple figures, objects, architecture, setting, whatever fits.
     final scene = ayahEnglish.trim().isEmpty
-        ? 'a scene inspired by this Quranic ayah'
-        : 'a scene depicting: ${ayahEnglish.trim()}';
-    return '$_styleBase, faceless glowing silhouette figures only if the '
-        'scene calls for people, otherwise an empty landscape, $scene, '
-        '$_noFacesRule';
+        ? 'this Quranic ayah'
+        : ayahEnglish.trim();
+    return '$_styleBase, illustrate this scene fully and specifically: '
+        '$scene -- include whatever the scene actually contains (one or '
+        'several figures, objects, architecture, setting), not simplified '
+        'down to a lone empty landscape, $_noFacesRule';
   }
 
   /// Returns a local file path to the cached (or freshly generated) art for
