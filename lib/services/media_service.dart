@@ -25,6 +25,21 @@ class MediaService {
   /// Extracts mono 16kHz PCM WAV from any video/audio file — exactly the
   /// format Whisper wants. Real ffmpeg decode, so none of the browser's
   /// decodeAudioData container-strictness issues apply here.
+  // PATCH_S98_RECOVER_TRUNCATED_DECODE: bytes-only estimate of a 16-bit
+  // mono 16kHz PCM WAV's duration -- fast, no re-decode needed, just
+  // enough precision to compare two candidate extractions against each
+  // other and against the probed source duration.
+  static double? _quickWavDurationSec(String path) {
+    try {
+      final bytes = File(path).lengthSync();
+      final dataBytes = bytes - 44; // standard WAV header size
+      if (dataBytes <= 0) return null;
+      return dataBytes / 2 / 16000; // 2 bytes/sample, 16000 samples/sec
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<String> extractWav16kMono(String inputPath) async {
     // PATCH_S42_FFMPEG_ERROR_DETAILS: a plain "ffmpeg rc=1" told us nothing about *why* it
     // failed -- catch the one common cause we CAN diagnose upfront
@@ -48,6 +63,34 @@ class MediaService {
       final rawLog = (await session.getOutput()) ?? '';
       final log = rawLog.length > 900 ? rawLog.substring(rawLog.length - 900) : rawLog;
       throw Exception('تعذّر استخراج الصوت من الملف (ffmpeg rc=$rc)\n$log');
+    }
+    // PATCH_S98_RECOVER_TRUNCATED_DECODE: the plain pass above can succeed
+    // (rc=0) while still stopping early at a corrupt/discontinuous point in
+    // the source -- ffmpeg's strict demuxer treats that as "done", not as
+    // an error. If the result comes up meaningfully short of what the
+    // container itself claims, give a second, more tolerant pass a chance
+    // to push through whatever stopped the first one.
+    final probedSec = await probedDurationSec(inputPath);
+    final decodedSec = _quickWavDurationSec(outPath);
+    if (probedSec != null &&
+        decodedSec != null &&
+        decodedSec < probedSec * 0.9) {
+      final retryPath =
+          '${dir.path}/asr_retry_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final retryCmd = '-y -err_detect ignore_err '
+          '-fflags +genpts+igndts+discardcorrupt '
+          '-i "$inputPath" -vn -ac 1 -ar 16000 -f wav "$retryPath"';
+      final retrySession = await FFmpegKit.execute(retryCmd);
+      final retryRc = await retrySession.getReturnCode();
+      final retryDecodedSec =
+          ReturnCode.isSuccess(retryRc) ? _quickWavDurationSec(retryPath) : null;
+      if (retryDecodedSec != null && retryDecodedSec > decodedSec) {
+        // the tolerant pass genuinely recovered more audio -- use it.
+        File(outPath).delete().ignore();
+        return retryPath;
+      }
+      // didn't help -- clean up the retry attempt and keep the original.
+      File(retryPath).delete().ignore();
     }
     return outPath;
   }
