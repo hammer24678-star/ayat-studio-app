@@ -110,12 +110,25 @@ class TimelineBuilder {
     final wavPath = await MediaService.extractWav16kMono(mediaPath);
     final pcm = _readWavMono16(wavPath);
 
-    final totalSec = pcm.length / sampleRate;
+    final decodedSec = pcm.length / sampleRate;
+    // PATCH_S96_HONEST_SCAN_DURATION: cross-check the decode against the
+    // container's own declared duration. ffmpeg decodes real audio frames
+    // (immune to a bad/short duration HEADER, per PATCH_S89's export fix)
+    // -- but a genuinely truncated/corrupt source can still make the
+    // decode itself come up short, and nothing before this caught that
+    // case: coverage would silently measure itself against its own short
+    // decode and read back near 100% no matter how much was actually
+    // missed. Report whichever is longer; the scan loop below still only
+    // works with the audio actually decoded, since that's all there is to
+    // scan -- this only changes what's REPORTED as the clip's real length.
+    final probedSec = await MediaService.probedDurationSec(mediaPath);
+    final totalSec =
+        (probedSec != null && probedSec > decodedSec) ? probedSec : decodedSec;
     // PATCH_S86_SCAN_RANGE
-    final rangeStart = (scanStart ?? 0).clamp(0.0, totalSec);
+    final rangeStart = (scanStart ?? 0).clamp(0.0, decodedSec);
     final rangeEnd = (scanEnd == null || scanEnd <= rangeStart)
-        ? totalSec
-        : scanEnd.clamp(rangeStart, totalSec);
+        ? decodedSec
+        : scanEnd.clamp(rangeStart, decodedSec);
     final totalChunks = max(1, ((rangeEnd - rangeStart) / stepSec).ceil());
 
     // PATCH_S82_AUTOSYNC_MAX: one cheap pre-pass over the scanned span to

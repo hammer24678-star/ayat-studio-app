@@ -2,9 +2,26 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart'; // PATCH_S96_HONEST_SCAN_DURATION
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
 class MediaService {
+  // PATCH_S96_HONEST_SCAN_DURATION: the container's own declared duration
+  // (read via ffprobe), used only as a cross-check -- see
+  // TimelineBuilder.build(). Never trusted alone: a container can overstate
+  // its duration just as easily as understate it (same lesson as PATCH_S89's
+  // export-duration fix, just the opposite direction of mismatch).
+  static Future<double?> probedDurationSec(String path) async {
+    try {
+      final session = await FFprobeKit.getMediaInformation(path);
+      final info = session.getMediaInformation();
+      if (info == null) return null;
+      return double.tryParse(info.getDuration() ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Extracts mono 16kHz PCM WAV from any video/audio file — exactly the
   /// format Whisper wants. Real ffmpeg decode, so none of the browser's
   /// decodeAudioData container-strictness issues apply here.

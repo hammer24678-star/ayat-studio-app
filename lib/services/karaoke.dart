@@ -98,7 +98,10 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
     double tTo;
     if (isLast) {
       tTo = seg.end;
-    } else if (onsetCount >= 4 && onsetTo > 0 && onsetTo < onsetCount) {
+    } else if (onsetCount >= 4 &&
+        onsetCount >= total * 0.5 && // PATCH_S96_KARAOKE_ONSET_DENSITY
+        onsetTo > 0 &&
+        onsetTo < onsetCount) {
       // boundary = where the next part's first heard word actually starts
       tTo = onsets[onsetTo].clamp(tFrom + 0.3, seg.end - 0.3);
     } else {
@@ -134,7 +137,17 @@ KaraokeCue karaokeCueAt(List<KaraokeChunk> chunks, double t) {
     if (t >= c.start && t < c.end) {
       final n = c.words.length;
       int lit;
-      if (c.onsets.length >= 2) {
+      // PATCH_S96_KARAOKE_ONSET_DENSITY: trust real onsets to pace the
+      // lighting only when there are ENOUGH of them relative to the word
+      // count -- a chunk with e.g. 3 onsets for 12 words was still using
+      // them before, and the (n * passed / onsets.length) ratio then
+      // jumps the highlight by several words at once per onset instead of
+      // advancing smoothly. That's exactly "sometimes it lights up
+      // properly and sometimes it doesn't" -- it depended entirely on how
+      // many onsets Whisper happened to return for that specific chunk.
+      // Below the density bar, the letter-weighted fallback paces every
+      // word individually instead.
+      if (c.onsets.length >= 2 && c.onsets.length >= n * 0.5) {
         // PATCH_S55_WORD_TIMESTAMPS: light by how many heard word-onsets
         // have passed — tracks the reciter's real pace, madd and pauses.
         var passed = 0;
