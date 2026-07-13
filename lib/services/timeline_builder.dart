@@ -95,7 +95,7 @@ class TimelineBuilder {
   // PATCH_S90_HONEST_COVERAGE: returns the real decoded duration
   // alongside the timeline so callers can report coverage against
   // the actual clip length instead of a possibly-unset video duration.
-  static Future<({List<TimelineSegment> timeline, double totalSec})> build({
+  static Future<({List<TimelineSegment> timeline, double totalSec, String? decodeWarning})> build({
     required String mediaPath,
     required AyahMatcher matcher,
     double? scanStart,
@@ -124,6 +124,20 @@ class TimelineBuilder {
     final probedSec = await MediaService.probedDurationSec(mediaPath);
     final totalSec =
         (probedSec != null && probedSec > decodedSec) ? probedSec : decodedSec;
+    // PATCH_S97_DECODE_MISMATCH_WARNING: a real, meaningful gap between what
+    // the container claims and what ffmpeg actually decoded means part of
+    // THIS SPECIFIC FILE's audio never made it into the scan at all -- not a
+    // detection-quality problem tunable from here, a source-file problem
+    // (most likely corrupted, or discontinuous partway through). Surface it
+    // plainly and specifically instead of letting it hide behind a coverage
+    // percentage the person has to notice and correctly interpret themselves.
+    final String? decodeWarning =
+        (probedSec != null && probedSec > decodedSec * 1.1)
+            ? 'تنبيه: مدة الملف الأصلي ~${probedSec.round()}ث لكن تم فك ترميز '
+                '~${decodedSec.round()}ث فقط منه فعليًا — على الأرجح الملف تالف '
+                'أو يحتوي جزءًا غير مقروء بعد هذه النقطة (وليس مشكلة في دقة '
+                'الرصد نفسها). جرّب تصدير/تسجيل الملف من جديد.'
+            : null;
     // PATCH_S86_SCAN_RANGE
     final rangeStart = (scanStart ?? 0).clamp(0.0, decodedSec);
     final rangeEnd = (scanEnd == null || scanEnd <= rangeStart)
@@ -400,7 +414,11 @@ class TimelineBuilder {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
     }
-    return (timeline: timeline, totalSec: totalSec); // PATCH_S90_HONEST_COVERAGE
+    return (
+      timeline: timeline,
+      totalSec: totalSec,
+      decodeWarning: decodeWarning,
+    ); // PATCH_S90_HONEST_COVERAGE / PATCH_S97_DECODE_MISMATCH_WARNING
   }
 
   // PATCH_S88_AUTOSYNC_HONEST_FIX: a detection strong enough to stand on

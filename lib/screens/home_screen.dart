@@ -479,6 +479,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
       final timeline = result.timeline;
       state.detectedAudioDurationSec = result.totalSec;
+      final decodeWarning = result.decodeWarning; // PATCH_S97_DECODE_MISMATCH_WARNING
       if (timeline.isEmpty) {
         state.setTimeline([]);
         _toast('لم يتم رصد أي آية معروفة بثقة كافية في هذا الفيديو');
@@ -509,10 +510,16 @@ class _HomeScreenState extends State<HomeScreen>
         state.matchConfidenceText =
             'تم رصد ${timeline.length} آية ($range) تغطي $coverage٪ من المقطع'
             '${inferredCount > 0 ? ' — منها $inferredCount مستنتجة من تسلسل المصحف، راجعها في «مراجعة الآيات المرصودة»' : ''}'
-            '$qualityWarning';
+            '$qualityWarning'
+            // PATCH_S97_DECODE_MISMATCH_WARNING
+            '${decodeWarning != null ? '\n$decodeWarning' : ''}';
         state.detectedLabel = 'مزامنة تلقائية مفعّلة — التصدير سيستخدم نفس التوقيت';
       });
       HapticFeedback.mediumImpact(); // PATCH_S83_SYNC_QOL
+      // PATCH_S97_DECODE_MISMATCH_WARNING: a different, more specific kind of
+      // problem than "detected N ayat" -- worth its own toast, not just a
+      // line buried inside the longer summary text.
+      if (decodeWarning != null) _toast(decodeWarning);
       _toast('تم رصد ${timeline.length} آية ✓ — التصدير سيستخدم نفس التوقيت تلقائيًا');
       await _video?.play();
     });
