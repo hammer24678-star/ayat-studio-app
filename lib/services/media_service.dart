@@ -77,8 +77,14 @@ class MediaService {
         decodedSec < probedSec * 0.9) {
       final retryPath =
           '${dir.path}/asr_retry_${DateTime.now().millisecondsSinceEpoch}.wav';
+      // PATCH_S99_WIDEN_PROBE_WINDOW: -analyzeduration/-probesize widen how
+      // far ffmpeg looks ahead before it starts decoding -- fixes a
+      // DIFFERENT cause than the error-tolerance flags above: ffmpeg
+      // simply not looking far enough into the file to find where the
+      // real stream continues, with no corruption involved at all.
       final retryCmd = '-y -err_detect ignore_err '
           '-fflags +genpts+igndts+discardcorrupt '
+          '-analyzeduration 100000000 -probesize 100000000 '
           '-i "$inputPath" -vn -ac 1 -ar 16000 -f wav "$retryPath"';
       final retrySession = await FFmpegKit.execute(retryCmd);
       final retryRc = await retrySession.getReturnCode();
