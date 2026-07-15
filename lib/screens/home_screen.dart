@@ -77,6 +77,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _selectedTab = 0;
   int _selectedSurah = 1;
+  // PATCH_S113_AYAH_DROPDOWN_SELECTION_STATE: the "الآية" dropdown's value
+  // was hardcoded to null, so it never reflected the chosen ayah and reset
+  // to the hint on every rebuild -- looked like the selection wasn't being
+  // applied even though it was. This is the missing tracked selection.
+  int? _selectedAyahIdx;
   // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: last ayah picked from the dropdown below,
   // so the partial-ayah word-range section knows what to slice from.
   Ayah? _partialSourceAyah;
@@ -2990,12 +2995,18 @@ class _HomeScreenState extends State<HomeScreen>
             for (final s in surahs)
               DropdownMenuItem(value: s.$1, child: Text('سورة ${s.$2}')),
           ],
-          onChanged: (v) => setState(() => _selectedSurah = v ?? 1),
+          onChanged: (v) => setState(() {
+            _selectedSurah = v ?? 1;
+            // PATCH_S113_AYAH_DROPDOWN_SELECTION_STATE: old index belonged
+            // to the previous surah's ayah list -- drop it instead of
+            // pointing at the wrong ayah (or a now out-of-range index).
+            _selectedAyahIdx = null;
+          }),
         ),
         _fieldLabel('الآية'),
         DropdownButton<int>(
           isExpanded: true,
-          value: null,
+          value: _selectedAyahIdx,
           hint: const Text('اختر الآية'),
           items: [
             for (final e in ayatOfSurah)
@@ -3023,6 +3034,10 @@ class _HomeScreenState extends State<HomeScreen>
             // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH
             final words = a.ar.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
             setState(() {
+              // PATCH_S113_AYAH_DROPDOWN_SELECTION_STATE: actually remember
+              // the picked index so the dropdown shows it instead of
+              // snapping back to the 'اختر الآية' hint.
+              _selectedAyahIdx = v;
               _partialSourceAyah = a;
               _partialFromWord = 0;
               _partialToWord = words.isEmpty ? 0 : words.length - 1;
