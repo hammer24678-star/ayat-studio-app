@@ -470,7 +470,11 @@ class StageEffects {
       // gentle pulse so the stars breathe rather than sit static
       final pulse = 0.6 + 0.4 * sin(2 * pi * t / loopSeconds + phase);
       final r = (i == 1 ? 0.09 : 0.065) * w;
-      final angle = 2 * pi * t / loopSeconds * (i.isEven ? 1 : -1) + phase;
+      // PATCH_S105_SLOW_SPINSTAR: 8x slower spin (45° per loop instead of a
+      // full 360°). Still a seamless loop -- an 8-pointed star has 8-fold
+      // rotational symmetry, so any multiple of a 45° (2π/8) turn per loop
+      // lines up identically at the seam.
+      final angle = (pi / 4) * (t / loopSeconds) * (i.isEven ? 1 : -1) + phase;
       final alpha = (0.55 + 0.25 * pulse) * intensity;
       glowPaint
         ..color = const Color(0xFFECC875).withValues(alpha: alpha * 0.65)

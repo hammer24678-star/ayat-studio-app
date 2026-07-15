@@ -18,6 +18,38 @@ class AyatColors {
   static const emerald = Color(0xFF1E4B3F);
 }
 
+// PATCH_S105_GOLD_AYAH_BADGE: shared golden ayah-number ornament -- the
+// same solid AyatColors.gold filled circle with dark-ink digits already
+// used by the mushaf reader's ayah-end ornament (PATCH_S74). Reused
+// anywhere an ayah number should read as part of the app's gold theme
+// instead of plain text.
+Widget ayahNumberBadge(int num, {double size = 26, double fontSize = 11}) {
+  return Container(
+    width: size,
+    height: size,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: AyatColors.gold,
+      boxShadow: [
+        BoxShadow(
+          color: AyatColors.gold.withValues(alpha: 0.45),
+          blurRadius: 6,
+          spreadRadius: 0.5,
+        ),
+      ],
+    ),
+    child: Text(
+      '$num',
+      style: TextStyle(
+        color: AyatColors.ink,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
 class AyatTheme {
   static TextTheme get _textTheme => TextTheme(
         // Aref Ruqaa — headings/titles, matches the browser build's h1/h2/h3

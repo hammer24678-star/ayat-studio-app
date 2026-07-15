@@ -2658,8 +2658,16 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 10),
-        Text('استخدام جزء من الآية فقط',
-            style: Theme.of(context).textTheme.headlineMedium),
+        // PATCH_S105_GOLD_AYAH_BADGE: show which ayah this is, as the same
+        // gold badge used elsewhere, next to the section title.
+        Row(
+          children: [
+            ayahNumberBadge(a.num),
+            const SizedBox(width: 8),
+            Text('استخدام جزء من الآية فقط',
+                style: Theme.of(context).textTheme.headlineMedium),
+          ],
+        ),
         Text(
           'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض نصفها '
           'فقط مثلاً بدل الآية كاملة.',
@@ -2712,7 +2720,12 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           child: Text(partialText,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge),
+              // PATCH_S105_DEFAULT_FONT_PREVIEW: use the ayah font the user
+              // actually picked under 'خط الآية' (state.fontKey) instead of
+              // the generic UI text style, so this preview matches what
+              // will actually be exported.
+              style: ayahTextStyle(state.fontKey,
+                  fontSize: 20, color: AyatColors.parchment)),
         ),
         const SizedBox(height: 8),
         ElevatedButton(
@@ -2792,7 +2805,19 @@ class _HomeScreenState extends State<HomeScreen>
           hint: const Text('اختر الآية'),
           items: [
             for (final e in ayatOfSurah)
-              DropdownMenuItem(value: e.$1, child: Text('آية ${e.$2.num}')),
+              // PATCH_S105_GOLD_AYAH_BADGE: gold-circle number badge instead
+              // of plain "آية N" text, matching the mushaf reader's style.
+              DropdownMenuItem(
+                value: e.$1,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ayahNumberBadge(e.$2.num, size: 22, fontSize: 10),
+                    const SizedBox(width: 8),
+                    Text('آية ${e.$2.num}'),
+                  ],
+                ),
+              ),
           ],
           onChanged: (v) {
             if (v == null) return;
