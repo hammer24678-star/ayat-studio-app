@@ -34,6 +34,7 @@ import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
 import '../services/timeline_builder.dart';
 import '../services/whisper_service.dart';
+import '../theme/ayat_fonts.dart'; // PATCH_S106_FIX_AYAHTEXTSTYLE_IMPORT
 import '../theme/ayat_theme.dart';
 import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
