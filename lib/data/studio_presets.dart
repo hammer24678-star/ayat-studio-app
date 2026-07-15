@@ -368,12 +368,30 @@ const List<Color> kTextColors = [
 ];
 
 const List<String> kReciters = [
+  // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: grew from 6 to 20. Every name
+  // below is matched at runtime against mp3quran.net's live reciter
+  // catalog (see ReciterAudioService) for the "تنزيل من الإنترنت" button --
+  // no per-reciter server URL is hardcoded here.
   'الشيخ الدوسري',
   'مشاري العفاسي',
   'عبدالباسط عبدالصمد',
   'ماهر المعيقلي',
   'ياسر الدوسري',
   'سعود الشريم',
+  'عبدالرحمن السديس',
+  'سعد الغامدي',
+  'أحمد العجمي',
+  'محمود خليل الحصري',
+  'محمد صديق المنشاوي',
+  'علي الحذيفي',
+  'محمد أيوب',
+  'ناصر القطامي',
+  'هاني الرفاعي',
+  'أبو بكر الشاطري',
+  'خالد الجليل',
+  'فارس عباد',
+  'بندر بليلة',
+  'صلاح البدير',
 ];
 
 const String kBasmala = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';

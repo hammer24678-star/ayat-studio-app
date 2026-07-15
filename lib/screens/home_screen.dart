@@ -27,6 +27,7 @@ import '../services/export_service.dart';
 import '../services/font_service.dart'; // PATCH_S39_PERSISTENT_FONTS
 import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import '../services/media_service.dart';
+import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/overlay_renderer.dart';
@@ -54,6 +55,8 @@ class _HomeScreenState extends State<HomeScreen>
   VideoPlayerController? _video;
   VideoPlayerController? _reciterPreview;
   int? _previewingReciter;
+  int? _downloadingReciter; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
+  double? _downloadProgress; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: 0..1, null = indeterminate
 
   final ValueNotifier<StageOverlayText?> _liveOverlay = ValueNotifier(null);
   Timer? _syncTimer;
@@ -789,6 +792,86 @@ class _HomeScreenState extends State<HomeScreen>
         _previewingReciter = null;
       });
     }
+  }
+
+  // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: second way to fill a reciter
+  // slot -- download the real recitation instead of attaching a file.
+  // Reuses state.reciterAudioPaths[i], so playback/export are unchanged.
+  Future<void> _downloadReciterAudio(int i) async {
+    final name = kReciters[i];
+    final surahNum = await _pickSurahForDownload();
+    if (surahNum == null || !mounted) return;
+    setState(() {
+      _downloadingReciter = i;
+      _downloadProgress = null;
+    });
+    try {
+      final path = await ReciterAudioService.downloadSurah(
+        displayName: name,
+        surahNum: surahNum,
+        onProgress: (p) {
+          if (mounted) setState(() => _downloadProgress = p);
+        },
+      );
+      if (!mounted) return;
+      state.update(() => state.reciterAudioPaths[i] = path);
+      _toast('تم تنزيل تلاوة $name ✓');
+    } on ReciterAudioException catch (e) {
+      _toast(e.message);
+    } catch (_) {
+      _toast('تعذّر تنزيل الملف الصوتي');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloadingReciter = null;
+          _downloadProgress = null;
+        });
+      }
+    }
+  }
+
+  // Surah picker built from the already-loaded Quran corpus (state.matcher)
+  // rather than a separately maintained list of 114 surah names.
+  Future<int?> _pickSurahForDownload() async {
+    final matcher = state.matcher;
+    final surahs = <int, String>{};
+    if (matcher != null) {
+      for (final a in matcher.ayaat) {
+        surahs[a.surahNum] = a.surah;
+      }
+    }
+    final entries = surahs.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AyatColors.surface2,
+        title: const Text('اختر السورة للتنزيل'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 420,
+          child: entries.isEmpty
+              ? const Center(
+                  child: Text('انتظر تحميل بيانات القرآن ثم أعد المحاولة'))
+              : ListView.builder(
+                  itemCount: entries.length,
+                  itemBuilder: (c, idx) {
+                    final e = entries[idx];
+                    return ListTile(
+                      title: Text('${e.key}. ${e.value}'),
+                      onTap: () => Navigator.pop(ctx, e.key),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('إلغاء'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _applyCustomText() async {
@@ -3302,7 +3385,10 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _panelTitle('مقاطع صوتية للقرّاء',
-            'أرفق تلاوة لكل قارئ ثم اختره لإضافة تلاوته إلى المقطع المُصدَّر. لا يضم التطبيق أي تلاوات مسجّلة مسبقًا — أرفق ملفات مرخّصة لديك.'),
+            // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: no longer true that the app
+            // can only use manually-attached files -- it can fetch real
+            // recitations from mp3quran.net now.
+            'اختر قارئًا ثم إمّا نزّل تلاوته لسورة معيّنة من الإنترنت، أو أرفق ملف تلاوة خاص بك.'),
         for (var i = 0; i < kReciters.length; i++)
           Container(
             margin: const EdgeInsets.only(bottom: 8),
@@ -3357,6 +3443,30 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
                     ),
                   ),
+                  // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: download this
+                  // reciter's audio for a chosen سورة straight from the
+                  // internet instead of attaching a file.
+                  _downloadingReciter == i
+                      ? SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: Padding(
+                            padding: const EdgeInsets.all(9),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              value: _downloadProgress,
+                              color: AyatColors.goldBright,
+                            ),
+                          ),
+                        )
+                      : IconButton(
+                          onPressed: () => _downloadReciterAudio(i),
+                          icon: const Icon(
+                            Icons.cloud_download_outlined,
+                            color: AyatColors.goldBright,
+                          ),
+                          tooltip: 'تنزيل من الإنترنت',
+                        ),
                   IconButton(
                     onPressed: () => _toggleReciterPreview(i),
                     icon: Icon(
