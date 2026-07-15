@@ -1,5 +1,6 @@
 // PATCH_S74_MUSHAF_UI_POLISH
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart'; // PATCH_S108_MUSHAF_AYAH_ORNAMENT_REDESIGN
 
 import '../services/ayah_matcher.dart';
 import '../theme/ayat_theme.dart';
@@ -23,6 +24,13 @@ class MushafScreen extends StatefulWidget {
   @override
   State<MushafScreen> createState() => _MushafScreenState();
 }
+
+// PATCH_S108_MUSHAF_AYAH_ORNAMENT_REDESIGN: Eastern Arabic-Indic digits
+// (٠١٢٣٤٥٦٧٨٩) for the ayah-end ornament, matching printed mushaf
+// convention instead of Western digits.
+const _kEasternArabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+String _easternArabicNumeral(int n) =>
+    n.toString().split('').map((d) => _kEasternArabicDigits[int.parse(d)]).join();
 
 class _MushafScreenState extends State<MushafScreen> {
   late int _surah;
@@ -162,31 +170,47 @@ class _MushafScreenState extends State<MushafScreen> {
                                   ),
                                   WidgetSpan(
                                     alignment: PlaceholderAlignment.middle,
-                                    // PATCH_S74_MUSHAF_UI_POLISH: solid gold
-                                    // ayah-end ornament with a soft glow,
-                                    // instead of a thin outline badge.
+                                    // PATCH_S108_MUSHAF_AYAH_ORNAMENT_REDESIGN:
+                                    // two-tone radial-gradient medallion with a
+                                    // thin rim ring, Eastern Arabic-Indic digit,
+                                    // and more breathing margin so it reads as
+                                    // a proper ayah-end marker instead of a flat
+                                    // dot colliding with the surrounding letters.
                                     child: Container(
-                                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                                      width: 26,
-                                      height: 26,
+                                      margin: const EdgeInsets.symmetric(horizontal: 5),
+                                      width: 30,
+                                      height: 30,
                                       alignment: Alignment.center,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color: AyatColors.gold,
+                                        gradient: RadialGradient(
+                                          colors: [
+                                            AyatColors.goldBright,
+                                            AyatColors.gold,
+                                          ],
+                                          stops: const [0.0, 1.0],
+                                        ),
+                                        border: Border.all(
+                                          color: AyatColors.goldDim,
+                                          width: 1,
+                                        ),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: AyatColors.gold.withValues(alpha: 0.45),
-                                            blurRadius: 6,
+                                            color: AyatColors.gold.withValues(alpha: 0.5),
+                                            blurRadius: 7,
                                             spreadRadius: 0.5,
                                           ),
                                         ],
                                       ),
                                       child: Text(
-                                        '${a.num}',
-                                        style: const TextStyle(
-                                          color: AyatColors.ink,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
+                                        _easternArabicNumeral(a.num),
+                                        style: GoogleFonts.amiriQuran(
+                                          textStyle: const TextStyle(
+                                            color: AyatColors.ink,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.0,
+                                          ),
                                         ),
                                       ),
                                     ),
