@@ -159,6 +159,21 @@ const List<BgDef> kBackgrounds = [
   BgDef(stops: [Color(0xFF072421), Color(0xFF0E4A44), Color(0xFF0A3733)]), // ocean teal
   BgDef(stops: [Color(0xFF33260A), Color(0xFF6B4E14), Color(0xFF40300C)]), // wheat field gold
   BgDef(radial: true, stops: [Color(0xFF2A2438), Color(0xFF120F1C)]), // mountain dusk
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: sky/clouds, forest/trees, and space/planets
+  // themed additions -- same gradient-only system as every background
+  // above, kept dark/jewel-toned so gold/white ayah text stays readable.
+  BgDef(radial: true, stops: [Color(0xFF274461), Color(0xFF0C1B2E)]), // dawn clouds
+  BgDef(stops: [Color(0xFF1A3350), Color(0xFF3E6488), Color(0xFF23415F)]), // pale blue sky
+  BgDef(radial: true, stops: [Color(0xFF0E2B3D), Color(0xFF040E16)]), // overcast sky & mist
+  BgDef(stops: [Color(0xFF0B2A1C), Color(0xFF184A2E), Color(0xFF0E3320)]), // pine forest
+  BgDef(radial: true, stops: [Color(0xFF15311F), Color(0xFF081A10)]), // misty woodland
+  BgDef(stops: [Color(0xFF203218), Color(0xFF4A6B2C), Color(0xFF2B4519)]), // sunlit tree canopy
+  BgDef(radial: true, stops: [Color(0xFF060A1E), Color(0xFF01020A)]), // deep space starfield
+  BgDef(stops: [Color(0xFF1B0F3A), Color(0xFF4A1E63), Color(0xFF250F42)]), // cosmic nebula
+  BgDef(radial: true, stops: [Color(0xFF2E1A4D), Color(0xFF0A0616)]), // violet galaxy
+  BgDef(stops: [Color(0xFF3A2410), Color(0xFF8A5A22), Color(0xFF4E3212)]), // ringed planet gold
+  BgDef(radial: true, stops: [Color(0xFF102A3E), Color(0xFF041019)]), // blue planet horizon
+  BgDef(stops: [Color(0xFF14202E), Color(0xFF33507A), Color(0xFF1D2E46)]), // aurora night sky
 ];
 
 /// Registered font choices for the ayah text. `family` is what actually gets

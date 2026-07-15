@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 // PATCH_S85_MORE_EFFECTS: fireflies/fog/rays appended at the END — the
 // settings persistence stores effect.index, so existing saved choices keep
 // pointing at the same effect.
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays, spinningStar } // PATCH_S100_FONTS_SPINSTAR_TINT
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays, spinningStar, starBurst, flowerBurst } // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -35,6 +35,8 @@ extension StageEffectLabel on StageEffect {
         StageEffect.fog => 'ضباب هادئ', // PATCH_S85_MORE_EFFECTS
         StageEffect.rays => 'أشعة نور', // PATCH_S85_MORE_EFFECTS
         StageEffect.spinningStar => 'نجمة إسلامية دوّارة', // PATCH_S100_FONTS_SPINSTAR_TINT
+        StageEffect.starBurst => 'انفجار نجمي', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        StageEffect.flowerBurst => 'تفتّح الزهور', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       };
 
   IconData get icon => switch (this) {
@@ -50,6 +52,8 @@ extension StageEffectLabel on StageEffect {
         StageEffect.fog => Icons.cloud_outlined, // PATCH_S85_MORE_EFFECTS
         StageEffect.rays => Icons.wb_twilight_outlined, // PATCH_S85_MORE_EFFECTS
         StageEffect.spinningStar => Icons.star_rate_rounded, // PATCH_S100_FONTS_SPINSTAR_TINT
+        StageEffect.starBurst => Icons.auto_awesome_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        StageEffect.flowerBurst => Icons.local_florist_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       };
 }
 
@@ -104,6 +108,10 @@ class StageEffects {
         _paintRays(canvas, size, timeSec, intensity);
       case StageEffect.spinningStar: // PATCH_S100_FONTS_SPINSTAR_TINT
         _paintSpinningStar(canvas, size, timeSec, intensity);
+      case StageEffect.starBurst: // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        _paintStarBurst(canvas, size, timeSec, intensity);
+      case StageEffect.flowerBurst: // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        _paintFlowerBurst(canvas, size, timeSec, intensity);
     }
   }
 
@@ -513,6 +521,111 @@ class StageEffects {
       canvas.rotate(angle);
       canvas.drawRect(
           Rect.fromCenter(center: Offset.zero, width: pw, height: ph), paint);
+      canvas.restore();
+    }
+  }
+
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: small gold 8-point stars sparking
+  // outward from a few anchor points and fading, like distant fireworks --
+  // distinct from spinningStar (rotates in place) and confetti (falls).
+  // Reuses _drawEightPointStar so the sparks read as tiny stars rather than
+  // generic dots. Each particle's own cycle offset (mod 1.0 of loopSeconds)
+  // keeps the export tile seamless, same convention as every effect here.
+  static void _paintStarBurst(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final anchors = [
+      Offset(w * 0.22, h * 0.28),
+      Offset(w * 0.78, h * 0.34),
+      Offset(w * 0.50, h * 0.70),
+    ];
+    final perAnchor = (7 * intensity).round().clamp(2, 12);
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var a = 0; a < anchors.length; a++) {
+      for (var i = 0; i < perAnchor; i++) {
+        final idx = a * 100 + i;
+        final angle = _rand(idx, 1) * 2 * pi;
+        final cycleOffset = _rand(idx, 2); // stagger each particle's burst
+        final cyclePos = ((t / loopSeconds) + cycleOffset) % 1.0;
+        final travel = _easeInOutSine(cyclePos);
+        final maxR = (0.10 + 0.05 * _rand(idx, 3)) * w;
+        final r = travel * maxR;
+        // fast fade-in, slower fade-out -- reads as a spark, not a pulse
+        final fade = cyclePos < 0.15
+            ? cyclePos / 0.15
+            : (1 - (cyclePos - 0.15) / 0.85).clamp(0.0, 1.0);
+        final alpha = fade * intensity * 0.9;
+        if (alpha <= 0.02) continue;
+        final starR =
+            (2.2 + 2.0 * _rand(idx, 4)) * w / 1080 * (0.5 + 0.5 * fade);
+        paint.color = const Color(0xFFFFF3D6).withValues(alpha: alpha);
+        canvas.save();
+        canvas.translate(
+            anchors[a].dx + cos(angle) * r, anchors[a].dy + sin(angle) * r);
+        canvas.rotate(angle);
+        _drawEightPointStar(canvas, paint, starR);
+        canvas.restore();
+      }
+    }
+  }
+
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: a handful of six-petal blossoms
+  // that bloom outward from a few anchor points, hold, then fade and bloom
+  // again -- a softer "flower" reading than starBurst's sharp sparks, built
+  // from rotated ellipses instead of a new asset. Same seamless-loop
+  // convention (whole cycles via t/loopSeconds mod 1.0) as every effect here.
+  static void _paintFlowerBurst(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final anchors = [
+      Offset(w * 0.20, h * 0.24),
+      Offset(w * 0.80, h * 0.30),
+      Offset(w * 0.50, h * 0.74),
+      Offset(w * 0.30, h * 0.60),
+    ];
+    const petals = 6;
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var a = 0; a < anchors.length; a++) {
+      final cycleOffset = _rand(a, 11);
+      final cyclePos = ((t / loopSeconds) + cycleOffset) % 1.0;
+      // bloom (0..0.35), hold (0.35..0.55), fade (0.55..1)
+      double bloom;
+      double fade;
+      if (cyclePos < 0.35) {
+        bloom = _easeInOutSine(cyclePos / 0.35);
+        fade = bloom;
+      } else if (cyclePos < 0.55) {
+        bloom = 1.0;
+        fade = 1.0;
+      } else {
+        bloom = 1.0;
+        fade = (1 - (cyclePos - 0.55) / 0.45).clamp(0.0, 1.0);
+      }
+      if (fade <= 0.02) continue;
+      final maxR = (0.07 + 0.02 * _rand(a, 12)) * w;
+      final petalLen = maxR * bloom;
+      final petalW = petalLen * 0.42;
+      final baseAngle = _rand(a, 13) * 2 * pi;
+      final alpha = fade * intensity * 0.75;
+      final petalColor = Color.lerp(const Color(0xFFECC875),
+          const Color(0xFFFFF3D6), _rand(a, 14))!
+          .withValues(alpha: alpha);
+      paint.color = petalColor;
+      canvas.save();
+      canvas.translate(anchors[a].dx, anchors[a].dy);
+      for (var p = 0; p < petals; p++) {
+        final ang = baseAngle + p * 2 * pi / petals;
+        canvas.save();
+        canvas.rotate(ang);
+        canvas.translate(petalLen * 0.5, 0);
+        canvas.drawOval(
+            Rect.fromCenter(center: Offset.zero, width: petalLen, height: petalW),
+            paint);
+        canvas.restore();
+      }
+      // small bright core so it reads as a blossom, not a pinwheel
+      paint.color = const Color(0xFFFFF3D6).withValues(alpha: alpha);
+      canvas.drawCircle(Offset.zero, petalW * 0.35, paint);
       canvas.restore();
     }
   }

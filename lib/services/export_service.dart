@@ -295,7 +295,10 @@ class ExportService {
       if (state.showIntro) {
         onStatus?.call('جارٍ إنشاء بطاقة البسملة…');
         parts.add(await _renderTitleSegment(
-            work, 'intro', kBasmala, state, w, h));
+            work, 'intro', kBasmala, state, w, h,
+            // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: the chosen stage effect now
+            // plays over the intro card too, not just the main clip.
+            effectSeqPattern: effectSeqPattern));
       }
       parts.add(mainMp4);
       if (state.showOutro) {
@@ -303,7 +306,8 @@ class ExportService {
         parts.add(await _renderTitleSegment(
             work, 'outro',
             state.outroText.trim().isEmpty ? kDefaultOutro : state.outroText,
-            state, w, h));
+            state, w, h,
+            effectSeqPattern: effectSeqPattern)); // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       }
 
       final docs = await getApplicationDocumentsDirectory();
@@ -923,7 +927,8 @@ class ExportService {
   }
 
   static Future<String> _renderTitleSegment(Directory work, String name,
-      String text, StudioState state, int w, int h) async {
+      String text, StudioState state, int w, int h,
+      {String? effectSeqPattern}) async { // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
     final png = '${work.path}/$name.png';
     await File(png).writeAsBytes(await OverlayRenderer.renderTitleCardPng(
       w: w,
@@ -944,6 +949,19 @@ class ExportService {
       final fadeOutStart = (titleCardSec - 0.35).clamp(0.0, double.infinity);
       vf.add('fade=t=in:st=0:d=0.35');
       vf.add('fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.35');
+    }
+    // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: reuses the exact same rendered fx PNG
+    // sequence the main clip uses -- no extra frames generated here, just
+    // one more overlay pass via filter_complex instead of the plain -vf
+    // path below. Only kicks in when an effect is actually active.
+    if (effectSeqPattern != null) {
+      final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
+          '-framerate ${StageEffects.exportFps} -stream_loop -1 -start_number 0 -i "$effectSeqPattern" '
+          '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
+          '-filter_complex "[0:v]${vf.join(',')}[base];[1:v]format=rgba,scale=$w:$h[fx];[base][fx]overlay=0:0[outv]" '
+          '-map "[outv]" -map 2:a -t $titleCardSec ${_encodeParams(state.exportQuality)} "$mp4"';
+      await _run(cmd, titleCardSec, null);
+      return mp4;
     }
     final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
         '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
