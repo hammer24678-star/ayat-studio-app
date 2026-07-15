@@ -20,6 +20,10 @@ const List<(AyatAspectRatio, String, int, int)> kAspectRatios = [
 
 enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass = frosted-panel look
 
+// PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: where the optional custom
+// caption line (reciter name, ayah-range label, ...) sits on the frame.
+enum CaptionPosition { top, bottom }
+
 // PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see
 // ExportService._colorGradeFilter for the ffmpeg filter each one maps to.
 // Purely visual, never touches audio.

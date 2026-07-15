@@ -91,6 +91,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _customArCtrl = TextEditingController();
   final _customEnCtrl = TextEditingController();
+  // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
+  final _captionCtrl = TextEditingController();
+  final _textStartCtrl = TextEditingController();
+  final _textEndCtrl = TextEditingController();
   late final _outroCtrl = TextEditingController(text: state.outroText);
   late final _staticDurCtrl =
       TextEditingController(text: '${state.staticDurationSec}');
@@ -180,6 +184,10 @@ class _HomeScreenState extends State<HomeScreen>
     _liveOverlay.dispose();
     _customArCtrl.dispose();
     _customEnCtrl.dispose();
+    // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
+    _captionCtrl.dispose();
+    _textStartCtrl.dispose();
+    _textEndCtrl.dispose();
     _outroCtrl.dispose();
     _staticDurCtrl.dispose();
     super.dispose();
@@ -2791,6 +2799,149 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: tap a word of the currently
+  // displayed ayah to color just that word red in the exported video.
+  Widget _redWordsSection() {
+    final words = state.ayahText
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (words.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        Text('تلوين كلمات بالأحمر (اختياري)',
+            style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'اضغطي على أي كلمة لتلوينها بالأحمر في الفيديو المُصدَّر -- مفيدة '
+          'لتمييز كلمة معينة من الآية.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = 0; i < words.length; i++)
+              FilterChip(
+                label: Text(words[i],
+                    style: ayahTextStyle(state.fontKey, fontSize: 14)),
+                selected: state.redWordIndices.contains(i),
+                selectedColor: const Color(0xFFE53935).withValues(alpha: 0.35),
+                onSelected: (sel) => state.update(() {
+                  if (sel) {
+                    state.redWordIndices.add(i);
+                  } else {
+                    state.redWordIndices.remove(i);
+                  }
+                }),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: optional manual override for
+  // when the ayah text appears/disappears in the exported clip.
+  Widget _manualTimingSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        Text('توقيت ظهور النص يدويًا (اختياري)',
+            style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'حدّدي بالثواني متى يظهر نص الآية ومتى يختفي من الفيديو المُصدَّر -- '
+          'اتركيهما فارغين ليظهر النص طوال المقطع كالمعتاد.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _textStartCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'يبدأ عند (ثانية)'),
+                onChanged: (v) => state.update(
+                    () => state.textTimeStartOverride = double.tryParse(v)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _textEndCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'ينتهي عند (ثانية)'),
+                onChanged: (v) => state.update(
+                    () => state.textTimeEndOverride = double.tryParse(v)),
+              ),
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: 'مسح التوقيت اليدوي',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() {
+                _textStartCtrl.clear();
+                _textEndCtrl.clear();
+                state.update(() {
+                  state.textTimeStartOverride = null;
+                  state.textTimeEndOverride = null;
+                });
+              }),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: free-text caption (reciter
+  // name, ayah-range label, ...) shown near the top or bottom of the frame.
+  Widget _captionSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        Text('نص إضافي (اسم الشيخ، نطاق الآيات...)',
+            style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'مثال: "من آية ١٦ إلى ١٨" أو اسم القارئ -- يظهر كسطر صغير أعلى أو '
+          'أسفل الفيديو، بمعزل عن نص الآية نفسه.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _captionCtrl,
+          decoration: const InputDecoration(
+              hintText: 'مثال: الشيخ عبد الباسط عبد الصمد'),
+          onChanged: (v) => state.update(() => state.captionText = v),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            for (final pos in CaptionPosition.values)
+              Expanded(
+                child: RadioListTile<CaptionPosition>(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(pos == CaptionPosition.top ? 'أعلى' : 'أسفل'),
+                  value: pos,
+                  groupValue: state.captionPosition,
+                  onChanged: (v) => state.update(
+                      () => state.captionPosition = v ?? CaptionPosition.bottom),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _ayahPanel() {
     final surahs = <(int, String)>[];
     var last = 0;
@@ -2879,6 +3030,10 @@ class _HomeScreenState extends State<HomeScreen>
           },
         ),
         if (_partialSourceAyah != null) _partialAyahSection(),
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
+        if (state.hasAyah) _redWordsSection(),
+        _manualTimingSection(),
+        _captionSection(),
         _fieldLabel('أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)'),
         TextField(
           controller: _customArCtrl,

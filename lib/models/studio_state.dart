@@ -123,6 +123,20 @@ class StudioState extends ChangeNotifier {
       (trimManualStart > 0.05 ||
           (videoDurationSec > 0 && trimManualEnd < videoDurationSec - 0.05));
 
+  // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
+  // Manual override for when the ayah text overlay appears/disappears in
+  // the exported clip (seconds, relative to the exported clip's own start).
+  // Both null (the default) means "shown for the whole clip", same as before.
+  double? textTimeStartOverride;
+  double? textTimeEndOverride;
+  // Word indices (into state.ayahText.split(RegExp(r'\s+'))) to render in
+  // red instead of the normal text color. Cleared whenever setAyah() runs.
+  Set<int> redWordIndices = {};
+  // Optional extra line (reciter/sheikh name, ayah-range label, ...) drawn
+  // near the top or bottom of the frame, independent of the ayah text.
+  String captionText = '';
+  CaptionPosition captionPosition = CaptionPosition.bottom;
+
   // ---- background ----
   int bgIndex = 0;
   bool useCustomBg = false;
@@ -288,6 +302,9 @@ class StudioState extends ChangeNotifier {
       {String confidenceText = '', int? surahNum, int? ayahNum}) {
     ayahText = ar;
     translationText = en;
+    // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: a previous ayah's red-word
+    // selection almost never lines up with the new ayah's word count/order.
+    redWordIndices = {};
     detectedLabel = label;
     matchConfidenceText = confidenceText;
     notifyListeners();

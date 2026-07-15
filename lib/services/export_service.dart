@@ -213,6 +213,10 @@ class ExportService {
         lineHeightMultiplier: state.lineHeightMultiplier,
         offset: state.textOffset, // PATCH_S50_DRAGGABLE_TEXT
         userScale: state.textUserScale,
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
+        redWordIndices: state.redWordIndices,
+        captionText: state.captionText,
+        captionPosition: state.captionPosition,
       );
       String? overlaySeqPattern;
       String? overlayPng;
@@ -859,7 +863,20 @@ class ExportService {
           ? ',fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.6:alpha=1'
           : '';
       filters.add('[$ovIdx:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1$fadeOutFilter[ovf]');
-      filters.add('[$base][ovf]overlay=0:0:shortest=1[outv]');
+      // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: if the user picked an
+      // explicit start/stop second for the ayah text, gate the overlay to
+      // that window instead of showing it for the whole clip.
+      var enableClause = '';
+      if (state.textTimeStartOverride != null &&
+          state.textTimeEndOverride != null) {
+        final ws =
+            (state.textTimeStartOverride! - clipStart).clamp(0.0, duration);
+        final we =
+            (state.textTimeEndOverride! - clipStart).clamp(ws, duration);
+        enableClause =
+            ":enable='between(t,${ws.toStringAsFixed(3)},${we.toStringAsFixed(3)})'";
+      }
+      filters.add('[$base][ovf]overlay=0:0:shortest=1$enableClause[outv]');
     } else {
       filters.add('[$base]null[outv]');
     }
