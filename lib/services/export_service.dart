@@ -482,9 +482,27 @@ class ExportService {
     return 'noise=alls=$amt:allf=t+u';
   }
 
-  // Combined color-grade + vignette + grain chain, shared by the main clip
-  // and the bismillah/outro title cards so a chosen look stays consistent
-  // across all exported segments. Empty string when nothing is enabled.
+  // PATCH_S100_FONTS_SPINSTAR_TINT: any-color tint, independent of the
+  // colorGrade presets above. Decomposes the target color into
+  // colorbalance's midtone offsets (same technique warmGold/nightTeal
+  // already use for their push), scaled by intensity -- so this works for
+  // literally any Color, not just the two quick blue/gold presets in the UI.
+  static String _tintFilter(Color color, int intensity) {
+    final strength = intensity.clamp(0, 100) / 100;
+    double channel(int value) =>
+        (((value - 128) / 128) * strength).clamp(-1.0, 1.0);
+    final rm = channel(color.red);
+    final gm = channel(color.green);
+    final bm = channel(color.blue);
+    return 'colorbalance=rm=${rm.toStringAsFixed(3)}'
+        ':gm=${gm.toStringAsFixed(3)}'
+        ':bm=${bm.toStringAsFixed(3)}';
+  }
+
+  // Combined color-grade + tint + vignette + grain chain, shared by the
+  // main clip and the bismillah/outro title cards so a chosen look stays
+  // consistent across all exported segments. Empty string when nothing is
+  // enabled.
   static String _postFilterChain(StudioState state) {
     final parts = <String>[];
     final grade = _colorGradeFilter(state.colorGrade);
@@ -495,6 +513,10 @@ class ExportService {
       parts.add('eq=brightness=${state.adjustBrightness.toStringAsFixed(3)}'
           ':contrast=${state.adjustContrast.toStringAsFixed(3)}'
           ':saturation=${state.adjustSaturation.toStringAsFixed(3)}');
+    }
+    // PATCH_S100_FONTS_SPINSTAR_TINT
+    if (state.tintColor != null && state.tintIntensity > 0) {
+      parts.add(_tintFilter(state.tintColor!, state.tintIntensity));
     }
     if (state.vignetteEnabled) {
       parts.add(_vignetteFilter(state.vignetteIntensity));

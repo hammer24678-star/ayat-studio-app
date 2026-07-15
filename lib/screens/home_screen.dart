@@ -2157,6 +2157,82 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
         const SizedBox(height: 10),
+        // PATCH_S100_FONTS_SPINSTAR_TINT: quick blue/gold presets plus a full
+        // color picker (showAyatColorPicker), so any color works, not just
+        // the two swatches.
+        _fieldLabel('تدرّج بلون مخصص (أزرق / ذهبي / أي لون)'),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: () => state.update(() => state.tintColor = null),
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: state.tintColor == null
+                          ? AyatColors.goldBright
+                          : AyatColors.hairline,
+                      width: state.tintColor == null ? 2.5 : 1),
+                ),
+                child: const Icon(Icons.block, size: 16, color: AyatColors.parchmentDim),
+              ),
+            ),
+            for (final preset in const [
+              (Color(0xFF2A6FDB), 'أزرق'),
+              (Color(0xFFD4A017), 'ذهبي'),
+            ])
+              GestureDetector(
+                onTap: () => state.update(() => state.tintColor = preset.$1),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: preset.$1,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: state.tintColor?.toARGB32() ==
+                                preset.$1.toARGB32()
+                            ? AyatColors.goldBright
+                            : AyatColors.hairline,
+                        width: state.tintColor?.toARGB32() ==
+                                preset.$1.toARGB32()
+                            ? 2.5
+                            : 1),
+                  ),
+                ),
+              ),
+            GestureDetector(
+              onTap: () async {
+                final c = await showAyatColorPicker(
+                    context, state.tintColor ?? AyatColors.gold);
+                if (c != null) state.update(() => state.tintColor = c);
+              },
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: state.tintColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AyatColors.goldBright),
+                ),
+                child: const Icon(Icons.colorize, size: 15, color: Colors.black54),
+              ),
+            ),
+          ],
+        ),
+        if (state.tintColor != null)
+          Slider(
+            value: state.tintIntensity.toDouble(),
+            min: 0,
+            max: 100,
+            onChanged: (v) => state.update(() => state.tintIntensity = v.round()),
+          ),
+        const SizedBox(height: 10),
         ToggleRow(
           label: 'تظليل الحواف (فينيت)',
           value: state.vignetteEnabled,

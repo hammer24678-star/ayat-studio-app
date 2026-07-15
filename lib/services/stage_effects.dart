@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 // PATCH_S85_MORE_EFFECTS: fireflies/fog/rays appended at the END — the
 // settings persistence stores effect.index, so existing saved choices keep
 // pointing at the same effect.
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays } // PATCH_S72_GLITCH_EFFECT
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays, spinningStar } // PATCH_S100_FONTS_SPINSTAR_TINT
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -34,6 +34,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.fireflies => 'يراعات مضيئة', // PATCH_S85_MORE_EFFECTS
         StageEffect.fog => 'ضباب هادئ', // PATCH_S85_MORE_EFFECTS
         StageEffect.rays => 'أشعة نور', // PATCH_S85_MORE_EFFECTS
+        StageEffect.spinningStar => 'نجمة إسلامية دوّارة', // PATCH_S100_FONTS_SPINSTAR_TINT
       };
 
   IconData get icon => switch (this) {
@@ -48,6 +49,7 @@ extension StageEffectLabel on StageEffect {
         StageEffect.fireflies => Icons.emoji_nature_outlined, // PATCH_S85_MORE_EFFECTS
         StageEffect.fog => Icons.cloud_outlined, // PATCH_S85_MORE_EFFECTS
         StageEffect.rays => Icons.wb_twilight_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.spinningStar => Icons.star_rate_rounded, // PATCH_S100_FONTS_SPINSTAR_TINT
       };
 }
 
@@ -100,6 +102,8 @@ class StageEffects {
         _paintFog(canvas, size, timeSec, intensity);
       case StageEffect.rays: // PATCH_S85_MORE_EFFECTS
         _paintRays(canvas, size, timeSec, intensity);
+      case StageEffect.spinningStar: // PATCH_S100_FONTS_SPINSTAR_TINT
+        _paintSpinningStar(canvas, size, timeSec, intensity);
     }
   }
 
@@ -431,6 +435,48 @@ class StageEffects {
 
     canvas.drawPath(square(pi / 4), paint);
     canvas.drawPath(square(0), paint);
+  }
+
+  // PATCH_S100_FONTS_SPINSTAR_TINT: a handful of large, prominent 8-pointed
+  // (rub el hizb) stars that continuously spin in place with a soft gold
+  // glow -- unlike geometricShimmer's grid of small counter-rotating
+  // motifs, this is meant to read as a few clear focal stars rather than a
+  // background texture. Whole rotations per loop keep the export tile
+  // seamless, same convention as every other effect here.
+  static void _paintSpinningStar(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    // Anchor positions kept fixed (not random) so the composition reads as
+    // deliberate corners/accents rather than scattered clutter.
+    final anchors = [
+      Offset(w * 0.18, h * 0.16),
+      Offset(w * 0.82, h * 0.20),
+      Offset(w * 0.50, h * 0.82),
+    ];
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 5.0 * w / 1080);
+    final corePaint = Paint()..style = PaintingStyle.stroke;
+    for (var i = 0; i < anchors.length; i++) {
+      final phase = _rand(i, 9) * 2 * pi;
+      // gentle pulse so the stars breathe rather than sit static
+      final pulse = 0.6 + 0.4 * sin(2 * pi * t / loopSeconds + phase);
+      final r = (i == 1 ? 0.09 : 0.065) * w;
+      final angle = 2 * pi * t / loopSeconds * (i.isEven ? 1 : -1) + phase;
+      final alpha = (0.55 + 0.25 * pulse) * intensity;
+      glowPaint
+        ..color = const Color(0xFFECC875).withValues(alpha: alpha * 0.65)
+        ..strokeWidth = max(1.5, w / 260);
+      corePaint
+        ..color = const Color(0xFFFFF3D6).withValues(alpha: alpha)
+        ..strokeWidth = max(1.0, w / 480);
+      canvas.save();
+      canvas.translate(anchors[i].dx, anchors[i].dy);
+      canvas.rotate(angle);
+      _drawEightPointStar(canvas, glowPaint, r * (0.95 + 0.1 * pulse));
+      _drawEightPointStar(canvas, corePaint, r * (0.95 + 0.1 * pulse));
+      canvas.restore();
+    }
   }
 
   // PATCH_S52_MORE_EFFECTS: small rotating gold rectangles falling and tumbling in a

@@ -40,6 +40,14 @@ flutter:
     - family: ElgharibNoonHafs
       fonts:
         - asset: assets/fonts/Elgharib-NoonHafs.ttf
+    # PATCH_S100_FONTS_SPINSTAR_TINT: two more bundled ayah fonts, copied in
+    # from the phone's Download/Telegram folder by this patch script.
+    - family: TharwatEmara
+      fonts:
+        - asset: assets/fonts/TharwatEmara.ttf
+    - family: DigitalMadinaNON
+      fonts:
+        - asset: assets/fonts/DigitalMadinaNON.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"

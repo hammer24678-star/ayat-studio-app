@@ -171,10 +171,15 @@ class AyahFontChoice {
 }
 
 const List<AyahFontChoice> kBuiltInFonts = [
-  // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled Quran font, now the app default.
-  AyahFontChoice('elgharib', 'الغريب نون حفص (افتراضي)'),
+  // PATCH_S100_FONTS_SPINSTAR_TINT: DigitalMadina is now the app default;
+  // Elgharib stays selectable, just no longer pre-picked. See
+  // studio_state.dart's `fontKey` default and ayat_fonts.dart's
+  // ayahTextStyle() for the two new bundled-asset cases.
+  AyahFontChoice('elgharib', 'الغريب نون حفص'),
   AyahFontChoice('amiri', 'أميري قرآن (كلاسيكي)'),
   AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
+  AyahFontChoice('tharwatemara', 'ثروت عمارة'),
+  AyahFontChoice('digitalmadina', 'المدينة الرقمية (افتراضي)'),
 ];
 
 class AyahTemplate {

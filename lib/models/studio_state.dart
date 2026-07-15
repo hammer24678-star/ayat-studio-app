@@ -63,6 +63,12 @@ class StudioState extends ChangeNotifier {
   ColorGrade colorGrade = ColorGrade.none;
   bool vignetteEnabled = false;
   int vignetteIntensity = 50; // 0..100
+  // PATCH_S100_FONTS_SPINSTAR_TINT: a color tint independent of the
+  // colorGrade presets above -- null means off. Any color is valid
+  // (picked via showAyatColorPicker); blue/gold are just quick presets
+  // in the UI, not the only options.
+  Color? tintColor;
+  int tintIntensity = 45; // 0..100
   bool grainEnabled = false;
   int grainIntensity = 30; // 0..100
   bool kenBurnsEnabled = false; // slow zoom on background images only, never on uploaded video
@@ -173,8 +179,9 @@ class StudioState extends ChangeNotifier {
 
   // ---- text formatting ----
   int templateIndex = 0;
-  // PATCH_S46_DEFAULT_FONT_AND_GLOW: Elgharib-NoonHafs is now the bundled default font.
-  String fontKey = 'elgharib';
+  // PATCH_S100_FONTS_SPINSTAR_TINT: DigitalMadina is now the bundled default font
+  // (Elgharib was the default from S46 through S99).
+  String fontKey = 'digitalmadina';
   final List<AyahFontChoice> customFonts = [];
   double ayahFontSize = 20; // 14..30, preview-relative like the HTML slider
   double transFontSize = 12; // 9..18

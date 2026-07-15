@@ -124,6 +124,11 @@ class SettingsService {
       state.vignetteIntensity =
           (read<int>('vignetteIntensity') ?? state.vignetteIntensity)
               .clamp(0, 100);
+      // PATCH_S100_FONTS_SPINSTAR_TINT
+      final tint = read<int>('tintColor');
+      if (tint != null) state.tintColor = Color(tint);
+      state.tintIntensity =
+          (read<int>('tintIntensity') ?? state.tintIntensity).clamp(0, 100);
       state.grainEnabled = read<bool>('grainEnabled') ?? state.grainEnabled;
       state.grainIntensity =
           (read<int>('grainIntensity') ?? state.grainIntensity).clamp(0, 100);
@@ -271,6 +276,10 @@ class SettingsService {
       p.setInt('${_prefix}colorGrade', state.colorGrade.index),
       p.setBool('${_prefix}vignetteEnabled', state.vignetteEnabled),
       p.setInt('${_prefix}vignetteIntensity', state.vignetteIntensity),
+      // PATCH_S100_FONTS_SPINSTAR_TINT
+      if (state.tintColor != null)
+        p.setInt('${_prefix}tintColor', state.tintColor!.toARGB32()),
+      p.setInt('${_prefix}tintIntensity', state.tintIntensity),
       p.setBool('${_prefix}grainEnabled', state.grainEnabled),
       p.setInt('${_prefix}grainIntensity', state.grainIntensity),
       p.setBool('${_prefix}kenBurnsEnabled', state.kenBurnsEnabled),

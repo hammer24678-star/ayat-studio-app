@@ -495,6 +495,19 @@ class _StagePreviewState extends State<StagePreview>
                 // including the ayah text -- matching the export chain, where
                 // the post-filter (color grade + vignette + grain) applies to
                 // the already-composited frame with text burned in.
+                // PATCH_S100_FONTS_SPINSTAR_TINT: sits with vignette/grain in the
+                // same "on top of everything, matches the export chain" layer.
+                if (state.tintColor != null && state.tintIntensity > 0)
+                  IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: state.tintColor!.withValues(
+                            alpha: (state.tintIntensity / 100 * 0.35)
+                                .clamp(0.0, 0.35)),
+                        backgroundBlendMode: BlendMode.overlay,
+                      ),
+                    ),
+                  ),
                 if (state.vignetteEnabled)
                   IgnorePointer(
                     child: DecoratedBox(
