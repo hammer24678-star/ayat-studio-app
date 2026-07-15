@@ -73,6 +73,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _selectedTab = 0;
   int _selectedSurah = 1;
+  // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: last ayah picked from the dropdown below,
+  // so the partial-ayah word-range section knows what to slice from.
+  Ayah? _partialSourceAyah;
+  int _partialFromWord = 0;
+  int _partialToWord = 0;
 
   // PATCH_S83_SYNC_QOL: playback aids for reviewing a detected timeline.
   static const _speeds = [1.0, 1.25, 1.5, 0.75];
@@ -1220,6 +1225,18 @@ class _HomeScreenState extends State<HomeScreen>
           label: Text(state.timelineActive
               ? 'إعادة المزامنة التلقائية (تستبدل الرصد الحالي)'
               : 'مزامنة تلقائية: اكتب كل آية أثناء التلاوة'),
+        ),
+        // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: set expectations before they tap it --
+        // it does the job well on roughly half the video; the rest may
+        // need a manual touch-up from the review card above.
+        const SizedBox(height: 6),
+        Text(
+          'تعمل جيدًا في نحو نصف الفيديو غالبًا؛ راجعي/عدّلي الباقي من '
+          'بطاقة \'مراجعة الآيات المرصودة\' بعد التشغيل.',
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: AyatColors.goldDim),
         ),
       ],
     );
@@ -2540,6 +2557,101 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ------------------------------------------------------------ tab: الآية
 
+  // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: lets you use only part of the
+  // currently-picked ayah (e.g. the first half) as the on-screen text,
+  // instead of always the whole ayah. Purely a text-slicing UI -- the
+  // result still goes through the normal state.setAyah() path, so
+  // AI-art/karaoke/export don't need to know the difference.
+  Widget _partialAyahSection() {
+    final a = _partialSourceAyah;
+    if (a == null) return const SizedBox.shrink();
+    final words = a.ar.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.length < 2) return const SizedBox.shrink();
+    final from = _partialFromWord.clamp(0, words.length - 1);
+    final to = _partialToWord.clamp(from, words.length - 1);
+    final partialText = words.sublist(from, to + 1).join(' ');
+    final isFull = from == 0 && to == words.length - 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        Text('استخدام جزء من الآية فقط',
+            style: Theme.of(context).textTheme.headlineMedium),
+        Text(
+          'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض نصفها '
+          'فقط مثلاً بدل الآية كاملة.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                decoration: const InputDecoration(labelText: 'من كلمة'),
+                value: from,
+                items: [
+                  for (var i = 0; i < words.length; i++)
+                    DropdownMenuItem(value: i, child: Text('${i + 1}. ${words[i]}')),
+                ],
+                onChanged: (v) => setState(() {
+                  _partialFromWord = v ?? 0;
+                  if (_partialToWord < _partialFromWord) {
+                    _partialToWord = _partialFromWord;
+                  }
+                }),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                decoration: const InputDecoration(labelText: 'إلى كلمة'),
+                value: to,
+                items: [
+                  for (var i = 0; i < words.length; i++)
+                    DropdownMenuItem(value: i, child: Text('${i + 1}. ${words[i]}')),
+                ],
+                onChanged: (v) => setState(() {
+                  _partialToWord = v ?? (words.length - 1);
+                  if (_partialFromWord > _partialToWord) {
+                    _partialFromWord = _partialToWord;
+                  }
+                }),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            border: Border.all(color: AyatColors.hairline),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(partialText,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge),
+        ),
+        const SizedBox(height: 8),
+        ElevatedButton(
+          onPressed: isFull
+              ? null
+              : () {
+                  _liveOverlay.value = null;
+                  state.setAyah(
+                    partialText,
+                    a.en,
+                    'جزء من: سورة ${a.surah} — آية ${a.num}',
+                    surahNum: a.surahNum,
+                    ayahNum: a.num,
+                  );
+                  _toast('تم استخدام جزء من الآية');
+                },
+          child: Text(isFull ? 'الآية كاملة محددة بالفعل' : 'استخدام هذا الجزء فقط'),
+        ),
+      ],
+    );
+  }
+
   Widget _ayahPanel() {
     final surahs = <(int, String)>[];
     var last = 0;
@@ -2606,8 +2718,16 @@ class _HomeScreenState extends State<HomeScreen>
             state.setAyah(a.ar, a.en,
                 'تم الاختيار يدويًا: سورة ${a.surah} — آية ${a.num}',
                 surahNum: a.surahNum, ayahNum: a.num); // PATCH_S32_AI_ART_NANO_BANANA
+            // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH
+            final words = a.ar.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+            setState(() {
+              _partialSourceAyah = a;
+              _partialFromWord = 0;
+              _partialToWord = words.isEmpty ? 0 : words.length - 1;
+            });
           },
         ),
+        if (_partialSourceAyah != null) _partialAyahSection(),
         _fieldLabel('أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)'),
         TextField(
           controller: _customArCtrl,
