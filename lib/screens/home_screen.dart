@@ -10,7 +10,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show HapticFeedback; // PATCH_S83_SYNC_QOL: tactile feedback
+    show HapticFeedback, rootBundle; // PATCH_S83_SYNC_QOL tactile feedback + PATCH_S107 curated bg assets
 import 'package:path_provider/path_provider.dart'; // PATCH_S64_BG_UPLOAD_PERSIST
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
@@ -687,6 +687,34 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ---------------------------------------------------------------- pickers
+
+  // PATCH_S107_CURATED_NATURE_BACKGROUNDS: bundled photos are Flutter
+  // assets, not files, so the first tap on each copies it once into the
+  // app's documents dir and reuses the existing useCustomBg/customBgPath
+  // rendering path from then on -- preview, export, and chroma key all
+  // already just read customBgPath as a normal file.
+  final Map<String, String> _curatedBgResolvedPaths = {};
+
+  Future<void> _useCuratedBg(CuratedBg c) async {
+    var path = _curatedBgResolvedPaths[c.asset];
+    if (path == null) {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final bgDir = Directory('${docsDir.path}/curated_bg');
+      if (!bgDir.existsSync()) bgDir.createSync(recursive: true);
+      final destFile = File('${bgDir.path}/${c.asset.split('/').last}');
+      if (!destFile.existsSync()) {
+        final data = await rootBundle.load(c.asset);
+        await destFile.writeAsBytes(
+            data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
+      }
+      path = destFile.path;
+      _curatedBgResolvedPaths[c.asset] = path;
+    }
+    state.update(() {
+      state.useCustomBg = true;
+      state.customBgPath = path;
+    });
+  }
 
   Future<void> _pickCustomBg() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.image);
@@ -2683,7 +2711,14 @@ class _HomeScreenState extends State<HomeScreen>
                 value: from,
                 items: [
                   for (var i = 0; i < words.length; i++)
-                    DropdownMenuItem(value: i, child: Text('${i + 1}. ${words[i]}')),
+                    DropdownMenuItem(
+                      value: i,
+                      // PATCH_S107_WORD_DROPDOWN_FONT: match the ayah font
+                      // picked under 'خط الآية', same fix S105 already did
+                      // for the preview box below.
+                      child: Text('${i + 1}. ${words[i]}',
+                          style: ayahTextStyle(state.fontKey, fontSize: 15)),
+                    ),
                 ],
                 onChanged: (v) => setState(() {
                   _partialFromWord = v ?? 0;
@@ -2700,7 +2735,14 @@ class _HomeScreenState extends State<HomeScreen>
                 value: to,
                 items: [
                   for (var i = 0; i < words.length; i++)
-                    DropdownMenuItem(value: i, child: Text('${i + 1}. ${words[i]}')),
+                    DropdownMenuItem(
+                      value: i,
+                      // PATCH_S107_WORD_DROPDOWN_FONT: match the ayah font
+                      // picked under 'خط الآية', same fix S105 already did
+                      // for the preview box below.
+                      child: Text('${i + 1}. ${words[i]}',
+                          style: ayahTextStyle(state.fontKey, fontSize: 15)),
+                    ),
                 ],
                 onChanged: (v) => setState(() {
                   _partialToWord = v ?? (words.length - 1);
@@ -3290,6 +3332,48 @@ class _HomeScreenState extends State<HomeScreen>
                   color: AyatColors.parchmentDim.withValues(alpha: 0.7))),
           const SizedBox(height: 10),
         ],
+        // PATCH_S107_CURATED_NATURE_BACKGROUNDS
+        Text('خلفيات طبيعية جاهزة',
+            style: const TextStyle(fontSize: 11, color: AyatColors.parchmentDim)),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 92,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: kCuratedBackgrounds.length,
+            itemBuilder: (context, i) {
+              final c = kCuratedBackgrounds[i];
+              final isActive = state.useCustomBg &&
+                  state.customBgPath == _curatedBgResolvedPaths[c.asset];
+              return Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: GestureDetector(
+                  onTap: () => _useCuratedBg(c),
+                  child: Container(
+                    width: 64,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isActive
+                            ? AyatColors.goldBright
+                            : Colors.white.withValues(alpha: 0.08),
+                        width: isActive ? 2 : 1,
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(c.asset, fit: BoxFit.cover, cacheWidth: 160),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('اضغط على أي صورة لاستخدامها كخلفية مباشرة',
+            style: TextStyle(
+                fontSize: 10,
+                color: AyatColors.parchmentDim.withValues(alpha: 0.7))),
+        const SizedBox(height: 10),
         ElevatedButton.icon(
           onPressed: _pickCustomBg,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),

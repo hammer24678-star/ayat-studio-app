@@ -34,6 +34,8 @@ flutter:
   assets:
     - assets/quran/
     - assets/icon/
+    # PATCH_S107_CURATED_NATURE_BACKGROUNDS
+    - assets/backgrounds/curated/
   # PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled default ayah font (place the .ttf file at
   # assets/fonts/Elgharib-NoonHafs.ttf -- not committed by this script).
   fonts:

@@ -396,3 +396,20 @@ const List<String> kReciters = [
 
 const String kBasmala = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
 const String kDefaultOutro = 'صدق الله العظيم';
+
+// PATCH_S107_CURATED_NATURE_BACKGROUNDS: bundled nature/space photo
+// backgrounds, selectable with one tap alongside the gradient presets
+// and your own uploaded backgrounds.
+class CuratedBg {
+  final String asset;
+  final String label;
+  const CuratedBg(this.asset, this.label);
+}
+
+const List<CuratedBg> kCuratedBackgrounds = [
+  CuratedBg('assets/backgrounds/curated/moon_earth.jpg', 'الأرض من فوق سطح القمر'),
+  CuratedBg('assets/backgrounds/curated/clouds_sunburst_trees.jpg', 'أشعة الشمس بين الغيوم والأشجار'),
+  CuratedBg('assets/backgrounds/curated/blue_sky_clouds.jpg', 'سماء زرقاء صافية وغيوم'),
+  CuratedBg('assets/backgrounds/curated/waterfall_moss.jpg', 'شلال بين صخور مغطاة بالطحالب'),
+  CuratedBg('assets/backgrounds/curated/waterfall_aerial.jpg', 'شلال ونهر من الأعلى'),
+];
