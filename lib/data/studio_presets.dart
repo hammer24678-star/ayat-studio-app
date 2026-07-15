@@ -265,6 +265,93 @@ const List<AyahTemplate> kTemplates = [
       extra: FrameExtra.glass,
       fontKey: 'amiri',
       color: Color(0xFFFFFFFF)),
+  // PATCH_S103_MORE_TEMPLATES: 12 more -- spread across all 5 fonts (including
+  // the S100 tharwatemara/digitalmadina, unused by any template until
+  // now), all 3 positions, and every FrameExtra style.
+  AyahTemplate(
+      name: 'عنوان ثروت علوي',
+      desc: 'خط ثروت عمارة أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.none,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'توسّط المدينة الرقمية',
+      desc: 'الآية بخط المدينة الرقمية في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'لوحة زجاجية علوية',
+      desc: 'نص داخل لوحة شبه شفافة أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.glass,
+      fontKey: 'amiri',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'إطار ذهبي سفلي',
+      desc: 'نص داخل إطار مذهّب أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.framed,
+      fontKey: 'ruqaa',
+      color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'زجاج مصنفر علوي',
+      desc: 'لوحة زجاجية عصرية أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.glass,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'توسّط زمردي هادئ',
+      desc: 'الآية في المنتصف بلون أخضر زمردي هادئ',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'amiri',
+      color: Color(0xFF8FBBAF)),
+  AyahTemplate(
+      name: 'إطار المدينة المتوسط',
+      desc: 'نص داخل إطار مذهّب بخط المدينة الرقمية في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.framed,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'لوحة زجاجية متوسطة',
+      desc: 'نص داخل لوحة زجاجية شفافة في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.glass,
+      fontKey: 'elgharib',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'عنوان الغريب سفلي',
+      desc: 'خط الغريب نون حفص أسفل الشاشة بوضوح',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.none,
+      fontKey: 'elgharib',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'صندوق كهرماني علوي',
+      desc: 'نص داخل صندوق كهرماني أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.boxed,
+      fontKey: 'ruqaa',
+      color: Color(0xFFC9A24B)),
+  AyahTemplate(
+      name: 'توسّط سماوي',
+      desc: 'الآية في المنتصف بلون أزرق سماوي هادئ',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFA8C5D6)),
+  AyahTemplate(
+      name: 'لوحة زجاجية ذهبية سفلية',
+      desc: 'لوحة زجاجية عصرية بلون ذهبي أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.glass,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFECC875)),
 ];
 
 const List<Color> kTextColors = [
