@@ -55,20 +55,31 @@ Widget _ayahRosetteOrnament(int num, {double size = 26}) {
         // itself was centred. Noto Kufi Arabic has plain, evenly-spaced
         // digit metrics, and the strut pins the line height to the font
         // size so there's no extra leading pushing it off-centre.
-        Text(
-          _easternArabicNumeral(num),
-          textAlign: TextAlign.center,
-          strutStyle: const StrutStyle(
-            fontSize: 12,
-            height: 1.0,
-            forceStrutHeight: true,
-          ),
-          style: GoogleFonts.notoKufiArabic(
-            textStyle: const TextStyle(
-              color: AyatColors.goldBright,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              height: 1.0,
+        // PATCH_S117_MULTI_DIGIT_AYAH_NUMBERS: 3-digit ayah numbers (100+)
+        // didn't fit at a fixed font size and rendered as nothing at all.
+        // FittedBox shrinks the digit to whatever space is actually
+        // available instead of silently overflowing/disappearing.
+        SizedBox(
+          width: size * 0.62,
+          height: size * 0.62,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _easternArabicNumeral(num),
+              textAlign: TextAlign.center,
+              strutStyle: const StrutStyle(
+                fontSize: 12,
+                height: 1.0,
+                forceStrutHeight: true,
+              ),
+              style: GoogleFonts.notoKufiArabic(
+                textStyle: const TextStyle(
+                  color: AyatColors.goldBright,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  height: 1.0,
+                ),
+              ),
             ),
           ),
         ),

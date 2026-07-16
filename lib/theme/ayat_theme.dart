@@ -39,12 +39,21 @@ Widget ayahNumberBadge(int num, {double size = 26, double fontSize = 11}) {
         ),
       ],
     ),
-    child: Text(
-      '$num',
-      style: TextStyle(
-        color: AyatColors.ink,
-        fontSize: fontSize,
-        fontWeight: FontWeight.w700,
+    // PATCH_S117_MULTI_DIGIT_AYAH_NUMBERS: same fixed-size assumption as
+    // the mushaf rosette -- shrink 3-digit ayah numbers (100+) to fit
+    // instead of letting them crowd or clip against the circle's edge.
+    child: Padding(
+      padding: EdgeInsets.all(size * 0.14),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '$num',
+          style: TextStyle(
+            color: AyatColors.ink,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     ),
   );
