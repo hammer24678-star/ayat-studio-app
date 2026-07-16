@@ -48,9 +48,22 @@ Widget _ayahRosetteOrnament(int num, {double size = 26}) {
           size: Size(size, size),
           painter: const _AyahRosettePainter(),
         ),
+        // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: amiriQuran is shaped
+        // for full Quranic text with diacritics, so its line box is much
+        // taller than a bare digit needs -- the digit rendered visibly
+        // low/off-centre inside the ring even though the Text widget
+        // itself was centred. Noto Kufi Arabic has plain, evenly-spaced
+        // digit metrics, and the strut pins the line height to the font
+        // size so there's no extra leading pushing it off-centre.
         Text(
           _easternArabicNumeral(num),
-          style: GoogleFonts.amiriQuran(
+          textAlign: TextAlign.center,
+          strutStyle: const StrutStyle(
+            fontSize: 12,
+            height: 1.0,
+            forceStrutHeight: true,
+          ),
+          style: GoogleFonts.notoKufiArabic(
             textStyle: const TextStyle(
               color: AyatColors.goldBright,
               fontSize: 12,

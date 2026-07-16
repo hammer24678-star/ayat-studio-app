@@ -590,6 +590,12 @@ class _StagePreviewState extends State<StagePreview>
               blurRadius: 14 * scale * state.glowIntensity),
       ];
       final dimColor = state.textColor.withValues(alpha: 0.30);
+      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: a red-flagged word
+      // stays red regardless of karaoke lit/dim state -- previously
+      // redWordIndices was ignored entirely on this branch, so any
+      // red selection silently vanished once karaoke highlighting
+      // kicked in.
+      const redColor = Color(0xFFE53935);
       ayahWidget = Text.rich(
         TextSpan(
           children: [
@@ -599,7 +605,9 @@ class _StagePreviewState extends State<StagePreview>
                 style: ayahTextStyle(
                   state.fontKey,
                   fontSize: ayahFontSize,
-                  color: i < live!.litWords ? state.textColor : dimColor,
+                  color: state.redWordIndices.contains(i)
+                      ? redColor
+                      : (i < live!.litWords ? state.textColor : dimColor),
                   height: state.lineHeightMultiplier,
                   letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
                   shadows: i < live.litWords ? litShadows : shadows,
@@ -621,19 +629,49 @@ class _StagePreviewState extends State<StagePreview>
                   blurRadius: 14 * scale * state.glowIntensity),
             ]
           : shadows;
-      ayahWidget = Text(
-        text,
-        textAlign: TextAlign.center,
-        textDirection: TextDirection.rtl,
-        style: ayahTextStyle(
-          state.fontKey,
-          fontSize: ayahFontSize,
-          color: state.textColor,
-          height: state.lineHeightMultiplier,
-          letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
-          shadows: staticShadows,
-        ),
-      );
+      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: this branch never
+      // looked at state.redWordIndices before, so tapping a word chip
+      // in the "تلوين كلمات بالأحمر" section had zero visible effect
+      // in the live preview -- it only ever reached the exported
+      // video's static-text path. Mirror that path here.
+      if (state.redWordIndices.isNotEmpty) {
+        const redColor = Color(0xFFE53935);
+        final ws = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+        ayahWidget = Text.rich(
+          TextSpan(
+            children: [
+              for (var i = 0; i < ws.length; i++)
+                TextSpan(
+                  text: i == 0 ? ws[i] : ' ${ws[i]}',
+                  style: ayahTextStyle(
+                    state.fontKey,
+                    fontSize: ayahFontSize,
+                    color: state.redWordIndices.contains(i) ? redColor : state.textColor,
+                    height: state.lineHeightMultiplier,
+                    letterSpacing: state.letterSpacing,
+                    shadows: staticShadows,
+                  ),
+                ),
+            ],
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.rtl,
+        );
+      } else {
+        ayahWidget = Text(
+          text,
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.rtl,
+          style: ayahTextStyle(
+            state.fontKey,
+            fontSize: ayahFontSize,
+            color: state.textColor,
+            height: state.lineHeightMultiplier,
+            letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
+            shadows: staticShadows,
+          ),
+        );
+      }
     }
     BoxDecoration? deco;
     if (state.extra == FrameExtra.boxed) {

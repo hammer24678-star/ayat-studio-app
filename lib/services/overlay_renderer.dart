@@ -196,6 +196,11 @@ class OverlayRenderer {
         ];
         final dimColor =
             style.color.withValues(alpha: style.color.a * 0.30 * opacity);
+        // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: red-flagged words
+        // must stay red in exported auto-synced/timeline clips too --
+        // this branch previously only chose between lit/dim and
+        // silently dropped any redWordIndices selection.
+        final redColorK = const Color(0xFFE53935).withValues(alpha: opacity);
         ayahSpan = TextSpan(
           children: [
             for (var i = 0; i < karaokeWords.length; i++)
@@ -204,7 +209,9 @@ class OverlayRenderer {
                 style: ayahTextStyle(
                   style.fontKey,
                   fontSize: ayahFontSize,
-                  color: i < litWords ? effColor : dimColor,
+                  color: style.redWordIndices.contains(i)
+                      ? redColorK
+                      : (i < litWords ? effColor : dimColor),
                   height: style.lineHeightMultiplier,
                   letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
                   shadows: i < litWords ? litShadows : shadows,
