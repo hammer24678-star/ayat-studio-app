@@ -610,7 +610,12 @@ class _StagePreviewState extends State<StagePreview>
                       : (i < live!.litWords ? state.textColor : dimColor),
                   height: state.lineHeightMultiplier,
                   letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
-                  shadows: i < live.litWords ? litShadows : shadows,
+                  // PATCH_S115_HOTFIX_LIVE_LITWORDS_NULL_CHECK: `live` is
+                  // non-null in this branch (karaokeWords came from
+                  // live?.karaokeWords and passed the isNotEmpty check
+                  // above) but the analyzer can't see that across the
+                  // ternary -- same `!` the line above already uses.
+                  shadows: i < live!.litWords ? litShadows : shadows,
                 ),
               ),
           ],
