@@ -67,7 +67,11 @@ class KaraokeCue {
 }
 
 List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
-  final words = seg.ayah.ar.trim().split(RegExp(r'\s+'));
+  // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: a segment added from the
+  // partial-ayah picker carries just the sliced words as textOverride --
+  // karaoke chunking (and therefore export) reads that instead of the
+  // full ayah when it's set.
+  final words = (seg.textOverride ?? seg.ayah.ar).trim().split(RegExp(r'\s+'));
   final total = words.length;
   final parts = max(1, (total / kKaraokeMaxWordsPerChunk).ceil());
   final enWords = seg.ayah.en.trim().isEmpty

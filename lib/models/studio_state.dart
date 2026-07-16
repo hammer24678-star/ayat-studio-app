@@ -21,6 +21,10 @@ class TimelineSegment {
   // exactly this ayah missing between them and there was recitation time in
   // the gap. The UI flags these so the user knows to double-check them.
   final bool inferred;
+  // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: when this segment is a sliced
+  // word range from "استخدام جزء من الآية فقط" rather than the whole
+  // ayah, the sliced text lives here -- null means "use ayah.ar as-is".
+  final String? textOverride;
   TimelineSegment({
     required this.start,
     required this.end,
@@ -28,6 +32,7 @@ class TimelineSegment {
     required this.confidence,
     List<double>? wordStarts,
     this.inferred = false,
+    this.textOverride,
   }) : wordStarts = wordStarts ?? [];
 }
 
@@ -594,9 +599,15 @@ class StudioState extends ChangeNotifier {
   // PATCH_S49_MANUAL_SEGMENTS_MERGE: append a segment the user placed by hand -- keeps
   // [timeline] sorted by start time since playback/tick logic assumes
   // ascending order.
-  void addManualSegment(Ayah ayah, double start, double end) {
+  void addManualSegment(Ayah ayah, double start, double end,
+      {String? textOverride}) {
     final seg = TimelineSegment(
-        start: start, end: end, ayah: ayah, confidence: 1.0);
+        start: start,
+        end: end,
+        ayah: ayah,
+        confidence: 1.0,
+        // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE
+        textOverride: textOverride);
     final idx = timeline.indexWhere((s) => s.start > start);
     if (idx == -1) {
       timeline.add(seg);

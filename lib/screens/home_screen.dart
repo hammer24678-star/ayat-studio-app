@@ -1821,7 +1821,12 @@ class _HomeScreenState extends State<HomeScreen>
                     children: [
                       Flexible(
                         child: Text(
-                            'سورة ${seg.ayah.surah} — آية ${seg.ayah.num}',
+                            // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: mark
+                            // segments that only carry part of the ayah so
+                            // they're not mistaken for the full ayah at a
+                            // glance in the review list.
+                            'سورة ${seg.ayah.surah} — آية ${seg.ayah.num}'
+                            '${seg.textOverride != null ? ' (جزء)' : ''}',
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodyLarge),
                       ),
@@ -2712,10 +2717,10 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         Text(
           'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض نصفها '
-          'فقط مثلاً بدل الآية كاملة.',
+          'فقط مثلاً بدل الآية كاملة، أو لإضافتها كمقطع مستقل في الخط الزمني أدناه.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
@@ -2767,9 +2772,11 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
+        // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: more breathing room around
+        // the preview text itself (was a tight EdgeInsets.all(10)).
         Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
           decoration: BoxDecoration(
             border: Border.all(color: AyatColors.hairline),
             borderRadius: BorderRadius.circular(8),
@@ -2783,7 +2790,7 @@ class _HomeScreenState extends State<HomeScreen>
               style: ayahTextStyle(state.fontKey,
                   fontSize: 20, color: AyatColors.parchment)),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         ElevatedButton(
           onPressed: isFull
               ? null
@@ -2799,6 +2806,29 @@ class _HomeScreenState extends State<HomeScreen>
                   _toast('تم استخدام جزء من الآية');
                 },
           child: Text(isFull ? 'الآية كاملة محددة بالفعل' : 'استخدام هذا الجزء فقط'),
+        ),
+        const SizedBox(height: 8),
+        // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: the missing link between
+        // this picker and "نطاق آيات متعدد" -- adds the sliced words as a
+        // real timeline segment (chained after the last one, like the
+        // full-ayah manual-add dialog), which makes timelineActive true
+        // and brings up "مراجعة الآيات المرصودة" immediately. No video or
+        // audio required, same as adding a full ayah manually.
+        OutlinedButton.icon(
+          onPressed: isFull
+              ? null
+              : () {
+                  final start =
+                      state.timeline.isNotEmpty ? state.timeline.last.end : 0.0;
+                  final end = start + 4;
+                  state.addManualSegment(a, start, end,
+                      textOverride: partialText);
+                  _toast(
+                      'أُضيف هذا الجزء إلى الخط الزمني ✓ — عدّلي توقيته من '
+                      '\'مراجعة الآيات المرصودة\' أعلى الشاشة');
+                },
+          icon: const Icon(Icons.playlist_add, size: 18),
+          label: const Text('إضافة هذا الجزء إلى الخط الزمني'),
         ),
       ],
     );
