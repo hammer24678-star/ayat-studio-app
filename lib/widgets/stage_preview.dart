@@ -442,6 +442,36 @@ class _StagePreviewState extends State<StagePreview>
                     );
                   },
                 ),
+                // PATCH_S116_LIVE_CAPTION_PREVIEW: state.captionText (the
+                // "نص إضافي" field from S109) was only ever drawn by the
+                // export renderer (OverlayRenderer.renderTextOverlayPng) --
+                // never shown here, so it looked like the feature did
+                // nothing while editing. Mirrors that same styling.
+                if (state.captionText.trim().isNotEmpty)
+                  PositionedDirectional(
+                    top: state.captionPosition == CaptionPosition.top
+                        ? 14
+                        : null,
+                    bottom: state.captionPosition == CaptionPosition.top
+                        ? null
+                        : 14,
+                    start: 12,
+                    end: 12,
+                    child: IgnorePointer(
+                      child: Text(
+                        state.captionText,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13 * scale.clamp(0.8, 1.6),
+                          color: AyatColors.goldBright,
+                          shadows: const [
+                            Shadow(
+                                color: Color(0xB3000000), blurRadius: 6),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 // PATCH_S34_PLAYER_CONTROLS_TRIM: brief ▶/⏸ feedback after a tap.
                 if (_tapFlashIcon != null)
                   Center(
