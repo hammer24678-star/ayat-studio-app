@@ -2708,6 +2708,71 @@ class _HomeScreenState extends State<HomeScreen>
                 ?.copyWith(color: AyatColors.goldDim)),
       );
 
+  // PATCH_S120_ADVANCED_OPTIONS_CLEANUP: shared header for every optional
+  // section below the ayah picker (partial-ayah, red words, manual
+  // timing, caption, multi-ayah range, intro/outro cards). badgeNum
+  // reuses the same gold ayahNumberBadge size/style as the السورة/الآية
+  // dropdown above (size: 22, fontSize: 10) instead of each section
+  // picking its own -- that mismatch was the "floating circle" mess.
+  // The long explanation moves into a tap-to-open popup instead of
+  // sitting permanently inline under the title.
+  Widget _sectionHeader(String title, String infoText, {int? badgeNum}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (badgeNum != null) ...[
+          ayahNumberBadge(badgeNum, size: 22, fontSize: 10),
+          const SizedBox(width: 8),
+        ],
+        Expanded(
+          child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
+        ),
+        IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.info_outline,
+              size: 19, color: AyatColors.goldDim),
+          tooltip: 'توضيح',
+          onPressed: () => _showSectionInfo(title, infoText),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showSectionInfo(String title, String text) {
+    return showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AyatColors.surface2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text(title, style: Theme.of(context).textTheme.headlineMedium),
+        content: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('حسنًا'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // One consistent bordered surface for every optional section instead
+  // of the previous mix of bare SizedBox/Divider spacers between them.
+  Widget _sectionCard(Widget child) {
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AyatColors.surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AyatColors.hairline),
+      ),
+      child: child,
+    );
+  }
+
   // ------------------------------------------------------------ tab: الآية
 
   // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: lets you use only part of the
@@ -2724,24 +2789,17 @@ class _HomeScreenState extends State<HomeScreen>
     final to = _partialToWord.clamp(from, words.length - 1);
     final partialText = words.sublist(from, to + 1).join(' ');
     final isFull = from == 0 && to == words.length - 1;
-    return Column(
+    return _sectionCard(Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 10),
-        // PATCH_S105_GOLD_AYAH_BADGE: show which ayah this is, as the same
-        // gold badge used elsewhere, next to the section title.
-        Row(
-          children: [
-            ayahNumberBadge(a.num),
-            const SizedBox(width: 8),
-            Text('استخدام جزء من الآية فقط',
-                style: Theme.of(context).textTheme.headlineMedium),
-          ],
-        ),
-        Text(
-          'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض نصفها '
-          'فقط مثلاً بدل الآية كاملة، أو لإضافتها كمقطع مستقل في الخط الزمني أدناه.',
-          style: Theme.of(context).textTheme.bodyMedium,
+        _sectionHeader(
+          'استخدام جزء من الآية فقط',
+          'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض '
+          'نصفها فقط مثلاً بدل الآية كاملة، أو لإضافتها كمقطع مستقل في الخط '
+          'الزمني أدناه. مثال: لو اخترتِ من الكلمة الأولى إلى الثالثة فقط '
+          'يظهر هذا الجزء بمفرده -- إمّا كنص الآية نفسه، أو كمقطع منفصل عبر '
+          '"إضافة هذا الجزء إلى الخط الزمني" أسفل الصفحة.',
+          badgeNum: a.num,
         ),
         const SizedBox(height: 10),
         Row(
@@ -2857,7 +2915,7 @@ class _HomeScreenState extends State<HomeScreen>
           label: const Text('إضافة هذا الجزء إلى الخط الزمني'),
         ),
       ],
-    );
+    )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
   // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: tap a word of the currently
@@ -2868,16 +2926,14 @@ class _HomeScreenState extends State<HomeScreen>
         .where((w) => w.isNotEmpty)
         .toList();
     if (words.isEmpty) return const SizedBox.shrink();
-    return Column(
+    return _sectionCard(Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 10),
-        Text('تلوين كلمات بالأحمر (اختياري)',
-            style: Theme.of(context).textTheme.headlineMedium),
-        Text(
+        _sectionHeader(
+          'تلوين كلمات بالأحمر (اختياري)',
           'اضغطي على أي كلمة لتلوينها بالأحمر في الفيديو المُصدَّر -- مفيدة '
-          'لتمييز كلمة معينة من الآية.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          'لتمييز اسم الجلالة أو كلمة محورية من الآية. يمكنك تلوين أكثر '
+          'من كلمة، واضغطي عليها مجددًا لإزالة اللون.',
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -2901,22 +2957,20 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ],
-    );
+    )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
   // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: optional manual override for
   // when the ayah text appears/disappears in the exported clip.
   Widget _manualTimingSection() {
-    return Column(
+    return _sectionCard(Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 10),
-        Text('توقيت ظهور النص يدويًا (اختياري)',
-            style: Theme.of(context).textTheme.headlineMedium),
-        Text(
+        _sectionHeader(
+          'توقيت ظهور النص يدويًا (اختياري)',
           'حدّدي بالثواني متى يظهر نص الآية ومتى يختفي من الفيديو المُصدَّر -- '
-          'اتركيهما فارغين ليظهر النص طوال المقطع كالمعتاد.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          'مفيد لو أردتِ أن يظهر النص متأخرًا عن بداية المقطع أو يختفي قبل '
+          'نهايته. اتركي الحقلين فارغين ليظهر النص طوال المقطع كالمعتاد.',
         ),
         const SizedBox(height: 8),
         Row(
@@ -2958,22 +3012,20 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ],
-    );
+    )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
   // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: free-text caption (reciter
   // name, ayah-range label, ...) shown near the top or bottom of the frame.
   Widget _captionSection() {
-    return Column(
+    return _sectionCard(Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 10),
-        Text('نص إضافي (اسم الشيخ، نطاق الآيات...)',
-            style: Theme.of(context).textTheme.headlineMedium),
-        Text(
+        _sectionHeader(
+          'نص إضافي (اسم الشيخ، نطاق الآيات...)',
           'مثال: "من آية ١٦ إلى ١٨" أو اسم القارئ -- يظهر كسطر صغير أعلى أو '
-          'أسفل الفيديو، بمعزل عن نص الآية نفسه.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          'أسفل الفيديو، بمعزل تمامًا عن نص الآية نفسه، ويمكن اختيار مكانه '
+          '(أعلى أو أسفل) من الخيارين تحت الحقل.',
         ),
         const SizedBox(height: 8),
         TextField(
@@ -3000,7 +3052,7 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ],
-    );
+    )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
   Widget _ayahPanel() {
@@ -3122,7 +3174,6 @@ class _HomeScreenState extends State<HomeScreen>
         ElevatedButton(
             onPressed: _applyCustomText,
             child: const Text('تطبيق النص المخصص')),
-        const Divider(height: 32, color: AyatColors.hairline),
         // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the dropdown above sets ONE static ayah. For a
         // recitation that moves through several ayat, build a manual
         // timeline instead -- this opens the same add-a-segment dialog
@@ -3130,42 +3181,56 @@ class _HomeScreenState extends State<HomeScreen>
         // here becomes the start of a full multi-ayah timeline you can
         // keep extending from the card that appears above once it's
         // no longer empty.
-        Text('نطاق آيات متعدد', style: Theme.of(context).textTheme.headlineMedium),
-        Text(
-          'لتلاوة تمر بعدة آيات، أضيفي كل آية بتوقيتها الخاص -- ستظهر بطاقة \'مراجعة الآيات المرصودة\' أعلى الشاشة بعد أول آية لإكمال الباقي أو تعديل التوقيت.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: _addManualSegmentDialog,
-          icon: const Icon(Icons.playlist_add, size: 18),
-          label: const Text('إضافة آية إلى خط زمني متعدد'),
-        ),
-        const Divider(height: 32, color: AyatColors.hairline),
-        Text('بطاقات افتتاحية وختامية',
-            style: Theme.of(context).textTheme.headlineMedium),
-        ToggleRow(
-          label: 'بسملة في مقدمة المقطع',
-          value: state.showIntro,
-          onChanged: (v) => state.update(() => state.showIntro = v),
-        ),
-        ToggleRow(
-          label: 'خاتمة بعد التلاوة',
-          value: state.showOutro,
-          onChanged: (v) => state.update(() => state.showOutro = v),
-        ),
-        if (state.showOutro)
-          TextField(
-            controller: _outroCtrl,
-            decoration: const InputDecoration(hintText: 'نص الخاتمة'),
-            onChanged: (v) =>
-                state.outroText = v.trim().isEmpty ? kDefaultOutro : v.trim(),
-          ),
-        const SizedBox(height: 6),
-        Text(
-          'تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — لا تُدمجان أبدًا فوق الفيديو أو أي موسيقى.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        // PATCH_S120_ADVANCED_OPTIONS_CLEANUP: card replaces the old bare
+        // Divider(height: 32) that used to separate this from the field
+        // above -- the card's own border/margin does that job now.
+        _sectionCard(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeader(
+              'نطاق آيات متعدد',
+              'لتلاوة تمر بعدة آيات، أضيفي كل آية بتوقيتها الخاص. ستظهر '
+              'بطاقة \'مراجعة الآيات المرصودة\' أعلى الشاشة بعد أول آية '
+              'لإكمال الباقي أو تعديل التوقيت -- يمكنك إضافة آية كاملة من '
+              'هنا، أو جزء من آية فقط عبر قسم "استخدام جزء من الآية فقط" '
+              'أعلاه.',
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _addManualSegmentDialog,
+              icon: const Icon(Icons.playlist_add, size: 18),
+              label: const Text('إضافة آية إلى خط زمني متعدد'),
+            ),
+          ],
+        )),
+        _sectionCard(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeader(
+              'بطاقات افتتاحية وختامية',
+              'تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — '
+              'لا تُدمجان أبدًا فوق الفيديو أو أي موسيقى. عطّلي أيًا منهما '
+              'إن لم ترغبي بها، ويمكنك تخصيص نص الخاتمة بعد تفعيلها.',
+            ),
+            ToggleRow(
+              label: 'بسملة في مقدمة المقطع',
+              value: state.showIntro,
+              onChanged: (v) => state.update(() => state.showIntro = v),
+            ),
+            ToggleRow(
+              label: 'خاتمة بعد التلاوة',
+              value: state.showOutro,
+              onChanged: (v) => state.update(() => state.showOutro = v),
+            ),
+            if (state.showOutro)
+              TextField(
+                controller: _outroCtrl,
+                decoration: const InputDecoration(hintText: 'نص الخاتمة'),
+                onChanged: (v) => state.outroText =
+                    v.trim().isEmpty ? kDefaultOutro : v.trim(),
+              ),
+          ],
+        )),
       ],
     );
   }
