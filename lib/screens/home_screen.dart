@@ -94,6 +94,12 @@ class _HomeScreenState extends State<HomeScreen>
   bool _loopAyah = false;
   TimelineSegment? _loopSeg; // the ayah the loop control snaps back to
 
+  // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX: "مراجعة الآيات
+  // المرصودة" renders above the ayah panel, but every action that adds a
+  // segment to it lives scrolled down inside that panel -- so the card
+  // appearing was invisible in practice. This lets code scroll back to
+  // it instead of just telling the user to do it themselves in a toast.
+  final _scrollCtrl = ScrollController();
   final _customArCtrl = TextEditingController();
   final _customEnCtrl = TextEditingController();
   // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
@@ -187,6 +193,7 @@ class _HomeScreenState extends State<HomeScreen>
     _video?.dispose();
     _reciterPreview?.dispose();
     _liveOverlay.dispose();
+    _scrollCtrl.dispose(); // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
     _customArCtrl.dispose();
     _customEnCtrl.dispose();
     // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
@@ -980,6 +987,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: ListenableBuilder(
           listenable: state,
           builder: (context, _) => SingleChildScrollView(
+            controller: _scrollCtrl, // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1666,6 +1674,20 @@ class _HomeScreenState extends State<HomeScreen>
     _toast('أُضيفت آية ${ayah.num} — ${ayah.surah} — عدّل توقيتها من زر الضبط');
   }
 
+  // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX: "مراجعة الآيات
+  // المرصودة" sits above the panel/tabs -- animate back up to it after a
+  // segment is added so it's actually seen instead of scrolled past.
+  void _revealTimelineCard() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollCtrl.hasClients) return;
+      _scrollCtrl.animateTo(
+        0,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   Future<void> _addManualSegmentDialog() {
     int dialogSurah = _selectedSurah;
     int? dialogAyahIdx;
@@ -1779,8 +1801,9 @@ class _HomeScreenState extends State<HomeScreen>
                         state.addManualSegment(
                             state.ayaat[dialogAyahIdx!], start, end);
                         Navigator.pop(context);
+                        _revealTimelineCard(); // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
                         _toast(wasEmpty
-                            ? 'أُضيفت الآية الأولى ✓ — مرّري لأعلى لرؤية \'مراجعة الآيات المرصودة\' وأكملي إضافة بقية النطاق من هناك'
+                            ? 'أُضيفت الآية الأولى ✓ — إلى \'مراجعة الآيات المرصودة\' أعلى الشاشة'
                             : 'أُضيفت الآية إلى الخط الزمني ✓');
                       },
                 child: const Text('إضافة'),
@@ -2814,19 +2837,22 @@ class _HomeScreenState extends State<HomeScreen>
         // full-ayah manual-add dialog), which makes timelineActive true
         // and brings up "مراجعة الآيات المرصودة" immediately. No video or
         // audio required, same as adding a full ayah manually.
+        // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX: this was disabled
+        // whenever the picked range equalled the full ayah (isFull), but
+        // that's the default selection AND the only possible selection
+        // for any 2-word ayah -- adding a *whole* ayah to the timeline is
+        // completely valid (it's what the full-ayah dialog already does
+        // with no such restriction), so this button no longer checks
+        // isFull at all.
         OutlinedButton.icon(
-          onPressed: isFull
-              ? null
-              : () {
-                  final start =
-                      state.timeline.isNotEmpty ? state.timeline.last.end : 0.0;
-                  final end = start + 4;
-                  state.addManualSegment(a, start, end,
-                      textOverride: partialText);
-                  _toast(
-                      'أُضيف هذا الجزء إلى الخط الزمني ✓ — عدّلي توقيته من '
-                      '\'مراجعة الآيات المرصودة\' أعلى الشاشة');
-                },
+          onPressed: () {
+            final start =
+                state.timeline.isNotEmpty ? state.timeline.last.end : 0.0;
+            final end = start + 4;
+            state.addManualSegment(a, start, end, textOverride: partialText);
+            _revealTimelineCard();
+            _toast('أُضيف هذا الجزء إلى الخط الزمني ✓');
+          },
           icon: const Icon(Icons.playlist_add, size: 18),
           label: const Text('إضافة هذا الجزء إلى الخط الزمني'),
         ),
