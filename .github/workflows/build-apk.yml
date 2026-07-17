@@ -266,3 +266,14 @@ jobs:
         with:
           name: ayat-studio-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Build release AAB (PATCH_S121_ADD_AAB_BUILD -- Google Play requires an Android App Bundle for new app submissions; the APK above is kept for Telegram/APKPure/Uptodown sideload distribution, this adds the .aab Play Console needs. Same signingConfig as the APK build -- both read android/key.properties decoded from secrets earlier in this workflow, so the two artifacts share the same signing identity.)
+        run: |
+          flutter build appbundle --release \
+            --dart-define=MODEL_RELEASE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/models
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayat-studio-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
