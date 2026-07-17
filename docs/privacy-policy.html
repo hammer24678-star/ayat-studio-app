@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سياسة الخصوصية — استوديو الآيات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #050F0D;
+    --surface: #0D1C18;
+    --surface-2: #13271F;
+    --surface-3: #1A3128;
+    --hairline: rgba(201,162,75,0.16);
+    --gold: #C9A24B;
+    --gold-bright: #ECC875;
+    --gold-dim: #8A7130;
+    --parchment: #ECE2CB;
+    --parchment-dim: #9C9280;
+    --emerald: #1E4B3F;
+    --radius-lg: 22px;
+    --radius-md: 14px;
+    --radius-sm: 9px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  :focus-visible{outline:2px solid var(--gold-bright); outline-offset:2px; border-radius:4px;}
+  body{
+    background: var(--ink);
+    color: var(--parchment);
+    font-family:'Tajawal', sans-serif;
+    min-height:100vh;
+    position:relative;
+    overflow-x:hidden;
+    line-height:1.9;
+  }
+  .ambient-glow{
+    position:fixed; inset:-5%; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(30,75,63,.5), transparent 60%),
+      radial-gradient(700px 500px at 5% 110%, rgba(92,36,48,.18), transparent 60%);
+  }
+  .wrap{position:relative; z-index:1; max-width:760px; margin:0 auto; padding:34px 22px 70px;}
+
+  header{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding-bottom:20px; margin-bottom:28px; position:relative;
+  }
+  header::after{
+    content:''; position:absolute; left:0; right:0; bottom:0; height:1px;
+    background:linear-gradient(90deg, transparent, var(--hairline) 20%, var(--hairline) 80%, transparent);
+  }
+  .brand h1{
+    font-family:'Aref Ruqaa', serif; font-weight:700; font-size:26px; margin:0 0 3px;
+    letter-spacing:.5px;
+    background:linear-gradient(100deg, var(--parchment) 30%, var(--gold-bright) 45%, var(--parchment) 60%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 18px rgba(201,162,75,.25);
+  }
+  .eyebrow{
+    font-size:10.5px; letter-spacing:1.5px; color:var(--gold-dim); text-transform:uppercase;
+    display:block;
+  }
+  .badge{
+    font-size:11px; padding:6px 14px; border:1px solid var(--hairline); border-radius:999px;
+    color:var(--gold); background:rgba(201,162,75,.05); white-space:nowrap; flex:none;
+  }
+
+  .panel{
+    background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-lg);
+    padding:26px 24px; margin-bottom:16px;
+  }
+  .panel h2{
+    font-family:'Aref Ruqaa'; font-weight:700; font-size:19px; margin:0 0 12px; color:var(--gold-bright);
+    display:flex; align-items:center; gap:9px;
+  }
+  .panel h2::before{
+    content:''; width:5px; height:18px; border-radius:3px; background:var(--gold);
+    box-shadow:0 0 10px 1px rgba(201,162,75,.5); flex:none;
+  }
+  .panel p{font-size:14px; color:var(--parchment); margin:0 0 10px;}
+  .panel p:last-child{margin-bottom:0;}
+  .panel ul{margin:0 0 10px; padding-inline-start:20px;}
+  .panel li{font-size:14px; margin-bottom:7px; color:var(--parchment);}
+  .panel .dim{color:var(--parchment-dim); font-size:12.5px;}
+  .panel strong{color:var(--gold-bright); font-weight:500;}
+  .tag{
+    display:inline-block; font-size:11px; padding:3px 10px; border-radius:999px;
+    border:1px solid var(--hairline); color:var(--gold-dim); background:rgba(201,162,75,.05);
+    margin-inline-end:6px;
+  }
+
+  .lang-divider{
+    display:flex; align-items:center; gap:14px; margin:44px 0 26px; color:var(--gold-dim);
+  }
+  .lang-divider::before, .lang-divider::after{
+    content:''; flex:1; height:1px;
+    background:linear-gradient(90deg, transparent, var(--hairline), transparent);
+  }
+  .lang-divider span{font-size:11px; letter-spacing:2px; text-transform:uppercase; white-space:nowrap;}
+
+  [dir="ltr"]{font-family:'Tajawal', sans-serif;}
+
+  footer{
+    text-align:center; margin-top:36px; color:var(--parchment-dim); font-size:11.5px;
+  }
+</style>
+</head>
+<body>
+<div class="ambient-glow"></div>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="eyebrow">Ihsan Studio</span>
+      <h1>استوديو الآيات</h1>
+    </div>
+    <span class="badge">سياسة الخصوصية</span>
+  </header>
+
+  <p class="dim" style="font-size:12.5px; margin-bottom:22px;">آخر تحديث: 17 يوليو 2026</p>
+
+  <div class="panel">
+    <h2>مقدمة</h2>
+    <p>
+      تطبيق <strong>استوديو الآيات</strong> من إنتاج Ihsan Studio (مطوّر مستقل)
+      يساعدك على إنتاج مقاطع فيديو للآيات القرآنية مع مزامنة تلقائية للنص
+      وتأثيرات بصرية. هذه الصفحة توضّح ما الذي يجمعه التطبيق فعليًا، وما
+      الذي <strong>لا</strong> يجمعه.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>لا يوجد حساب ولا بيانات شخصية</h2>
+    <p>
+      التطبيق لا يطلب تسجيل دخول ولا بريدًا إلكترونيًا ولا رقم هاتف. لا
+      نجمع اسمك، ولا نُنشئ ملفًا شخصيًا عنك على أي خادم.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>الفيديو والصوت الذي تعمل عليه</h2>
+    <p>الملفات التي تستوردها (تسجيلات صوتية، فيديوهات، خلفيات مخصّصة) تبقى على جهازك فقط:</p>
+    <ul>
+      <li>تحويل الصوت إلى نص (المزامنة التلقائية) يتم <strong>بالكامل على الجهاز</strong> عبر نموذج Whisper المحلي — لا يُرفع أي تسجيل صوتي إلى أي خادم لهذا الغرض.</li>
+      <li>مكتبة الخلفيات المخصّصة التي تحفظها تُخزَّن محليًا على جهازك.</li>
+      <li>الفيديو النهائي يُصدَّر ويُحفَظ على جهازك؛ نحن لا نستقبل نسخة منه.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>خدمة خارجية واحدة: توليد الخلفيات بالذكاء الاصطناعي</h2>
+    <p>
+      عند اختيارك توليد خلفية بالذكاء الاصطناعي لآية معيّنة، يرسل التطبيق
+      <strong>نص وصف المشهد فقط</strong> (نص عربي/إنجليزي قصير يصف مضمون الآية)
+      إلى واجهة <span class="tag">Pollinations AI</span> (خدمة توليد صور
+      مجانية بدون مفتاح API) لتوليد صورة الخلفية. لا تُرسَل صورك أو تسجيلاتك
+      الصوتية أو أي بيانات تعريفك ضمن هذا الطلب.
+    </p>
+    <p class="dim">
+      يمكنك تعطيل هذه الميزة واستخدام خلفياتك الخاصة أو خلفياتنا الجاهزة
+      المرفقة مع التطبيق بدلًا من ذلك.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>أذونات التطبيق</h2>
+    <ul>
+      <li><strong>الإنترنت</strong> — لتنزيل نموذج التعرّف الصوتي مرة واحدة عند أول استخدام، ولتوليد خلفيات الذكاء الاصطناعي (اختياري).</li>
+      <li><strong>الميكروفون</strong> — تُستخدم فقط إن فعّلتِ ميزة الكشف الصوتي المباشر عن الآية أثناء التسجيل؛ يتم التعرّف عبر خدمة النظام على جهازك (Android Speech Recognition) ولا نخزّن هذا الصوت على خوادمنا.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>لا إعلانات ولا تتبّع تسويقي</h2>
+    <p>
+      لا يحتوي التطبيق على إعلانات، ولا نستخدم أدوات تتبّع أو تحليلات
+      تسويقية تجمع بيانات عنك لأغراض إعلانية.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>خصوصية الأطفال</h2>
+    <p>
+      التطبيق غير موجَّه للأطفال دون سن 13 عامًا تحديدًا، وبما أننا لا
+      نجمع أي بيانات شخصية أساسًا، فلا يوجد جمع متعمّد لبيانات الأطفال.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>التواصل</h2>
+    <p>
+      لأي استفسار حول هذه السياسة أو التطبيق، يمكن التواصل عبر قناة
+      Ihsan Studio على تيليجرام:
+      <a href="https://t.me/TilawaEhnacher" style="color:var(--gold-bright); text-decoration:none;">t.me/TilawaEhnacher</a>
+      أو عبر البريد الإلكتروني: <a href="mailto:Hammer24678@gmail.com" style="color:var(--gold-bright); text-decoration:none;">Hammer24678@gmail.com</a>.
+    </p>
+  </div>
+
+  <div class="lang-divider"><span>English</span></div>
+
+  <div dir="ltr">
+
+    <div class="panel">
+      <h2 style="direction:ltr">Overview</h2>
+      <p style="direction:ltr; text-align:left;">
+        <strong>Ayat Studio</strong> (استوديو الآيات) is developed by
+        Ihsan Studio, an independent developer, to help you produce
+        Quranic recitation videos with automatic ayah synchronization
+        and visual effects. This page explains what the app actually
+        collects — and what it doesn't.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">No account, no personal data</h2>
+      <p style="direction:ltr; text-align:left;">
+        The app requires no sign-in, no email, and no phone number. We
+        do not collect your name or build a profile on any server.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">Your audio and video</h2>
+      <p style="direction:ltr; text-align:left;">Files you import (audio, video, custom backgrounds) stay on your device:</p>
+      <ul style="direction:ltr; text-align:left;">
+        <li>Speech-to-text (auto-sync) runs <strong>entirely on-device</strong> via a local Whisper model — no audio is uploaded anywhere for this purpose.</li>
+        <li>Custom backgrounds you save are stored locally on your device.</li>
+        <li>The exported video is saved to your device; we never receive a copy.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">One external service: AI background generation</h2>
+      <p style="direction:ltr; text-align:left;">
+        When you choose to generate an AI background for an ayah, the app
+        sends only a <strong>short text description of the scene</strong>
+        to the <span class="tag">Pollinations AI</span> image API (a free,
+        keyless generation service). Your photos, audio, or any identifying
+        information are never included in that request.
+      </p>
+      <p class="dim" style="direction:ltr; text-align:left;">
+        You can skip this feature entirely and use your own backgrounds or
+        the bundled defaults instead.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">Permissions</h2>
+      <ul style="direction:ltr; text-align:left;">
+        <li><strong>Internet</strong> — to download the speech-recognition model once on first use, and for optional AI background generation.</li>
+        <li><strong>Microphone</strong> — only used if you enable live mic ayah-detection; recognition runs via Android's own Speech Recognition service on-device, and we do not store this audio on any server.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">No ads, no marketing trackers</h2>
+      <p style="direction:ltr; text-align:left;">
+        The app has no ads and does not use analytics or trackers that
+        collect data about you for advertising purposes.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">Children's privacy</h2>
+      <p style="direction:ltr; text-align:left;">
+        The app is not specifically directed at children under 13. Since
+        we don't collect personal data in the first place, there is no
+        intentional collection of children's data.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="direction:ltr">Contact</h2>
+      <p style="direction:ltr; text-align:left;">
+        Questions about this policy or the app: Ihsan Studio's Telegram
+        channel — <a href="https://t.me/TilawaEhnacher" style="color:var(--gold-bright); text-decoration:none;">t.me/TilawaEhnacher</a> —
+        or email <a href="mailto:Hammer24678@gmail.com" style="color:var(--gold-bright); text-decoration:none;">Hammer24678@gmail.com</a>.
+      </p>
+    </div>
+
+  </div>
+
+  <footer>Ihsan Studio — استوديو الآيات</footer>
+
+</div>
+</body>
+</html>
