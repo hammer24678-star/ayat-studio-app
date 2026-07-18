@@ -19,24 +19,71 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
           TAG=models
           # PATCH_S43_MODEL_SIZE_PICKER: re-host every selectable tier, not just small, so
           # switching tiers on-device always has an asset to download.
+          # PATCH_S65_CI_MODEL_REHOST_RESILIENCE: no top-level `set -e` here on purpose -- one model
+          # hitting a transient huggingface.co timeout must not stop the loop from
+          # attempting the rest (that silent partial-success bug is exactly why only
+          # small ever actually made it onto the release before this patch).
           ASSETS="ggml-tiny.bin ggml-base.bin ggml-small.bin ggml-medium.bin"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "ASR model assets" \
-              --notes "Whisper GGML models re-hosted here so the on-device app fetches from github.com instead of huggingface.co. Source: https://huggingface.co/ggerganov/whisper.cpp"
+              --notes "Whisper GGML models re-hosted here so the on-device app fetches from github.com instead of huggingface.co. Source: https://huggingface.co/ggerganov/whisper.cpp" || true
           fi
+          FAILED=""
           for ASSET in $ASSETS; do
             URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$ASSET"
             if gh release view "$TAG" --json assets -q '.assets[].name' | grep -qx "$ASSET"; then
               echo "$ASSET already attached to release $TAG — skipping re-upload"
-            else
-              curl -fL -o "$ASSET" "$URL"
-              gh release upload "$TAG" "$ASSET"
+              continue
+            fi
+            OK=0
+            for ATTEMPT in 1 2 3; do
+              echo "Fetching $ASSET (attempt $ATTEMPT/3)..."
+              if curl -fL -o "$ASSET" "$URL" && gh release upload "$TAG" "$ASSET"; then
+                OK=1
+                break
+              fi
+              echo "Attempt $ATTEMPT for $ASSET failed, retrying..."
+              rm -f "$ASSET"
+              sleep 5
+            done
+            if [ "$OK" -ne 1 ]; then
+              echo "FAILED: could not fetch/upload $ASSET after 3 attempts" >&2
+              FAILED="$FAILED $ASSET"
             fi
           done
+          echo "-- verifying all expected assets are attached to release $TAG --"
+          ATTACHED="$(gh release view "$TAG" --json assets -q '.assets[].name')"
+          MISSING=""
+          for ASSET in $ASSETS; do
+            echo "$ATTACHED" | grep -qx "$ASSET" || MISSING="$MISSING $ASSET"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: release '$TAG' is still missing:$MISSING" >&2
+            exit 1
+          fi
+          echo "All 4 model assets confirmed present on release $TAG."
+
+      - name: Check whether the Quran-tuned model asset exists yet (PATCH_S66_QURAN_TUNED_MODEL, informational only)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=models
+          ASSET=ggml-quran-lora-base.bin
+          # PATCH_S66_QURAN_TUNED_MODEL: this asset comes from the separate, manually-triggered
+          # prepare-quran-model.yml workflow (HF LoRA merge + GGML conversion),
+          # not from this per-build step -- so its absence must NEVER fail a
+          # normal APK build. This step is just a heads-up in the Action log.
+          if gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$ASSET"; then
+            echo "$ASSET is present on release $TAG -- دقة القرآن tier is downloadable."
+          else
+            echo "NOTE: $ASSET is not yet on release $TAG -- the دقة القرآن model"
+            echo "tier will fail to download on-device until 'Prepare Quran-tuned"
+            echo "Whisper model' is run once from the Actions tab. This does not"
+            echo "affect the other 4 tiers or block this build."
+          fi
 
       - uses: subosito/flutter-action@v2
         with:
@@ -219,3 +266,14 @@ jobs:
         with:
           name: ayat-studio-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Build release AAB (PATCH_S121_ADD_AAB_BUILD -- Google Play requires an Android App Bundle for new app submissions; the APK above is kept for Telegram/APKPure/Uptodown sideload distribution, this adds the .aab Play Console needs. Same signingConfig as the APK build -- both read android/key.properties decoded from secrets earlier in this workflow, so the two artifacts share the same signing identity.)
+        run: |
+          flutter build appbundle --release \
+            --dart-define=MODEL_RELEASE_BASE_URL=https://github.com/${{ github.repository }}/releases/download/models
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayat-studio-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab

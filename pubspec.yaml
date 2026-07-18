@@ -34,12 +34,22 @@ flutter:
   assets:
     - assets/quran/
     - assets/icon/
+    # PATCH_S107_CURATED_NATURE_BACKGROUNDS
+    - assets/backgrounds/curated/
   # PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled default ayah font (place the .ttf file at
   # assets/fonts/Elgharib-NoonHafs.ttf -- not committed by this script).
   fonts:
     - family: ElgharibNoonHafs
       fonts:
         - asset: assets/fonts/Elgharib-NoonHafs.ttf
+    # PATCH_S100_FONTS_SPINSTAR_TINT: two more bundled ayah fonts, copied in
+    # from the phone's Download/Telegram folder by this patch script.
+    - family: TharwatEmara
+      fonts:
+        - asset: assets/fonts/TharwatEmara.ttf
+    - family: DigitalMadinaNON
+      fonts:
+        - asset: assets/fonts/DigitalMadinaNON.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"

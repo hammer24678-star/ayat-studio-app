@@ -57,6 +57,34 @@ class ExportService {
     if (_cancelRequested) throw Exception('تم إلغاء التصدير');
   }
 
+  // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: ffprobe's `duration` comes
+  // straight from the container header, and this codebase has already hit
+  // that header being wrong once (MediaRecorder-produced webm/opus never
+  // finalizing proper duration metadata -- see MediaService). A short/bad
+  // header here doesn't just mislead a progress bar, it silently CUTS the
+  // export short. This runs a real decode (`-f null -`, no output file
+  // written) and reads the LAST "time=" marker ffmpeg prints as it
+  // actually decodes -- that tracks real decoded time, not the header --
+  // and trusts whichever of {probed, decoded} is longer.
+  static Future<double> _reliableDuration(String path, double? probed) async {
+    final fallback = probed ?? 8.0;
+    try {
+      final session = await FFmpegKit.execute('-i "$path" -f null -');
+      final log = (await session.getOutput()) ?? '';
+      final matches =
+          RegExp(r'time=(\d+):(\d+):(\d+)\.(\d+)').allMatches(log);
+      if (matches.isEmpty) return fallback;
+      final m = matches.last;
+      final decoded = int.parse(m.group(1)!) * 3600 +
+          int.parse(m.group(2)!) * 60 +
+          int.parse(m.group(3)!) +
+          int.parse(m.group(4)!) / 100;
+      return decoded > fallback ? decoded : fallback;
+    } catch (_) {
+      return fallback; // never let the cross-check itself break export
+    }
+  }
+
   static Future<String> export({
     required StudioState state,
     void Function(String status)? onStatus,
@@ -84,7 +112,10 @@ class ExportService {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
         videoHasVideoStream = info.hasVideo;
-        final full = info.duration ?? 8;
+        // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: don't trust the
+        // container header alone -- cross-check against a real decode so a
+        // bad/short header can't silently truncate the export.
+        final full = await _reliableDuration(state.videoPath!, info.duration);
         if (info.width != null &&
             info.height != null &&
             info.width! > 0 &&
@@ -182,6 +213,10 @@ class ExportService {
         lineHeightMultiplier: state.lineHeightMultiplier,
         offset: state.textOffset, // PATCH_S50_DRAGGABLE_TEXT
         userScale: state.textUserScale,
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
+        redWordIndices: state.redWordIndices,
+        captionText: state.captionText,
+        captionPosition: state.captionPosition,
       );
       String? overlaySeqPattern;
       String? overlayPng;
@@ -264,7 +299,10 @@ class ExportService {
       if (state.showIntro) {
         onStatus?.call('جارٍ إنشاء بطاقة البسملة…');
         parts.add(await _renderTitleSegment(
-            work, 'intro', kBasmala, state, w, h));
+            work, 'intro', kBasmala, state, w, h,
+            // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: the chosen stage effect now
+            // plays over the intro card too, not just the main clip.
+            effectSeqPattern: effectSeqPattern));
       }
       parts.add(mainMp4);
       if (state.showOutro) {
@@ -272,7 +310,8 @@ class ExportService {
         parts.add(await _renderTitleSegment(
             work, 'outro',
             state.outroText.trim().isEmpty ? kDefaultOutro : state.outroText,
-            state, w, h));
+            state, w, h,
+            effectSeqPattern: effectSeqPattern)); // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       }
 
       final docs = await getApplicationDocumentsDirectory();
@@ -451,13 +490,42 @@ class ExportService {
     return 'noise=alls=$amt:allf=t+u';
   }
 
-  // Combined color-grade + vignette + grain chain, shared by the main clip
-  // and the bismillah/outro title cards so a chosen look stays consistent
-  // across all exported segments. Empty string when nothing is enabled.
+  // PATCH_S100_FONTS_SPINSTAR_TINT: any-color tint, independent of the
+  // colorGrade presets above. Decomposes the target color into
+  // colorbalance's midtone offsets (same technique warmGold/nightTeal
+  // already use for their push), scaled by intensity -- so this works for
+  // literally any Color, not just the two quick blue/gold presets in the UI.
+  static String _tintFilter(Color color, int intensity) {
+    final strength = intensity.clamp(0, 100) / 100;
+    double channel(int value) =>
+        (((value - 128) / 128) * strength).clamp(-1.0, 1.0);
+    final rm = channel(color.red);
+    final gm = channel(color.green);
+    final bm = channel(color.blue);
+    return 'colorbalance=rm=${rm.toStringAsFixed(3)}'
+        ':gm=${gm.toStringAsFixed(3)}'
+        ':bm=${bm.toStringAsFixed(3)}';
+  }
+
+  // Combined color-grade + tint + vignette + grain chain, shared by the
+  // main clip and the bismillah/outro title cards so a chosen look stays
+  // consistent across all exported segments. Empty string when nothing is
+  // enabled.
   static String _postFilterChain(StudioState state) {
     final parts = <String>[];
     final grade = _colorGradeFilter(state.colorGrade);
     if (grade.isNotEmpty) parts.add(grade);
+    // PATCH_S85_VIDEO_ADJUST: manual sliders stack on top of the preset
+    // grade, mirroring the preview's nested ColorFiltered order.
+    if (state.hasManualAdjust) {
+      parts.add('eq=brightness=${state.adjustBrightness.toStringAsFixed(3)}'
+          ':contrast=${state.adjustContrast.toStringAsFixed(3)}'
+          ':saturation=${state.adjustSaturation.toStringAsFixed(3)}');
+    }
+    // PATCH_S100_FONTS_SPINSTAR_TINT
+    if (state.tintColor != null && state.tintIntensity > 0) {
+      parts.add(_tintFilter(state.tintColor!, state.tintIntensity));
+    }
     if (state.vignetteEnabled) {
       parts.add(_vignetteFilter(state.vignetteIntensity));
     }
@@ -589,18 +657,21 @@ class ExportService {
       );
     }
 
-    // Crossfade: chain xfade pairwise. Each transition's duration is clamped
-    // to whichever neighbouring slot is shorter, so a short switch interval
-    // can never ask xfade for more overlap than a slot actually has.
+    // PATCH_S70_MORE_TRANSITIONS: any non-hardCut style chains xfade pairwise using that
+    // style's own ffmpeg transition name (was hardcoded to 'fade' -- crossfade
+    // was the only style that existed at the time). Duration is still clamped
+    // to whichever neighbouring slot is shorter, so a short switch interval can
+    // never ask xfade for more overlap than a slot actually has.
     var running = segLabels[0];
     var elapsed = segments[0].dur;
+    final xfadeName = transition.ffmpegXfadeName;
     for (var i = 1; i < segLabels.length; i++) {
       final safeDur =
           min(crossfadeDur, min(segments[i - 1].dur, segments[i].dur) * 0.9)
               .clamp(0.05, crossfadeDur);
       final offset = max(0.0, elapsed - safeDur);
       final outLbl = i == segLabels.length - 1 ? 'bgv' : 'bgx$i';
-      filters.add('[$running][${segLabels[i]}]xfade=transition=fade:'
+      filters.add('[$running][${segLabels[i]}]xfade=transition=$xfadeName:'
           'duration=${safeDur.toStringAsFixed(3)}:offset=${offset.toStringAsFixed(3)}[$outLbl]');
       running = outLbl;
       elapsed += segments[i].dur - safeDur;
@@ -754,6 +825,17 @@ class ExportService {
       }
     }
 
+    // PATCH_S85_VIDEO_ADJUST: blur the composited video/background BEFORE
+    // the particles and the ayah text are overlaid, so only the backdrop
+    // softens — same z-order as the preview. Sigma scales from the
+    // 270-reference slider units to this export's real width.
+    if (state.videoBlur > 0.05) {
+      final sigma =
+          (state.videoBlur * w / 270).clamp(1.0, 60.0).toStringAsFixed(2);
+      filters.add('[$base]gblur=sigma=$sigma[vblur]');
+      base = 'vblur';
+    }
+
     // PATCH_S34_STAGE_EFFECTS: particle loop over the video/background,
     // under the ayah text — same z-order as the live preview.
     if (effectSeqPattern != null) {
@@ -781,7 +863,20 @@ class ExportService {
           ? ',fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.6:alpha=1'
           : '';
       filters.add('[$ovIdx:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1$fadeOutFilter[ovf]');
-      filters.add('[$base][ovf]overlay=0:0:shortest=1[outv]');
+      // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: if the user picked an
+      // explicit start/stop second for the ayah text, gate the overlay to
+      // that window instead of showing it for the whole clip.
+      var enableClause = '';
+      if (state.textTimeStartOverride != null &&
+          state.textTimeEndOverride != null) {
+        final ws =
+            (state.textTimeStartOverride! - clipStart).clamp(0.0, duration);
+        final we =
+            (state.textTimeEndOverride! - clipStart).clamp(ws, duration);
+        enableClause =
+            ":enable='between(t,${ws.toStringAsFixed(3)},${we.toStringAsFixed(3)})'";
+      }
+      filters.add('[$base][ovf]overlay=0:0:shortest=1$enableClause[outv]');
     } else {
       filters.add('[$base]null[outv]');
     }
@@ -849,7 +944,8 @@ class ExportService {
   }
 
   static Future<String> _renderTitleSegment(Directory work, String name,
-      String text, StudioState state, int w, int h) async {
+      String text, StudioState state, int w, int h,
+      {String? effectSeqPattern}) async { // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
     final png = '${work.path}/$name.png';
     await File(png).writeAsBytes(await OverlayRenderer.renderTitleCardPng(
       w: w,
@@ -870,6 +966,19 @@ class ExportService {
       final fadeOutStart = (titleCardSec - 0.35).clamp(0.0, double.infinity);
       vf.add('fade=t=in:st=0:d=0.35');
       vf.add('fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.35');
+    }
+    // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: reuses the exact same rendered fx PNG
+    // sequence the main clip uses -- no extra frames generated here, just
+    // one more overlay pass via filter_complex instead of the plain -vf
+    // path below. Only kicks in when an effect is actually active.
+    if (effectSeqPattern != null) {
+      final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
+          '-framerate ${StageEffects.exportFps} -stream_loop -1 -start_number 0 -i "$effectSeqPattern" '
+          '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
+          '-filter_complex "[0:v]${vf.join(',')}[base];[1:v]format=rgba,scale=$w:$h[fx];[base][fx]overlay=0:0[outv]" '
+          '-map "[outv]" -map 2:a -t $titleCardSec ${_encodeParams(state.exportQuality)} "$mp4"';
+      await _run(cmd, titleCardSec, null);
+      return mp4;
     }
     final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
         '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '

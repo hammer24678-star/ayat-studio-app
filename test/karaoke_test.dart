@@ -14,8 +14,13 @@ TimelineSegment seg(String ar, String en, double start, double end) =>
       ayah: Ayah(surahNum: 15, surah: 'الحجر', num: 54, ar: ar, en: en),
     );
 
+// PATCH_S82_KARAOKE_WEIGHTED_FALLBACK: the no-onsets fallback timing is
+// letter-weighted now, so the helper pads the counter to keep every
+// generated word the same length — with equal weights the original
+// word-proportional expectations still hold exactly.
 String words(int n, [String stem = 'كلمة']) =>
-    List.generate(n, (i) => '$stem${i + 1}').join(' ');
+    List.generate(n, (i) => '$stem${(i + 1).toString().padLeft(2, '0')}')
+        .join(' ');
 
 void main() {
   test('short ayah stays as a single chunk covering the whole segment', () {
@@ -63,6 +68,34 @@ void main() {
     final atEnd = karaokeCueAt(chunks, 10.0);
     expect(atEnd.litWords, 10);
     expect(atEnd.chunk.index, chunks.last.index);
+  });
+
+  // PATCH_S82_KARAOKE_WEIGHTED_FALLBACK
+  test('longer words hold the highlight longer than short ones (no onsets)',
+      () {
+    // one very long word then short ones: the long word must consume
+    // clearly more than 1/n of the lighting window
+    final chunks = buildKaraokeChunks(
+        seg('طويييييييييييييلة ثم كلمات قصار هنا', '', 0.0, 10.0));
+    final span = 10.0 * kKaraokeLightingSpan;
+    // at 40% of the lighting window the first (heavy) word should still be
+    // the only lit one — uniform timing would already be lighting word 2
+    final cue = karaokeCueAt(chunks, span * 0.4);
+    expect(cue.litWords, 1);
+    // and everything is lit by the end of the lighting span
+    expect(karaokeCueAt(chunks, span).litWords, 5);
+  });
+
+  test('a heavier first half gets the longer time window (no onsets)', () {
+    final light = words(7, 'قص'); // short words
+    final heavy = words(7, 'طويييييييلة'); // long words
+    final chunks = buildKaraokeChunks(seg('$heavy $light', '', 0.0, 10.0));
+    expect(chunks.length, 2);
+    final firstDur = chunks[0].end - chunks[0].start;
+    final secondDur = chunks[1].end - chunks[1].start;
+    expect(firstDur, greaterThan(secondDur));
+    expect(chunks[0].end, chunks[1].start);
+    expect(chunks[1].end, 10.0);
   });
 
   test('cue never crosses chunk boundaries', () {

@@ -20,6 +20,10 @@ const List<(AyatAspectRatio, String, int, int)> kAspectRatios = [
 
 enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass = frosted-panel look
 
+// PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: where the optional custom
+// caption line (reciter name, ayah-range label, ...) sits on the frame.
+enum CaptionPosition { top, bottom }
+
 // PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see
 // ExportService._colorGradeFilter for the ffmpeg filter each one maps to.
 // Purely visual, never touches audio.
@@ -38,7 +42,39 @@ const List<(ColorGrade, String)> kColorGrades = [
 // ExportService for the ffmpeg concat/xfade chain this drives.
 enum BgSwitchTrigger { ayahs, seconds }
 
-enum BgTransitionStyle { hardCut, crossfade }
+// PATCH_S70_MORE_TRANSITIONS: 7 more xfade-backed styles alongside the original 2.
+enum BgTransitionStyle {
+  hardCut,
+  crossfade,
+  wipeLeft,
+  wipeRight,
+  slideUp,
+  slideDown,
+  circleOpen,
+  circleClose,
+  dissolve,
+  pixelize,
+  radial,
+}
+
+// PATCH_S70_MORE_TRANSITIONS: ffmpeg xfade filter name for every non-hardCut style --
+// hardCut takes the concat path instead (see export_service.dart) so its
+// entry here is unused, just present for switch exhaustiveness.
+extension BgTransitionStyleXfade on BgTransitionStyle {
+  String get ffmpegXfadeName => switch (this) {
+        BgTransitionStyle.hardCut => 'fade',
+        BgTransitionStyle.crossfade => 'fade',
+        BgTransitionStyle.wipeLeft => 'wipeleft',
+        BgTransitionStyle.wipeRight => 'wiperight',
+        BgTransitionStyle.slideUp => 'slideup',
+        BgTransitionStyle.slideDown => 'slidedown',
+        BgTransitionStyle.circleOpen => 'circleopen',
+        BgTransitionStyle.circleClose => 'circleclose',
+        BgTransitionStyle.dissolve => 'dissolve',
+        BgTransitionStyle.pixelize => 'pixelize',
+        BgTransitionStyle.radial => 'radial',
+      };
+}
 
 const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
   (BgSwitchTrigger.ayahs, 'كل عدد آيات'),
@@ -48,6 +84,16 @@ const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
 const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
   (BgTransitionStyle.hardCut, 'قطع مباشر'),
   (BgTransitionStyle.crossfade, 'تلاشٍ متداخل'),
+  // PATCH_S70_MORE_TRANSITIONS
+  (BgTransitionStyle.wipeLeft, 'مسح لليسار'),
+  (BgTransitionStyle.wipeRight, 'مسح لليمين'),
+  (BgTransitionStyle.slideUp, 'انزلاق للأعلى'),
+  (BgTransitionStyle.slideDown, 'انزلاق للأسفل'),
+  (BgTransitionStyle.circleOpen, 'دائرة تتّسع'),
+  (BgTransitionStyle.circleClose, 'دائرة تنغلق'),
+  (BgTransitionStyle.dissolve, 'تلاشٍ متناثر'),
+  (BgTransitionStyle.pixelize, 'تبكسل'),
+  (BgTransitionStyle.radial, 'مسح شعاعي'),
 ];
 
 // PATCH_S54_PRO_EXPORT_CONTROLS: how an uploaded video maps onto the chosen
@@ -117,6 +163,21 @@ const List<BgDef> kBackgrounds = [
   BgDef(stops: [Color(0xFF072421), Color(0xFF0E4A44), Color(0xFF0A3733)]), // ocean teal
   BgDef(stops: [Color(0xFF33260A), Color(0xFF6B4E14), Color(0xFF40300C)]), // wheat field gold
   BgDef(radial: true, stops: [Color(0xFF2A2438), Color(0xFF120F1C)]), // mountain dusk
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: sky/clouds, forest/trees, and space/planets
+  // themed additions -- same gradient-only system as every background
+  // above, kept dark/jewel-toned so gold/white ayah text stays readable.
+  BgDef(radial: true, stops: [Color(0xFF274461), Color(0xFF0C1B2E)]), // dawn clouds
+  BgDef(stops: [Color(0xFF1A3350), Color(0xFF3E6488), Color(0xFF23415F)]), // pale blue sky
+  BgDef(radial: true, stops: [Color(0xFF0E2B3D), Color(0xFF040E16)]), // overcast sky & mist
+  BgDef(stops: [Color(0xFF0B2A1C), Color(0xFF184A2E), Color(0xFF0E3320)]), // pine forest
+  BgDef(radial: true, stops: [Color(0xFF15311F), Color(0xFF081A10)]), // misty woodland
+  BgDef(stops: [Color(0xFF203218), Color(0xFF4A6B2C), Color(0xFF2B4519)]), // sunlit tree canopy
+  BgDef(radial: true, stops: [Color(0xFF060A1E), Color(0xFF01020A)]), // deep space starfield
+  BgDef(stops: [Color(0xFF1B0F3A), Color(0xFF4A1E63), Color(0xFF250F42)]), // cosmic nebula
+  BgDef(radial: true, stops: [Color(0xFF2E1A4D), Color(0xFF0A0616)]), // violet galaxy
+  BgDef(stops: [Color(0xFF3A2410), Color(0xFF8A5A22), Color(0xFF4E3212)]), // ringed planet gold
+  BgDef(radial: true, stops: [Color(0xFF102A3E), Color(0xFF041019)]), // blue planet horizon
+  BgDef(stops: [Color(0xFF14202E), Color(0xFF33507A), Color(0xFF1D2E46)]), // aurora night sky
 ];
 
 /// Registered font choices for the ayah text. `family` is what actually gets
@@ -129,10 +190,15 @@ class AyahFontChoice {
 }
 
 const List<AyahFontChoice> kBuiltInFonts = [
-  // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled Quran font, now the app default.
-  AyahFontChoice('elgharib', 'الغريب نون حفص (افتراضي)'),
+  // PATCH_S100_FONTS_SPINSTAR_TINT: DigitalMadina is now the app default;
+  // Elgharib stays selectable, just no longer pre-picked. See
+  // studio_state.dart's `fontKey` default and ayat_fonts.dart's
+  // ayahTextStyle() for the two new bundled-asset cases.
+  AyahFontChoice('elgharib', 'الغريب نون حفص'),
   AyahFontChoice('amiri', 'أميري قرآن (كلاسيكي)'),
   AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
+  AyahFontChoice('tharwatemara', 'ثروت عمارة'),
+  AyahFontChoice('digitalmadina', 'المدينة الرقمية (افتراضي)'),
 ];
 
 class AyahTemplate {
@@ -203,6 +269,93 @@ const List<AyahTemplate> kTemplates = [
       extra: FrameExtra.glass,
       fontKey: 'amiri',
       color: Color(0xFFFFFFFF)),
+  // PATCH_S103_MORE_TEMPLATES: 12 more -- spread across all 5 fonts (including
+  // the S100 tharwatemara/digitalmadina, unused by any template until
+  // now), all 3 positions, and every FrameExtra style.
+  AyahTemplate(
+      name: 'عنوان ثروت علوي',
+      desc: 'خط ثروت عمارة أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.none,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'توسّط المدينة الرقمية',
+      desc: 'الآية بخط المدينة الرقمية في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'لوحة زجاجية علوية',
+      desc: 'نص داخل لوحة شبه شفافة أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.glass,
+      fontKey: 'amiri',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'إطار ذهبي سفلي',
+      desc: 'نص داخل إطار مذهّب أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.framed,
+      fontKey: 'ruqaa',
+      color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'زجاج مصنفر علوي',
+      desc: 'لوحة زجاجية عصرية أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.glass,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'توسّط زمردي هادئ',
+      desc: 'الآية في المنتصف بلون أخضر زمردي هادئ',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'amiri',
+      color: Color(0xFF8FBBAF)),
+  AyahTemplate(
+      name: 'إطار المدينة المتوسط',
+      desc: 'نص داخل إطار مذهّب بخط المدينة الرقمية في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.framed,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFECC875)),
+  AyahTemplate(
+      name: 'لوحة زجاجية متوسطة',
+      desc: 'نص داخل لوحة زجاجية شفافة في المنتصف',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.glass,
+      fontKey: 'elgharib',
+      color: Color(0xFFECE2CB)),
+  AyahTemplate(
+      name: 'عنوان الغريب سفلي',
+      desc: 'خط الغريب نون حفص أسفل الشاشة بوضوح',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.none,
+      fontKey: 'elgharib',
+      color: Color(0xFFFFFFFF)),
+  AyahTemplate(
+      name: 'صندوق كهرماني علوي',
+      desc: 'نص داخل صندوق كهرماني أعلى الشاشة',
+      pos: AyahTextPosition.top,
+      extra: FrameExtra.boxed,
+      fontKey: 'ruqaa',
+      color: Color(0xFFC9A24B)),
+  AyahTemplate(
+      name: 'توسّط سماوي',
+      desc: 'الآية في المنتصف بلون أزرق سماوي هادئ',
+      pos: AyahTextPosition.center,
+      extra: FrameExtra.none,
+      fontKey: 'tharwatemara',
+      color: Color(0xFFA8C5D6)),
+  AyahTemplate(
+      name: 'لوحة زجاجية ذهبية سفلية',
+      desc: 'لوحة زجاجية عصرية بلون ذهبي أسفل الشاشة',
+      pos: AyahTextPosition.bottom,
+      extra: FrameExtra.glass,
+      fontKey: 'digitalmadina',
+      color: Color(0xFFECC875)),
 ];
 
 const List<Color> kTextColors = [
@@ -219,13 +372,48 @@ const List<Color> kTextColors = [
 ];
 
 const List<String> kReciters = [
+  // PATCH_S104_RECITER_LIBRARY_DOWNLOAD: grew from 6 to 20. Every name
+  // below is matched at runtime against mp3quran.net's live reciter
+  // catalog (see ReciterAudioService) for the "تنزيل من الإنترنت" button --
+  // no per-reciter server URL is hardcoded here.
   'الشيخ الدوسري',
   'مشاري العفاسي',
   'عبدالباسط عبدالصمد',
   'ماهر المعيقلي',
   'ياسر الدوسري',
   'سعود الشريم',
+  'عبدالرحمن السديس',
+  'سعد الغامدي',
+  'أحمد العجمي',
+  'محمود خليل الحصري',
+  'محمد صديق المنشاوي',
+  'علي الحذيفي',
+  'محمد أيوب',
+  'ناصر القطامي',
+  'هاني الرفاعي',
+  'أبو بكر الشاطري',
+  'خالد الجليل',
+  'فارس عباد',
+  'بندر بليلة',
+  'صلاح البدير',
 ];
 
 const String kBasmala = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
 const String kDefaultOutro = 'صدق الله العظيم';
+
+// PATCH_S107_CURATED_NATURE_BACKGROUNDS: bundled nature/space photo
+// backgrounds, selectable with one tap alongside the gradient presets
+// and your own uploaded backgrounds.
+class CuratedBg {
+  final String asset;
+  final String label;
+  const CuratedBg(this.asset, this.label);
+}
+
+const List<CuratedBg> kCuratedBackgrounds = [
+  CuratedBg('assets/backgrounds/curated/moon_earth.jpg', 'الأرض من فوق سطح القمر'),
+  CuratedBg('assets/backgrounds/curated/clouds_sunburst_trees.jpg', 'أشعة الشمس بين الغيوم والأشجار'),
+  CuratedBg('assets/backgrounds/curated/blue_sky_clouds.jpg', 'سماء زرقاء صافية وغيوم'),
+  CuratedBg('assets/backgrounds/curated/waterfall_moss.jpg', 'شلال بين صخور مغطاة بالطحالب'),
+  CuratedBg('assets/backgrounds/curated/waterfall_aerial.jpg', 'شلال ونهر من الأعلى'),
+];

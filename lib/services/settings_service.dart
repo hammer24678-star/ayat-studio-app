@@ -4,6 +4,8 @@
 // background, effect, intro/outro, ratio… Deliberately NOT persisted:
 // anything tied to a session's files (video path, custom background/fonts,
 // reciter audio, timeline) — those files may no longer exist next launch.
+import 'dart:io'; // PATCH_S64_BG_UPLOAD_PERSIST
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +13,7 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import 'stage_effects.dart';
 import 'whisper_service.dart'; // PATCH_S47_SETTINGS_WHISPER_IMPORT_FIX: WhisperModelSize lives here
+import 'ai_art_service.dart'; // PATCH_S69_AI_ART_FIX: AiArtService.apiKey
 
 class SettingsService {
   static const _prefix = 'ayat_studio.';
@@ -97,6 +100,10 @@ class SettingsService {
           (read<int>('staticDurationSec') ?? state.staticDurationSec)
               .clamp(2, 60);
       state.aiArtEnabled = read<bool>('aiArtEnabled') ?? state.aiArtEnabled;
+      // PATCH_S69_AI_ART_FIX
+      state.pollinationsApiKey =
+          read<String>('pollinationsApiKey') ?? state.pollinationsApiKey;
+      AiArtService.apiKey = state.pollinationsApiKey;
       // PATCH_S51_KARAOKE_TOGGLE
       state.karaokeEnabled =
           read<bool>('karaokeEnabled') ?? state.karaokeEnabled;
@@ -117,6 +124,11 @@ class SettingsService {
       state.vignetteIntensity =
           (read<int>('vignetteIntensity') ?? state.vignetteIntensity)
               .clamp(0, 100);
+      // PATCH_S100_FONTS_SPINSTAR_TINT
+      final tint = read<int>('tintColor');
+      if (tint != null) state.tintColor = Color(tint);
+      state.tintIntensity =
+          (read<int>('tintIntensity') ?? state.tintIntensity).clamp(0, 100);
       state.grainEnabled = read<bool>('grainEnabled') ?? state.grainEnabled;
       state.grainIntensity =
           (read<int>('grainIntensity') ?? state.grainIntensity).clamp(0, 100);
@@ -124,6 +136,18 @@ class SettingsService {
           read<bool>('kenBurnsEnabled') ?? state.kenBurnsEnabled;
       state.softTransitions =
           read<bool>('softTransitions') ?? state.softTransitions;
+      // PATCH_S85_VIDEO_ADJUST
+      state.adjustBrightness =
+          (read<double>('adjustBrightness') ?? state.adjustBrightness)
+              .clamp(-0.25, 0.25);
+      state.adjustContrast =
+          (read<double>('adjustContrast') ?? state.adjustContrast)
+              .clamp(0.7, 1.4);
+      state.adjustSaturation =
+          (read<double>('adjustSaturation') ?? state.adjustSaturation)
+              .clamp(0.0, 2.0);
+      state.videoBlur =
+          (read<double>('videoBlur') ?? state.videoBlur).clamp(0.0, 6.0);
       // PATCH_S40_MULTI_BG_CYCLE
       state.multiBgEnabled =
           read<bool>('multiBgEnabled') ?? state.multiBgEnabled;
@@ -178,6 +202,29 @@ class SettingsService {
           (read<double>('audioVolume') ?? state.audioVolume).clamp(0.0, 2.0);
       state.audioFadeIn = read<bool>('audioFadeIn') ?? state.audioFadeIn;
       state.audioFadeOut = read<bool>('audioFadeOut') ?? state.audioFadeOut;
+      // PATCH_S64_BG_UPLOAD_PERSIST: only trust a saved custom background if it was on AND
+      // the file still actually exists on disk (survives a normal relaunch,
+      // but not e.g. the user clearing app storage) -- otherwise fall back
+      // to the default preset background instead of a broken image.
+      final savedUseCustomBg = read<bool>('useCustomBg') ?? false;
+      final savedBgPath = read<String>('customBgPath');
+      if (savedUseCustomBg &&
+          savedBgPath != null &&
+          savedBgPath.isNotEmpty &&
+          File(savedBgPath).existsSync()) {
+        state.useCustomBg = true;
+        state.customBgPath = savedBgPath;
+      } else if (savedUseCustomBg) {
+        state.useCustomBg = false;
+      }
+      // PATCH_S82_CUSTOM_BG_LIBRARY: restore the full uploaded-background
+      // library, uncapped. Paths whose file no longer exists on disk (app
+      // storage cleared, etc.) are dropped silently instead of showing a
+      // broken thumbnail.
+      final savedLibrary = read<List<String>>('customBgLibrary') ?? const [];
+      state.customBgLibrary
+        ..clear()
+        ..addAll(savedLibrary.where((p) => p.isNotEmpty && File(p).existsSync()));
     });
   }
 
@@ -219,6 +266,8 @@ class SettingsService {
       p.setString('${_prefix}outroText', state.outroText),
       p.setInt('${_prefix}staticDurationSec', state.staticDurationSec),
       p.setBool('${_prefix}aiArtEnabled', state.aiArtEnabled),
+      // PATCH_S69_AI_ART_FIX
+      p.setString('${_prefix}pollinationsApiKey', state.pollinationsApiKey),
       // PATCH_S51_KARAOKE_TOGGLE
       p.setBool('${_prefix}karaokeEnabled', state.karaokeEnabled),
       // PATCH_S43_MODEL_SIZE_PICKER
@@ -227,10 +276,19 @@ class SettingsService {
       p.setInt('${_prefix}colorGrade', state.colorGrade.index),
       p.setBool('${_prefix}vignetteEnabled', state.vignetteEnabled),
       p.setInt('${_prefix}vignetteIntensity', state.vignetteIntensity),
+      // PATCH_S100_FONTS_SPINSTAR_TINT
+      if (state.tintColor != null)
+        p.setInt('${_prefix}tintColor', state.tintColor!.toARGB32()),
+      p.setInt('${_prefix}tintIntensity', state.tintIntensity),
       p.setBool('${_prefix}grainEnabled', state.grainEnabled),
       p.setInt('${_prefix}grainIntensity', state.grainIntensity),
       p.setBool('${_prefix}kenBurnsEnabled', state.kenBurnsEnabled),
       p.setBool('${_prefix}softTransitions', state.softTransitions),
+      // PATCH_S85_VIDEO_ADJUST
+      p.setDouble('${_prefix}adjustBrightness', state.adjustBrightness),
+      p.setDouble('${_prefix}adjustContrast', state.adjustContrast),
+      p.setDouble('${_prefix}adjustSaturation', state.adjustSaturation),
+      p.setDouble('${_prefix}videoBlur', state.videoBlur),
       // PATCH_S40_MULTI_BG_CYCLE
       p.setBool('${_prefix}multiBgEnabled', state.multiBgEnabled),
       p.setStringList('${_prefix}multiBgIndexes',
@@ -247,6 +305,12 @@ class SettingsService {
       p.setDouble('${_prefix}audioVolume', state.audioVolume),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
       p.setBool('${_prefix}audioFadeOut', state.audioFadeOut),
+      // PATCH_S64_BG_UPLOAD_PERSIST
+      p.setString('${_prefix}customBgPath', state.customBgPath ?? ''),
+      p.setBool('${_prefix}useCustomBg', state.useCustomBg),
+      // PATCH_S82_CUSTOM_BG_LIBRARY: the full list, uncapped -- every
+      // upload the user has ever kept is saved as-is, no truncation.
+      p.setStringList('${_prefix}customBgLibrary', state.customBgLibrary),
     ]);
   }
 }

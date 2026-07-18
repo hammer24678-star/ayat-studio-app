@@ -8,6 +8,7 @@
 // to the path WhisperController.getPath() expects, then call transcribe()
 // normally; whisper_ggml_plus just finds the file already there and never
 // starts its own download.
+// PATCH_S76_QURAN_MODEL_DEFAULT
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -18,7 +19,13 @@ import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 // scan on older devices or quick previews, `medium` is a further accuracy
 // step up for users who want the best possible sync and don't mind the
 // extra download size + scan time.
-enum WhisperModelSize { tiny, base, small, medium }
+// PATCH_S66_QURAN_TUNED_MODEL: `quranTuned` is a 5th tier -- a Quran-recitation fine-tune
+// (tarteel-ai/whisper-base-ar-quran + KheemP's LoRA adapter merged, same size
+// class as `base`) instead of a generic-speech Whisper checkpoint. This is the
+// actual lever on sync accuracy -- see prepare-quran-model.yml for how the
+// .bin asset this tier downloads is produced (one-time HF->GGML conversion
+// job, run on demand, not on every build).
+enum WhisperModelSize { tiny, base, small, medium, quranTuned }
 
 class _ModelSpec {
   final WhisperModel model;
@@ -34,15 +41,25 @@ const Map<WhisperModelSize, _ModelSpec> _modelSpecs = {
   WhisperModelSize.base: _ModelSpec(
       WhisperModel.base, 'ggml-base.bin', 100 * 1024 * 1024, 'سريع (~148MB) — دقة متوسطة'),
   WhisperModelSize.small: _ModelSpec(
-      WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (الافتراضي، ~466MB)'),
+      WhisperModel.small, 'ggml-small.bin', 400 * 1024 * 1024, 'دقيق (~466MB)'),
   WhisperModelSize.medium: _ModelSpec(
       WhisperModel.medium, 'ggml-medium.bin', 1300 * 1024 * 1024, 'الأدق (~1.5GB) — أبطأ'),
+  // PATCH_S66_QURAN_TUNED_MODEL: reuses the `largeV3Turbo` enum tag purely as a path/routing key --
+  // see the enum-level comment above for why. Not actually large-v3-turbo.
+  // Size target matches `base`'s architecture converted to GGML fp16 (~148MB);
+  // minExpectedBytes mirrors base's own threshold for the same reason.
+  WhisperModelSize.quranTuned: _ModelSpec(
+      WhisperModel.largeV3Turbo, 'ggml-quran-lora-base.bin', 100 * 1024 * 1024,
+      'دقة القرآن (الافتراضي، ~148MB) — نموذج مخصص لتلاوة القرآن'),
 };
 
 class WhisperService {
   // PATCH_S43_MODEL_SIZE_PICKER: mutable (was a S41 const) so the user can switch tiers at
   // runtime; setModelSize() below is the only writer.
-  static WhisperModelSize _size = WhisperModelSize.small;
+  // PATCH_S76_QURAN_MODEL_DEFAULT: default is now the Quran-tuned tier;
+  // `small` remains the guaranteed-published fallback target in
+  // ensureReady() below (S75), unchanged.
+  static WhisperModelSize _size = WhisperModelSize.quranTuned;
   static final WhisperController _controller = WhisperController();
   static bool _modelReady = false;
 
@@ -69,21 +86,22 @@ class WhisperService {
     defaultValue:
         'https://github.com/REPLACE_OWNER/ayat_studio_app/releases/download/models',
   );
-  // PATCH_S43_MODEL_SIZE_PICKER: derived from the selected tier instead of a fixed S41 const --
-  // each tier's own expected size gates its own partial-download check.
-  static String get _assetName => _modelSpecs[_size]!.assetName;
-  static int get _minExpectedBytes => _modelSpecs[_size]!.minExpectedBytes;
+  // PATCH_S84_CLEANUP: the S43 _assetName/_minExpectedBytes getters became
+  // dead once S75's _downloadAndVerify started reading the spec directly.
 
   /// Ensures the model is downloaded/cached. Safe to call repeatedly — only
   /// downloads once per app run. [onStatus] gets human-readable Arabic
   /// status text.
-  static Future<void> ensureReady({void Function(String status)? onStatus}) async {
-    if (_modelReady) return;
-
-    final path = await _controller.getPath(_model);
+  // PATCH_S75_COMPACT_PICKER_FALLBACK: download/verify for whichever tier `size` currently points at.
+  // Pulled out of ensureReady() so it can be attempted for the selected tier
+  // first, then retried for a fallback tier without duplicating this logic.
+  static Future<void> _downloadAndVerify(
+      WhisperModelSize size, {void Function(String status)? onStatus}) async {
+    final spec = _modelSpecs[size]!;
+    final path = await _controller.getPath(spec.model);
     final file = File(path);
     final needsDownload =
-        !(await file.exists()) || (await file.length()) < _minExpectedBytes;
+        !(await file.exists()) || (await file.length()) < spec.minExpectedBytes;
 
     if (needsDownload) {
       // PATCH_S57_RESUMABLE_MODEL_DOWNLOAD: tester feedback — the old
@@ -95,7 +113,7 @@ class WhisperService {
       await file.parent.create(recursive: true);
       final part = File('$path.part');
       var have = await part.exists() ? await part.length() : 0;
-      final uri = Uri.parse('$_releaseBaseUrl/$_assetName');
+      final uri = Uri.parse('$_releaseBaseUrl/${spec.assetName}');
       final request = http.Request('GET', uri);
       if (have > 0) request.headers['range'] = 'bytes=$have-';
       final response = await http.Client().send(request);
@@ -128,13 +146,32 @@ class WhisperService {
         // keep whatever arrived — that's exactly what resume picks up from
         await sink.close();
       }
-      if (await part.length() < _minExpectedBytes) {
+      if (await part.length() < spec.minExpectedBytes) {
         throw Exception(
             'انقطع تنزيل النموذج — أعد المحاولة وسيُستأنف تلقائيًا من حيث توقف');
       }
       await part.rename(path);
     }
+  }
 
+  // PATCH_S75_COMPACT_PICKER_FALLBACK: if the selected tier can't be downloaded/verified (e.g. a tier
+  // whose asset isn't published yet, or a transient network/HTTP error) this
+  // no longer throws straight into the caller's face. Unless the failing tier
+  // is already `small` (the long-standing safe default, always published),
+  // it falls back to `small` and retries once, so auto-sync/detect still
+  // works. `_size` itself is updated on fallback so the UI can re-sync its
+  // displayed selection via currentSize.
+  static Future<void> ensureReady({void Function(String status)? onStatus}) async {
+    if (_modelReady) return;
+    try {
+      await _downloadAndVerify(_size, onStatus: onStatus);
+    } catch (e) {
+      if (_size == WhisperModelSize.small) rethrow;
+      final failedLabel = labelFor(_size).split(' — ').first;
+      onStatus?.call('تعذّر تحميل "$failedLabel" — سيتم استخدام "دقيق" مؤقتًا…');
+      _size = WhisperModelSize.small;
+      await _downloadAndVerify(_size, onStatus: onStatus);
+    }
     _modelReady = true;
     onStatus?.call('النموذج جاهز');
   }

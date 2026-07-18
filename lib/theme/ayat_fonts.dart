@@ -44,6 +44,11 @@ TextStyle ayahTextStyle(
       return GoogleFonts.amiriQuran(textStyle: base);
     case 'ruqaa':
       return GoogleFonts.arefRuqaa(textStyle: base);
+    // PATCH_S100_FONTS_SPINSTAR_TINT: two more bundled asset fonts.
+    case 'tharwatemara':
+      return base.copyWith(fontFamily: 'TharwatEmara');
+    case 'digitalmadina':
+      return base.copyWith(fontFamily: 'DigitalMadinaNON');
     default:
       // custom uploaded font, registered through FontLoader under fontKey
       return base.copyWith(fontFamily: fontKey);

@@ -28,6 +28,10 @@ class OverlayStyle {
   final double lineHeightMultiplier;
   final Offset offset; // PATCH_S50_DRAGGABLE_TEXT: matches StudioState.textOffset
   final double userScale; // matches StudioState.textUserScale
+  // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
+  final Set<int> redWordIndices;
+  final String captionText;
+  final CaptionPosition captionPosition;
   const OverlayStyle({
     required this.fontKey,
     required this.ayahFontSize,
@@ -42,6 +46,9 @@ class OverlayStyle {
     this.lineHeightMultiplier = 1.5,
     this.offset = Offset.zero,
     this.userScale = 1.0,
+    this.redWordIndices = const {},
+    this.captionText = '',
+    this.captionPosition = CaptionPosition.bottom,
   });
 }
 
@@ -189,6 +196,11 @@ class OverlayRenderer {
         ];
         final dimColor =
             style.color.withValues(alpha: style.color.a * 0.30 * opacity);
+        // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: red-flagged words
+        // must stay red in exported auto-synced/timeline clips too --
+        // this branch previously only chose between lit/dim and
+        // silently dropped any redWordIndices selection.
+        final redColorK = const Color(0xFFE53935).withValues(alpha: opacity);
         ayahSpan = TextSpan(
           children: [
             for (var i = 0; i < karaokeWords.length; i++)
@@ -197,7 +209,9 @@ class OverlayRenderer {
                 style: ayahTextStyle(
                   style.fontKey,
                   fontSize: ayahFontSize,
-                  color: i < litWords ? effColor : dimColor,
+                  color: style.redWordIndices.contains(i)
+                      ? redColorK
+                      : (i < litWords ? effColor : dimColor),
                   height: style.lineHeightMultiplier,
                   letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
                   shadows: i < litWords ? litShadows : shadows,
@@ -217,17 +231,42 @@ class OverlayRenderer {
                     blurRadius: 14 * scale * style.glowIntensity),
               ]
             : shadows;
-        ayahSpan = TextSpan(
-          text: text,
-          style: ayahTextStyle(
-            style.fontKey,
-            fontSize: ayahFontSize,
-            color: effColor,
-            height: style.lineHeightMultiplier,
-            letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
-            shadows: staticShadows,
-          ),
-        );
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: render word-by-word so
+        // individually-flagged words can be colored red, same as the
+        // karaoke branch above builds one TextSpan per word.
+        if (style.redWordIndices.isNotEmpty) {
+          final redColor = const Color(0xFFE53935)
+              .withValues(alpha: opacity); // fixed highlight red
+          final ws = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+          ayahSpan = TextSpan(
+            children: [
+              for (var i = 0; i < ws.length; i++)
+                TextSpan(
+                  text: i == 0 ? ws[i] : ' ${ws[i]}',
+                  style: ayahTextStyle(
+                    style.fontKey,
+                    fontSize: ayahFontSize,
+                    color: style.redWordIndices.contains(i) ? redColor : effColor,
+                    height: style.lineHeightMultiplier,
+                    letterSpacing: style.letterSpacing,
+                    shadows: staticShadows,
+                  ),
+                ),
+            ],
+          );
+        } else {
+          ayahSpan = TextSpan(
+            text: text,
+            style: ayahTextStyle(
+              style.fontKey,
+              fontSize: ayahFontSize,
+              color: effColor,
+              height: style.lineHeightMultiplier,
+              letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
+              shadows: staticShadows,
+            ),
+          );
+        }
       }
       final ayahPainter = TextPainter(
         text: ayahSpan,
@@ -318,6 +357,35 @@ class OverlayRenderer {
           Offset((w - transPainter.width) / 2 + dx,
               top + ayahPainter.height + gap));
     }
+
+    // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: optional extra line (ayah
+    // range, reciter/sheikh name, ...) pinned near the top or bottom of the
+    // frame -- independent of whether an ayah is currently shown at all.
+    if (style.captionText.trim().isNotEmpty) {
+      final capScale = w / 270.0;
+      final capPainter = TextPainter(
+        text: TextSpan(
+          text: style.captionText,
+          style: ayahTextStyle(
+            style.fontKey,
+            fontSize: 14 * capScale,
+            color: const Color(0xFFECC875).withValues(alpha: opacity),
+            shadows: [
+              Shadow(
+                  color: Color.fromRGBO(0, 0, 0, 0.7 * opacity),
+                  blurRadius: 6 * capScale),
+            ],
+          ),
+        ),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.rtl,
+      )..layout(maxWidth: w * 0.86);
+      final capY = style.captionPosition == CaptionPosition.top
+          ? h * 0.05
+          : h * 0.93 - capPainter.height;
+      capPainter.paint(canvas, Offset((w - capPainter.width) / 2, capY));
+    }
+
     return _picToPng(rec.endRecording(), w, h);
   }
 }

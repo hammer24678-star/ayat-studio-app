@@ -9,13 +9,17 @@
 // wrap by whole multiples of the travel range and sways/twinkles use whole
 // sine cycles, so frame t=loopSeconds is pixel-identical to t=0 and the
 // exported loop is seamless.
+// PATCH_S73_SIMPLE_GLITCH_RAIN
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti } // PATCH_S52_MORE_EFFECTS
+// PATCH_S85_MORE_EFFECTS: fireflies/fog/rays appended at the END — the
+// settings persistence stores effect.index, so existing saved choices keep
+// pointing at the same effect.
+enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays, spinningStar, starBurst, flowerBurst } // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -26,6 +30,13 @@ extension StageEffectLabel on StageEffect {
         StageEffect.sparkle => 'بريق نجمي', // PATCH_S51_MORE_EFFECTS
         StageEffect.geometricShimmer => 'بريق زخرفي إسلامي', // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => 'قصاصات ذهبية', // PATCH_S52_MORE_EFFECTS
+        StageEffect.glitch => 'أعطال بصرية', // PATCH_S72_GLITCH_EFFECT
+        StageEffect.fireflies => 'يراعات مضيئة', // PATCH_S85_MORE_EFFECTS
+        StageEffect.fog => 'ضباب هادئ', // PATCH_S85_MORE_EFFECTS
+        StageEffect.rays => 'أشعة نور', // PATCH_S85_MORE_EFFECTS
+        StageEffect.spinningStar => 'نجمة إسلامية دوّارة', // PATCH_S100_FONTS_SPINSTAR_TINT
+        StageEffect.starBurst => 'انفجار نجمي', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        StageEffect.flowerBurst => 'تفتّح الزهور', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       };
 
   IconData get icon => switch (this) {
@@ -36,6 +47,13 @@ extension StageEffectLabel on StageEffect {
         StageEffect.sparkle => Icons.star_outline, // PATCH_S51_MORE_EFFECTS
         StageEffect.geometricShimmer => Icons.auto_awesome_mosaic, // PATCH_S52_MORE_EFFECTS
         StageEffect.confetti => Icons.celebration_outlined, // PATCH_S52_MORE_EFFECTS
+        StageEffect.glitch => Icons.broken_image_outlined, // PATCH_S72_GLITCH_EFFECT
+        StageEffect.fireflies => Icons.emoji_nature_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.fog => Icons.cloud_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.rays => Icons.wb_twilight_outlined, // PATCH_S85_MORE_EFFECTS
+        StageEffect.spinningStar => Icons.star_rate_rounded, // PATCH_S100_FONTS_SPINSTAR_TINT
+        StageEffect.starBurst => Icons.auto_awesome_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        StageEffect.flowerBurst => Icons.local_florist_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
       };
 }
 
@@ -54,6 +72,15 @@ class StageEffects {
     return x - x.floorToDouble();
   }
 
+  // PATCH_S71_REALISTIC_RAIN: shared easing helper -- turns a raw sin/cos value
+  // into a signed eased value (still in [-1, 1], still continuous and
+  // periodic) so a sway reads as ease-in-out rather than constant-velocity
+  // sinusoidal motion.
+  static double _easeInOutSine(double x) => -(cos(pi * x) - 1) / 2;
+
+  static double _easedOscillate(double raw) =>
+      raw.sign * _easeInOutSine(raw.abs());
+
   static void paint(Canvas canvas, Size size, StageEffect effect,
       double timeSec, double intensity) {
     switch (effect) {
@@ -71,29 +98,193 @@ class StageEffects {
         _paintGeometricShimmer(canvas, size, timeSec, intensity);
       case StageEffect.confetti: // PATCH_S52_MORE_EFFECTS
         _paintConfetti(canvas, size, timeSec, intensity);
+      case StageEffect.glitch: // PATCH_S72_GLITCH_EFFECT
+        _paintGlitch(canvas, size, timeSec, intensity);
+      case StageEffect.fireflies: // PATCH_S85_MORE_EFFECTS
+        _paintFireflies(canvas, size, timeSec, intensity);
+      case StageEffect.fog: // PATCH_S85_MORE_EFFECTS
+        _paintFog(canvas, size, timeSec, intensity);
+      case StageEffect.rays: // PATCH_S85_MORE_EFFECTS
+        _paintRays(canvas, size, timeSec, intensity);
+      case StageEffect.spinningStar: // PATCH_S100_FONTS_SPINSTAR_TINT
+        _paintSpinningStar(canvas, size, timeSec, intensity);
+      case StageEffect.starBurst: // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        _paintStarBurst(canvas, size, timeSec, intensity);
+      case StageEffect.flowerBurst: // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        _paintFlowerBurst(canvas, size, timeSec, intensity);
     }
   }
 
+  // PATCH_S85_MORE_EFFECTS: a handful of large, softly glowing points that
+  // wander slowly around their anchor and pulse — unlike the dense drifting
+  // `dust`, fireflies are few, bright and individually noticeable. Whole
+  // wander/pulse cycles per loop keep the export tile seamless, same
+  // convention as every other effect here.
+  static void _paintFireflies(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final count = (14 * intensity).round().clamp(3, 20);
+    final paint = Paint()
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6.0 * w / 1080);
+    for (var i = 0; i < count; i++) {
+      final phase = _rand(i, 1) * 2 * pi;
+      final wanderCycles = 1 + (i % 2);
+      // two independent eased oscillations trace a slow lissajous wander
+      final dx = _easedOscillate(
+              sin(2 * pi * wanderCycles * t / loopSeconds + phase)) *
+          w *
+          0.06;
+      final dy = _easedOscillate(
+              cos(2 * pi * (wanderCycles + 1) * t / loopSeconds + phase * 1.7)) *
+          h *
+          0.04;
+      final x = _rand(i, 2) * w + dx;
+      final y = _rand(i, 3) * h + dy;
+      // slow pulse, mostly-on with a soft dip — a firefly, not a strobe
+      final pulseCycles = 1 + (i % 3);
+      final pulse =
+          0.35 + 0.65 * (0.5 + 0.5 * sin(2 * pi * pulseCycles * t / loopSeconds + phase * 2));
+      final r = (3.0 + 3.0 * _rand(i, 4)) * w / 1080;
+      // warm green-gold glow halo + brighter core
+      paint.color =
+          const Color(0xFFD7EFA0).withValues(alpha: 0.45 * pulse * intensity);
+      canvas.drawCircle(Offset(x, y), r * 2.2, paint);
+      paint.color =
+          const Color(0xFFF4FFCE).withValues(alpha: 0.9 * pulse * intensity);
+      canvas.drawCircle(Offset(x, y), r, paint);
+    }
+  }
+
+  // PATCH_S85_MORE_EFFECTS: two depth layers of very large, heavily blurred
+  // ellipses drifting sideways — a quiet fog bank rolling through, not a
+  // smoke machine. Each blob makes a whole traversal (or two) per loop so
+  // the export tile wraps seamlessly.
+  static void _paintFog(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final paint = Paint()
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.06 * w);
+    const blobs = 10;
+    for (var i = 0; i < blobs; i++) {
+      final depth = _rand(i, 1); // far blobs: slower, dimmer, higher
+      final bw = w * (0.55 + 0.5 * _rand(i, 2));
+      final bh = h * (0.10 + 0.08 * _rand(i, 3));
+      final range = w + bw;
+      final kLoops = 1 + (i % 2); // whole traversals per loop
+      final dir = (i % 2 == 0) ? 1.0 : -1.0; // layers cross for parallax
+      final v = kLoops * range / loopSeconds;
+      final travel = (_rand(i, 4) * range + v * t) % range;
+      final x = (dir > 0 ? travel : range - travel) - bw / 2;
+      // fog sits low-to-mid; far blobs float a bit higher
+      final y = h * (0.35 + 0.55 * _rand(i, 5)) - depth * h * 0.15;
+      paint.color = Colors.white
+          .withValues(alpha: (0.045 + 0.05 * depth) * intensity);
+      canvas.drawOval(
+          Rect.fromCenter(center: Offset(x + bw / 2, y), width: bw, height: bh),
+          paint);
+    }
+  }
+
+  // PATCH_S85_MORE_EFFECTS: soft diagonal light beams falling from the top
+  // edge — the classic "God rays through the window" recitation-video look.
+  // Each beam sways around its base angle by a whole eased cycle per loop
+  // and breathes in brightness, so the tile stays seamless.
+  static void _paintRays(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    const beams = 6;
+    for (var i = 0; i < beams; i++) {
+      final phase = _rand(i, 1) * 2 * pi;
+      final baseAngle = -0.35 + 0.7 * _rand(i, 2); // radians off vertical
+      final sway = _easedOscillate(
+              sin(2 * pi * (1 + i % 2) * t / loopSeconds + phase)) *
+          0.05;
+      final breathe =
+          0.55 + 0.45 * sin(2 * pi * (1 + i % 3) * t / loopSeconds + phase * 2);
+      final beamW = w * (0.05 + 0.09 * _rand(i, 3));
+      final topX = w * (0.15 + 0.7 * _rand(i, 4));
+      canvas.save();
+      canvas.translate(topX, -h * 0.05);
+      canvas.rotate(baseAngle + sway);
+      final rect = Rect.fromLTWH(-beamW / 2, 0, beamW, h * 1.5);
+      final paint = Paint()
+        ..shader = ui.Gradient.linear(
+          rect.topCenter,
+          rect.bottomCenter,
+          [
+            const Color(0xFFFFF3D6)
+                .withValues(alpha: 0.22 * breathe * intensity),
+            const Color(0xFFFFF3D6).withValues(alpha: 0.0),
+          ],
+        )
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.012 * w);
+      canvas.drawRect(rect, paint);
+      canvas.restore();
+    }
+  }
+
+  // PATCH_S73B_FIX_DUPLICATE_PAINT_RAIN: S73 left a duplicate/orphaned signature here (see
+  // this patch's docstring) that broke the whole file's parse -- removed,
+  // only the correct signature below (as part of S73's own block) remains.
+  // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the 3-band depth-simulated rain
+  // (far/mid/near blur + wind-gust slant drift + motion-blur trails) with a
+  // single uniform layer -- the plain, flat "rain overlay" look used in
+  // most recitation-video edits, not a simulated rain shower.
+  // PATCH_S93_WINDOW_RAIN: sparse, large droplets clinging to glass and
+  // sliding down, each trailing a fading wet streak -- reads as rain
+  // hitting a window, not a generic falling-streak downpour. Still a pure
+  // function of (i, t) with whole cycles per loopSeconds, so the exported
+  // PNG loop stays seamless like every other effect here.
   static void _paintRain(
       Canvas canvas, Size size, double t, double intensity) {
     final w = size.width, h = size.height;
-    final count = (150 * intensity).round();
-    final paint = Paint()..strokeCap = StrokeCap.round;
+    // "A couple of big drops" -- intensity nudges the count a little, it
+    // never turns this into a wall of rain even at max.
+    final count = (3 + 5 * intensity).round().clamp(2, 8);
     for (var i = 0; i < count; i++) {
-      final depth = _rand(i, 1); // 0 = far/dim/short, 1 = near/bright/long
-      final len = h * (0.030 + 0.045 * depth);
-      final range = h + len;
-      // whole [kLoops] traversals per loop keeps the wrap seamless
-      final kLoops = 2 + (i % 2);
-      final v = kLoops * range / loopSeconds;
-      final y = ((_rand(i, 2) * range + v * t) % range) - len;
-      final x = _rand(i, 3) * w;
-      paint
-        ..color = Colors.white.withValues(alpha: 0.14 + 0.30 * depth)
-        ..strokeWidth = (1.0 + 1.6 * depth) * w / 1080;
-      // constant slant: the drop is drawn tilted while falling vertically,
-      // which reads as wind-blown rain without breaking the loop wrap
-      canvas.drawLine(Offset(x, y), Offset(x + len * 0.18, y + len), paint);
+      final depth = _rand(i, 1); // 0..1: bigger/heavier drops slide faster
+      final r = (5.0 + 4.0 * depth) * w / 1080; // big, glassy drops
+      final range = h + r * 6;
+      // clinging to glass, not falling through air -- far slower than the
+      // old free-falling streaks, heavier drops a little faster than light ones.
+      final v = (range / loopSeconds) * (0.35 + 0.25 * depth);
+      final y = ((_rand(i, 2) * range + v * t) % range) - r * 3;
+      // a real droplet on glass doesn't fall straight -- surface tension
+      // catches and releases it in a slight zigzag. Whole sway cycles per
+      // loop keep the wrap seamless, same convention as _paintSnow.
+      final swayCycles = 1 + (i % 2);
+      final phase = _rand(i, 4) * 2 * pi;
+      final swayRaw = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final x = _rand(i, 3) * w + _easedOscillate(swayRaw) * w * 0.01;
+
+      // the wet track it leaves behind as it slides.
+      final trailLen = min(y + r * 3, h * 0.22);
+      if (trailLen > 1) {
+        final trailTop = Offset(x, y - trailLen);
+        final trailBottom = Offset(x, y);
+        final trailPaint = Paint()
+          ..strokeWidth = r * 0.55
+          ..strokeCap = StrokeCap.round
+          ..shader = ui.Gradient.linear(
+            trailTop,
+            trailBottom,
+            [
+              Colors.white.withValues(alpha: 0),
+              Colors.white.withValues(alpha: 0.16 * intensity),
+            ],
+          );
+        canvas.drawLine(trailTop, trailBottom, trailPaint);
+      }
+
+      // the drop itself: a soft body plus a small bright highlight, like
+      // light catching the curve of water on glass.
+      final bodyPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.30 * intensity);
+      canvas.drawCircle(Offset(x, y), r, bodyPaint);
+      final highlightPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.55 * intensity);
+      canvas.drawCircle(
+          Offset(x - r * 0.3, y - r * 0.35), r * 0.35, highlightPaint);
     }
   }
 
@@ -111,8 +302,12 @@ class StageEffects {
       // whole sine cycles per loop so the sway is also seamless
       final swayCycles = 1 + (i % 3);
       final phase = _rand(i, 4) * 2 * pi;
-      final sway =
-          sin(2 * pi * swayCycles * t / loopSeconds + phase) * w * 0.03;
+      // PATCH_S71_REALISTIC_RAIN: eased sway instead of a raw sine position --
+      // lingers a touch near the sway's extremes and moves faster through
+      // the middle, reading less mechanical. Still one whole sine cycle per
+      // loop underneath, so the seamless wrap is untouched.
+      final swayRaw = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final sway = _easedOscillate(swayRaw) * w * 0.03;
       final x = (_rand(i, 3) * w + sway + w) % w;
       paint.color = Colors.white.withValues(alpha: 0.25 + 0.55 * depth);
       canvas.drawCircle(Offset(x, y), r, paint);
@@ -132,10 +327,12 @@ class StageEffects {
       // so nothing needs to wrap at all
       final phase = _rand(i, 4) * 2 * pi;
       final swayCycles = 1 + (i % 2);
-      final x = _rand(i, 2) * w +
-          sin(2 * pi * swayCycles * t / loopSeconds + phase) * w * 0.015;
-      final y = _rand(i, 3) * h +
-          cos(2 * pi * swayCycles * t / loopSeconds + phase) * h * 0.008;
+      // PATCH_S71_REALISTIC_RAIN: eased sway (see _paintSnow) instead of a raw
+      // sin/cos position -- same whole-cycle-per-loop guarantee.
+      final swayRawX = sin(2 * pi * swayCycles * t / loopSeconds + phase);
+      final swayRawY = cos(2 * pi * swayCycles * t / loopSeconds + phase);
+      final x = _rand(i, 2) * w + _easedOscillate(swayRawX) * w * 0.015;
+      final y = _rand(i, 3) * h + _easedOscillate(swayRawY) * h * 0.008;
       final twinkleCycles = 1 + (i % 3);
       final twinkle =
           0.5 + 0.5 * sin(2 * pi * twinkleCycles * t / loopSeconds + phase * 2);
@@ -248,6 +445,52 @@ class StageEffects {
     canvas.drawPath(square(0), paint);
   }
 
+  // PATCH_S100_FONTS_SPINSTAR_TINT: a handful of large, prominent 8-pointed
+  // (rub el hizb) stars that continuously spin in place with a soft gold
+  // glow -- unlike geometricShimmer's grid of small counter-rotating
+  // motifs, this is meant to read as a few clear focal stars rather than a
+  // background texture. Whole rotations per loop keep the export tile
+  // seamless, same convention as every other effect here.
+  static void _paintSpinningStar(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    // Anchor positions kept fixed (not random) so the composition reads as
+    // deliberate corners/accents rather than scattered clutter.
+    final anchors = [
+      Offset(w * 0.18, h * 0.16),
+      Offset(w * 0.82, h * 0.20),
+      Offset(w * 0.50, h * 0.82),
+    ];
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 5.0 * w / 1080);
+    final corePaint = Paint()..style = PaintingStyle.stroke;
+    for (var i = 0; i < anchors.length; i++) {
+      final phase = _rand(i, 9) * 2 * pi;
+      // gentle pulse so the stars breathe rather than sit static
+      final pulse = 0.6 + 0.4 * sin(2 * pi * t / loopSeconds + phase);
+      final r = (i == 1 ? 0.09 : 0.065) * w;
+      // PATCH_S105_SLOW_SPINSTAR: 8x slower spin (45° per loop instead of a
+      // full 360°). Still a seamless loop -- an 8-pointed star has 8-fold
+      // rotational symmetry, so any multiple of a 45° (2π/8) turn per loop
+      // lines up identically at the seam.
+      final angle = (pi / 4) * (t / loopSeconds) * (i.isEven ? 1 : -1) + phase;
+      final alpha = (0.55 + 0.25 * pulse) * intensity;
+      glowPaint
+        ..color = const Color(0xFFECC875).withValues(alpha: alpha * 0.65)
+        ..strokeWidth = max(1.5, w / 260);
+      corePaint
+        ..color = const Color(0xFFFFF3D6).withValues(alpha: alpha)
+        ..strokeWidth = max(1.0, w / 480);
+      canvas.save();
+      canvas.translate(anchors[i].dx, anchors[i].dy);
+      canvas.rotate(angle);
+      _drawEightPointStar(canvas, glowPaint, r * (0.95 + 0.1 * pulse));
+      _drawEightPointStar(canvas, corePaint, r * (0.95 + 0.1 * pulse));
+      canvas.restore();
+    }
+  }
+
   // PATCH_S52_MORE_EFFECTS: small rotating gold rectangles falling and tumbling in a
   // light shower -- a festive alternative to the plain `dust` effect.
   // Same seamless-loop conventions as _paintRain/_paintSnow: whole
@@ -282,6 +525,174 @@ class StageEffects {
       canvas.rotate(angle);
       canvas.drawRect(
           Rect.fromCenter(center: Offset.zero, width: pw, height: ph), paint);
+      canvas.restore();
+    }
+  }
+
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: small gold 8-point stars sparking
+  // outward from a few anchor points and fading, like distant fireworks --
+  // distinct from spinningStar (rotates in place) and confetti (falls).
+  // Reuses _drawEightPointStar so the sparks read as tiny stars rather than
+  // generic dots. Each particle's own cycle offset (mod 1.0 of loopSeconds)
+  // keeps the export tile seamless, same convention as every effect here.
+  static void _paintStarBurst(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final anchors = [
+      Offset(w * 0.22, h * 0.28),
+      Offset(w * 0.78, h * 0.34),
+      Offset(w * 0.50, h * 0.70),
+    ];
+    final perAnchor = (7 * intensity).round().clamp(2, 12);
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var a = 0; a < anchors.length; a++) {
+      for (var i = 0; i < perAnchor; i++) {
+        final idx = a * 100 + i;
+        final angle = _rand(idx, 1) * 2 * pi;
+        final cycleOffset = _rand(idx, 2); // stagger each particle's burst
+        final cyclePos = ((t / loopSeconds) + cycleOffset) % 1.0;
+        final travel = _easeInOutSine(cyclePos);
+        final maxR = (0.10 + 0.05 * _rand(idx, 3)) * w;
+        final r = travel * maxR;
+        // fast fade-in, slower fade-out -- reads as a spark, not a pulse
+        final fade = cyclePos < 0.15
+            ? cyclePos / 0.15
+            : (1 - (cyclePos - 0.15) / 0.85).clamp(0.0, 1.0);
+        final alpha = fade * intensity * 0.9;
+        if (alpha <= 0.02) continue;
+        final starR =
+            (2.2 + 2.0 * _rand(idx, 4)) * w / 1080 * (0.5 + 0.5 * fade);
+        paint.color = const Color(0xFFFFF3D6).withValues(alpha: alpha);
+        canvas.save();
+        canvas.translate(
+            anchors[a].dx + cos(angle) * r, anchors[a].dy + sin(angle) * r);
+        canvas.rotate(angle);
+        _drawEightPointStar(canvas, paint, starR);
+        canvas.restore();
+      }
+    }
+  }
+
+  // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: a handful of six-petal blossoms
+  // that bloom outward from a few anchor points, hold, then fade and bloom
+  // again -- a softer "flower" reading than starBurst's sharp sparks, built
+  // from rotated ellipses instead of a new asset. Same seamless-loop
+  // convention (whole cycles via t/loopSeconds mod 1.0) as every effect here.
+  static void _paintFlowerBurst(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    final anchors = [
+      Offset(w * 0.20, h * 0.24),
+      Offset(w * 0.80, h * 0.30),
+      Offset(w * 0.50, h * 0.74),
+      Offset(w * 0.30, h * 0.60),
+    ];
+    const petals = 6;
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (var a = 0; a < anchors.length; a++) {
+      final cycleOffset = _rand(a, 11);
+      final cyclePos = ((t / loopSeconds) + cycleOffset) % 1.0;
+      // bloom (0..0.35), hold (0.35..0.55), fade (0.55..1)
+      double bloom;
+      double fade;
+      if (cyclePos < 0.35) {
+        bloom = _easeInOutSine(cyclePos / 0.35);
+        fade = bloom;
+      } else if (cyclePos < 0.55) {
+        bloom = 1.0;
+        fade = 1.0;
+      } else {
+        bloom = 1.0;
+        fade = (1 - (cyclePos - 0.55) / 0.45).clamp(0.0, 1.0);
+      }
+      if (fade <= 0.02) continue;
+      final maxR = (0.07 + 0.02 * _rand(a, 12)) * w;
+      final petalLen = maxR * bloom;
+      final petalW = petalLen * 0.42;
+      final baseAngle = _rand(a, 13) * 2 * pi;
+      final alpha = fade * intensity * 0.75;
+      final petalColor = Color.lerp(const Color(0xFFECC875),
+          const Color(0xFFFFF3D6), _rand(a, 14))!
+          .withValues(alpha: alpha);
+      paint.color = petalColor;
+      canvas.save();
+      canvas.translate(anchors[a].dx, anchors[a].dy);
+      for (var p = 0; p < petals; p++) {
+        final ang = baseAngle + p * 2 * pi / petals;
+        canvas.save();
+        canvas.rotate(ang);
+        canvas.translate(petalLen * 0.5, 0);
+        canvas.drawOval(
+            Rect.fromCenter(center: Offset.zero, width: petalLen, height: petalW),
+            paint);
+        canvas.restore();
+      }
+      // small bright core so it reads as a blossom, not a pinwheel
+      paint.color = const Color(0xFFFFF3D6).withValues(alpha: alpha);
+      canvas.drawCircle(Offset.zero, petalW * 0.35, paint);
+      canvas.restore();
+    }
+  }
+
+
+  // PATCH_S73_SIMPLE_GLITCH_RAIN: replaced the multi-layer RGB-ghost +
+  // scanline-jitter + static-noise glitch with the plain "block glitch"
+  // every basic video editor ships as a glitch preset: a handful of
+  // horizontal slices jump-cut sideways by a fixed offset for the burst
+  // (no per-frame drift, no eased envelope) plus one flat red/cyan
+  // channel split. No static noise, no scanline shimmer.
+  static void _paintGlitch(
+      Canvas canvas, Size size, double t, double intensity) {
+    final w = size.width, h = size.height;
+    const burstCount = 3; // fewer, punchier bursts than before
+    for (var b = 0; b < burstCount; b++) {
+      final burstCenter = (b + 0.5) / burstCount * loopSeconds;
+      final dt =
+          ((t - burstCenter + loopSeconds / 2) % loopSeconds) - loopSeconds / 2;
+      const burstWidth = 0.08; // short and sharp -- a cut, not a wave
+      final burstEnv = (1 - (dt.abs() / burstWidth)).clamp(0.0, 1.0);
+      if (burstEnv <= 0) continue;
+      final strength = burstEnv * intensity; // linear on/off, no easing curve
+
+      // A few horizontal slices jump-cut sideways by a fixed offset for
+      // the whole burst -- the classic "block glitch" look.
+      final sliceCount = 3 + (b % 2);
+      for (var s = 0; s < sliceCount; s++) {
+        final i = b * 10 + s;
+        final rowY = _rand(i, 1) * h;
+        final rowH = h * (0.03 + 0.05 * _rand(i, 2));
+        final dir = (_rand(i, 3) > 0.5) ? 1.0 : -1.0;
+        final shift = dir * w * (0.02 + 0.05 * _rand(i, 4)) * strength;
+        final rect = Rect.fromLTWH(0, rowY, w, rowH);
+        canvas.save();
+        canvas.translate(shift, 0);
+        canvas.drawRect(
+          rect,
+          Paint()..color = Colors.black.withValues(alpha: 0.18 * strength),
+        );
+        canvas.restore();
+      }
+
+      // One flat red/cyan channel split across the whole frame -- a clean
+      // offset, not a per-strip gradient ghost.
+      final splitShift = w * 0.006 * strength;
+      canvas.save();
+      canvas.translate(-splitShift, 0);
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, h),
+        Paint()
+          ..color = const Color(0xFFFF3B3B).withValues(alpha: 0.18 * strength)
+          ..blendMode = BlendMode.plus,
+      );
+      canvas.restore();
+      canvas.save();
+      canvas.translate(splitShift, 0);
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, h),
+        Paint()
+          ..color = const Color(0xFF3BE8FF).withValues(alpha: 0.18 * strength)
+          ..blendMode = BlendMode.plus,
+      );
       canvas.restore();
     }
   }
