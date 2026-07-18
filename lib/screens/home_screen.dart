@@ -628,6 +628,25 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('استوديو الآيات'),
         actions: [
+          // PATCH_S56_UNDO_REDO: tester-requested step back / step forward
+          ListenableBuilder(
+            listenable: state,
+            builder: (context, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  onPressed: state.canUndo ? state.undoStep : null,
+                  icon: const Icon(Icons.undo),
+                  tooltip: 'تراجع',
+                ),
+                IconButton(
+                  onPressed: state.canRedo ? state.redoStep : null,
+                  icon: const Icon(Icons.redo),
+                  tooltip: 'إعادة',
+                ),
+              ],
+            ),
+          ),
           IconButton(
             onPressed: _showInfo,
             icon: const Icon(Icons.info_outline),
@@ -741,22 +760,35 @@ class _HomeScreenState extends State<HomeScreen> {
                 valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
               ),
             ),
-            // PATCH_S37_CANCEL_LONG_JOBS: abort export / auto-sync scan
-            if (_busyCancelAction != null) ...[
-              const SizedBox(height: 6),
-              TextButton.icon(
-                onPressed: () {
-                  _busyCancelAction?.call();
+            // PATCH_S37_CANCEL_LONG_JOBS: abort export / auto-sync scan.
+            // PATCH_S57_RESUMABLE_MODEL_DOWNLOAD: now shown for EVERY busy
+            // job — tester feedback: a hung model download used to keep the
+            // whole app (including the export button) locked forever. With
+            // no job-specific cancel, this releases the UI; a partially
+            // downloaded model resumes from where it stopped next time.
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: () {
+                final action = _busyCancelAction;
+                if (action != null) {
+                  action();
                   setState(() => _busyCancelAction = null);
                   _setBusyStatus('جارٍ الإلغاء…');
-                },
-                icon: const Icon(Icons.cancel_outlined,
-                    size: 16, color: AyatColors.parchmentDim),
-                label: const Text('إلغاء العملية',
-                    style: TextStyle(
-                        fontSize: 12, color: AyatColors.parchmentDim)),
-              ),
-            ],
+                } else {
+                  setState(() {
+                    _busy = false;
+                    _busyStatus = '';
+                    _busyProgress = null;
+                  });
+                  _toast('تم تحرير الواجهة — لو كان تنزيل النموذج جاريًا فسيُستأنف من حيث توقف عند المحاولة القادمة');
+                }
+              },
+              icon: const Icon(Icons.cancel_outlined,
+                  size: 16, color: AyatColors.parchmentDim),
+              label: const Text('إلغاء العملية',
+                  style: TextStyle(
+                      fontSize: 12, color: AyatColors.parchmentDim)),
+            ),
           ],
         ],
       ),

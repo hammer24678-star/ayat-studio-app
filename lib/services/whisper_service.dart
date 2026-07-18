@@ -86,21 +86,53 @@ class WhisperService {
         !(await file.exists()) || (await file.length()) < _minExpectedBytes;
 
     if (needsDownload) {
-      onStatus?.call('جارٍ تنزيل نموذج التعرّف على الكلام من GitHub (أول تشغيل فقط)…');
+      // PATCH_S57_RESUMABLE_MODEL_DOWNLOAD: tester feedback — the old
+      // download showed no percentage and restarted from zero whenever the
+      // app was left or the phone locked. Now it streams into a .part file
+      // with a live percent, and an interrupted download RESUMES from the
+      // exact byte it stopped at (HTTP Range) on the next attempt instead
+      // of starting over.
       await file.parent.create(recursive: true);
+      final part = File('$path.part');
+      var have = await part.exists() ? await part.length() : 0;
       final uri = Uri.parse('$_releaseBaseUrl/$_assetName');
       final request = http.Request('GET', uri);
+      if (have > 0) request.headers['range'] = 'bytes=$have-';
       final response = await http.Client().send(request);
-      if (response.statusCode != 200) {
-        throw Exception('تعذّر تنزيل نموذج التعرّف من GitHub (HTTP ${response.statusCode})');
+      if (response.statusCode == 200) {
+        have = 0; // server ignored the range — start clean
+      } else if (response.statusCode != 206) {
+        throw Exception(
+            'تعذّر تنزيل نموذج التعرّف من GitHub (HTTP ${response.statusCode})');
       }
-      final sink = file.openWrite();
-      await response.stream.pipe(sink);
-      await sink.close();
-      if (await file.length() < _minExpectedBytes) {
-        await file.delete();
-        throw Exception('اكتمل التنزيل لكن حجم الملف غير سليم — أعد المحاولة');
+      final total = have + (response.contentLength ?? 0);
+      final sink = part.openWrite(
+          mode: have > 0 ? FileMode.append : FileMode.write);
+      var got = have;
+      var lastShownPct = -1;
+      try {
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          got += chunk.length;
+          if (total > 0) {
+            final pct = (got * 100 ~/ total);
+            if (pct != lastShownPct) {
+              lastShownPct = pct;
+              onStatus?.call(
+                  'جارٍ تنزيل نموذج التعرّف على الآيات (مرة واحدة فقط)… $pct٪\n'
+                  'أبقِ التطبيق مفتوحًا — ولو انقطع التنزيل سيُستأنف من $pct٪ وليس من الصفر.');
+            }
+          }
+        }
+      } finally {
+        // keep whatever arrived — that's exactly what resume picks up from
+        await sink.close();
       }
+      if (await part.length() < _minExpectedBytes) {
+        throw Exception(
+            'انقطع تنزيل النموذج — أعد المحاولة وسيُستأنف تلقائيًا من حيث توقف');
+      }
+      await part.rename(path);
     }
 
     _modelReady = true;

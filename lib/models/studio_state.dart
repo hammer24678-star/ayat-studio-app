@@ -177,6 +177,7 @@ class StudioState extends ChangeNotifier {
 
   void setAyah(String ar, String en, String label,
       {String confidenceText = '', int? surahNum, int? ayahNum}) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     ayahText = ar;
     translationText = en;
     detectedLabel = label;
@@ -257,6 +258,7 @@ class StudioState extends ChangeNotifier {
   }
 
   void setTimeline(List<TimelineSegment> segments) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     timeline = segments;
     timelineActive = segments.isNotEmpty;
     trimFromIndex = -1;
@@ -267,6 +269,7 @@ class StudioState extends ChangeNotifier {
   // PATCH_S36_TIMELINE_EDITOR: remove one wrongly detected segment. The trim
   // range indexes into [timeline], so it resets rather than dangle.
   void removeTimelineSegment(int index) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     if (index < 0 || index >= timeline.length) return;
     timeline.removeAt(index);
     timelineActive = timeline.isNotEmpty;
@@ -282,6 +285,7 @@ class StudioState extends ChangeNotifier {
   // like dragging the cut point between two ayat).
   void nudgeTimelineSegment(int index,
       {double startDelta = 0, double endDelta = 0}) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     if (index < 0 || index >= timeline.length) return;
     final seg = timeline[index];
     if (startDelta != 0) {
@@ -344,6 +348,7 @@ class StudioState extends ChangeNotifier {
   }
 
   void applyTemplate(int index) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     templateIndex = index;
     final t = kTemplates[index];
     fontKey = t.fontKey;
@@ -354,7 +359,161 @@ class StudioState extends ChangeNotifier {
   }
 
   void update(void Function() mutate) {
+    pushHistory(); // PATCH_S56_UNDO_REDO
     mutate();
+    notifyListeners();
+  }
+
+  // ---- PATCH_S56_UNDO_REDO: tester-requested undo/redo -------------------
+  // Snapshot-based: before every edit a snapshot of the editable state is
+  // pushed (coalesced to one step per 800ms so a slider drag is a single
+  // undo step, not fifty). Media files themselves (video/model downloads)
+  // are not part of history — only the edit decisions about them.
+  static const int _maxHistory = 40;
+  final List<Map<String, Object?>> _undoStack = [];
+  final List<Map<String, Object?>> _redoStack = [];
+  DateTime _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _restoring = false;
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  Map<String, Object?> _capture() => {
+        'timeline': [
+          for (final s in timeline)
+            TimelineSegment(
+                start: s.start,
+                end: s.end,
+                ayah: s.ayah,
+                confidence: s.confidence,
+                wordStarts: List.of(s.wordStarts)),
+        ],
+        'timelineActive': timelineActive,
+        'trimFromIndex': trimFromIndex,
+        'trimToIndex': trimToIndex,
+        'trimManualStart': trimManualStart,
+        'trimManualEnd': trimManualEnd,
+        'ayahText': ayahText,
+        'translationText': translationText,
+        'detectedLabel': detectedLabel,
+        'matchConfidenceText': matchConfidenceText,
+        'fontKey': fontKey,
+        'ayahFontSize': ayahFontSize,
+        'transFontSize': transFontSize,
+        'textColor': textColor,
+        'textPosition': textPosition,
+        'extra': extra,
+        'showTranslation': showTranslation,
+        'templateIndex': templateIndex,
+        'bgIndex': bgIndex,
+        'useCustomBg': useCustomBg,
+        'customBgPath': customBgPath,
+        'bgAnimated': bgAnimated,
+        'effect': effect,
+        'effectIntensity': effectIntensity,
+        'glowEnabled': glowEnabled,
+        'glowIntensity': glowIntensity,
+        'letterSpacing': letterSpacing,
+        'lineHeightMultiplier': lineHeightMultiplier,
+        'textOffset': textOffset,
+        'textUserScale': textUserScale,
+        'karaokeEnabled': karaokeEnabled,
+        'aspectRatio': aspectRatio,
+        'colorGrade': colorGrade,
+        'vignetteEnabled': vignetteEnabled,
+        'vignetteIntensity': vignetteIntensity,
+        'grainEnabled': grainEnabled,
+        'grainIntensity': grainIntensity,
+        'kenBurnsEnabled': kenBurnsEnabled,
+        'softTransitions': softTransitions,
+        'videoFit': videoFit,
+        'videoRotationQuarterTurns': videoRotationQuarterTurns,
+        'videoMirror': videoMirror,
+        'showIntro': showIntro,
+        'showOutro': showOutro,
+        'outroText': outroText,
+      };
+
+  void _apply(Map<String, Object?> s) {
+    timeline = (s['timeline'] as List).cast<TimelineSegment>();
+    timelineActive = s['timelineActive'] as bool;
+    trimFromIndex = s['trimFromIndex'] as int;
+    trimToIndex = s['trimToIndex'] as int;
+    trimManualStart = s['trimManualStart'] as double;
+    trimManualEnd = s['trimManualEnd'] as double;
+    ayahText = s['ayahText'] as String;
+    translationText = s['translationText'] as String;
+    detectedLabel = s['detectedLabel'] as String;
+    matchConfidenceText = s['matchConfidenceText'] as String;
+    fontKey = s['fontKey'] as String;
+    ayahFontSize = s['ayahFontSize'] as double;
+    transFontSize = s['transFontSize'] as double;
+    textColor = s['textColor'] as Color;
+    textPosition = s['textPosition'] as AyahTextPosition;
+    extra = s['extra'] as FrameExtra;
+    showTranslation = s['showTranslation'] as bool;
+    templateIndex = s['templateIndex'] as int;
+    bgIndex = s['bgIndex'] as int;
+    useCustomBg = s['useCustomBg'] as bool;
+    customBgPath = s['customBgPath'] as String?;
+    bgAnimated = s['bgAnimated'] as bool;
+    effect = s['effect'] as StageEffect;
+    effectIntensity = s['effectIntensity'] as double;
+    glowEnabled = s['glowEnabled'] as bool;
+    glowIntensity = s['glowIntensity'] as double;
+    letterSpacing = s['letterSpacing'] as double;
+    lineHeightMultiplier = s['lineHeightMultiplier'] as double;
+    textOffset = s['textOffset'] as Offset;
+    textUserScale = s['textUserScale'] as double;
+    karaokeEnabled = s['karaokeEnabled'] as bool;
+    aspectRatio = s['aspectRatio'] as AyatAspectRatio;
+    colorGrade = s['colorGrade'] as ColorGrade;
+    vignetteEnabled = s['vignetteEnabled'] as bool;
+    vignetteIntensity = s['vignetteIntensity'] as int;
+    grainEnabled = s['grainEnabled'] as bool;
+    grainIntensity = s['grainIntensity'] as int;
+    kenBurnsEnabled = s['kenBurnsEnabled'] as bool;
+    softTransitions = s['softTransitions'] as bool;
+    videoFit = s['videoFit'] as VideoFitMode;
+    videoRotationQuarterTurns = s['videoRotationQuarterTurns'] as int;
+    videoMirror = s['videoMirror'] as bool;
+    showIntro = s['showIntro'] as bool;
+    showOutro = s['showOutro'] as bool;
+    outroText = s['outroText'] as String;
+  }
+
+  /// Pushes a pre-edit snapshot. Called automatically by [update] and the
+  /// timeline mutators; call manually before any direct field mutation that
+  /// should be undoable.
+  void pushHistory() {
+    if (_restoring) return;
+    final now = DateTime.now();
+    if (_undoStack.isNotEmpty &&
+        now.difference(_lastPush).inMilliseconds < 800) {
+      return; // coalesce rapid slider ticks into one step
+    }
+    _lastPush = now;
+    _undoStack.add(_capture());
+    if (_undoStack.length > _maxHistory) _undoStack.removeAt(0);
+    _redoStack.clear();
+  }
+
+  void undoStep() {
+    if (_undoStack.isEmpty) return;
+    _redoStack.add(_capture());
+    _restoring = true;
+    _apply(_undoStack.removeLast());
+    _restoring = false;
+    _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
+    notifyListeners();
+  }
+
+  void redoStep() {
+    if (_redoStack.isEmpty) return;
+    _undoStack.add(_capture());
+    _restoring = true;
+    _apply(_redoStack.removeLast());
+    _restoring = false;
+    _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
     notifyListeners();
   }
 }
