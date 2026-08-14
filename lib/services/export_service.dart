@@ -272,6 +272,26 @@ class ExportService {
         effectSeqPattern = '${fxDir.path}/fx_%03d.png';
       }
 
+      // ---- PATCH_S123_WATERMARK ----
+      // Only rendered when the user actually turned it on. Nothing is
+      // stamped on anyone's video by default.
+      String? watermarkPng;
+      if (state.hasWatermark) {
+        onStatus?.call('جارٍ تجهيز العلامة المائية…');
+        watermarkPng = '${work.path}/watermark.png';
+        await File(watermarkPng).writeAsBytes(
+          await OverlayRenderer.renderWatermarkPng(
+            w: w,
+            h: h,
+            text: state.watermarkText,
+            imagePath: state.watermarkImagePath,
+            corner: state.watermarkCorner,
+            opacity: state.watermarkOpacity,
+            scale: state.watermarkScale,
+          ),
+        );
+      }
+
       // ---- main segment ----
       onStatus?.call('جارٍ التصدير الفعلي…');
       final mainMp4 = '${work.path}/main.mp4';
@@ -287,6 +307,7 @@ class ExportService {
         overlaySeqPattern: overlaySeqPattern,
         overlayPng: overlayPng,
         effectSeqPattern: effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
+        watermarkPng: watermarkPng, // PATCH_S123_WATERMARK
         reciterPath: reciterPath,
         videoHasAudio: videoHasAudio,
         videoHasVideoStream: videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
@@ -302,7 +323,8 @@ class ExportService {
             work, 'intro', kBasmala, state, w, h,
             // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: the chosen stage effect now
             // plays over the intro card too, not just the main clip.
-            effectSeqPattern: effectSeqPattern));
+            effectSeqPattern: effectSeqPattern,
+            watermarkPng: watermarkPng)); // PATCH_S123_WATERMARK
       }
       parts.add(mainMp4);
       if (state.showOutro) {
@@ -311,7 +333,8 @@ class ExportService {
             work, 'outro',
             state.outroText.trim().isEmpty ? kDefaultOutro : state.outroText,
             state, w, h,
-            effectSeqPattern: effectSeqPattern)); // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+            effectSeqPattern: effectSeqPattern, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+            watermarkPng: watermarkPng)); // PATCH_S123_WATERMARK
       }
 
       final docs = await getApplicationDocumentsDirectory();
@@ -719,6 +742,19 @@ class ExportService {
     return parts.isEmpty ? '' : '-af "${parts.join(',')}"';
   }
 
+  // PATCH_S123_AUDIO_MIX: the same fades as _audioFilterArgs, but as bare
+  // filter names for splicing into a filter_complex chain rather than a -af
+  // argument. One definition, so the two paths can't drift.
+  static List<String> _audioFadeFilters(StudioState state, double duration) {
+    final parts = <String>[];
+    if (state.audioFadeIn) parts.add('afade=t=in:st=0:d=1.0');
+    if (state.audioFadeOut) {
+      final st = max(0.0, duration - 1.5);
+      parts.add('afade=t=out:st=${st.toStringAsFixed(3)}:d=1.5');
+    }
+    return parts;
+  }
+
   static String _buildMainCommand({
     required StudioState state,
     required int w,
@@ -730,6 +766,7 @@ class ExportService {
     required String? overlaySeqPattern,
     required String? overlayPng,
     required String? effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
+    required String? watermarkPng, // PATCH_S123_WATERMARK
     required String? reciterPath,
     required bool videoHasAudio,
     required bool videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
@@ -889,14 +926,45 @@ class ExportService {
 
     String audioMap;
     var audioFilter = '';
-    if (reciterPath != null) {
-      inputs.write('-i "$reciterPath" ');
+    // PATCH_S123_AUDIO_MIX: an explicit silent export. It still gets a real
+    // (silent) AAC track rather than -an, because the intro/outro cards are
+    // concatenated with `-c copy` and concat refuses segments whose stream
+    // layouts differ.
+    if (state.muteAudio) {
+      inputs.write(
+          '-f lavfi -t ${duration.toStringAsFixed(3)} -i anullsrc=channel_layout=stereo:sample_rate=44100 ');
       audioMap = '-map $idx:a';
-      // pad recitation with silence up to -t
-      // PATCH_S54_PRO_EXPORT_CONTROLS: + volume/fades
-      audioFilter =
-          _audioFilterArgs(state, needsPad: true, duration: duration);
       idx++;
+    } else if (reciterPath != null) {
+      inputs.write('-i "$reciterPath" ');
+      final reciterIdx = idx++;
+      // PATCH_S123_AUDIO_MIX: attaching a reciter used to REPLACE the clip's
+      // own sound outright -- so a rain or wind shot lost the thing that made
+      // it worth filming. When the mix level is above zero, the clip's audio
+      // is kept underneath instead. amix averages its inputs, so volume=2
+      // puts the recitation back at the level the user actually set.
+      final canMixOriginal = state.originalAudioMix > 0.01 &&
+          state.hasVideo &&
+          videoHasVideoStream &&
+          videoHasAudio;
+      if (canMixOriginal) {
+        final under = state.originalAudioMix.clamp(0.0, 1.0).toStringAsFixed(3);
+        final recVol = state.audioVolume.clamp(0.0, 2.0).toStringAsFixed(3);
+        filters.add('[0:a]volume=$under,aresample=44100[amixsrc]');
+        filters.add(
+            '[$reciterIdx:a]apad,volume=$recVol,aresample=44100[amixrec]');
+        final fades = _audioFadeFilters(state, duration);
+        final tail = fades.isEmpty ? '' : ',${fades.join(',')}';
+        filters.add('[amixsrc][amixrec]'
+            'amix=inputs=2:duration=first:dropout_transition=0,volume=2$tail[aout]');
+        audioMap = '-map "[aout]"';
+      } else {
+        audioMap = '-map $reciterIdx:a';
+        // pad recitation with silence up to -t
+        // PATCH_S54_PRO_EXPORT_CONTROLS: + volume/fades
+        audioFilter =
+            _audioFilterArgs(state, needsPad: true, duration: duration);
+      }
     } else if (state.hasVideo && !videoHasVideoStream && videoHasAudio) {
       // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: the "video" upload was actually an audio-only
       // recitation file -- the visual branch above used bgPng instead
@@ -933,6 +1001,16 @@ class ExportService {
       filters.add('[outv]$post[outv2]');
       outLabel = 'outv2';
     }
+    // PATCH_S123_WATERMARK: composited AFTER the colour grade, so a warm/mono
+    // grade doesn't tint someone's logo, but BEFORE the intro/outro fades, so
+    // it fades with the picture instead of hanging over a black frame.
+    if (watermarkPng != null) {
+      inputs.write('-loop 1 -i "$watermarkPng" ');
+      final wmIdx = idx++;
+      filters.add('[$wmIdx:v]format=rgba[wmf]');
+      filters.add('[$outLabel][wmf]overlay=0:0:shortest=1[outvwm]');
+      outLabel = 'outvwm';
+    }
     if (state.softTransitions && (state.showIntro || state.showOutro)) {
       final fades = <String>[];
       if (state.showIntro) fades.add('fade=t=in:st=0:d=0.4');
@@ -951,7 +1029,8 @@ class ExportService {
 
   static Future<String> _renderTitleSegment(Directory work, String name,
       String text, StudioState state, int w, int h,
-      {String? effectSeqPattern}) async { // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+      {String? effectSeqPattern, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+      String? watermarkPng}) async { // PATCH_S123_WATERMARK
     final png = '${work.path}/$name.png';
     await File(png).writeAsBytes(await OverlayRenderer.renderTitleCardPng(
       w: w,
@@ -975,20 +1054,43 @@ class ExportService {
     }
     // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS: reuses the exact same rendered fx PNG
     // sequence the main clip uses -- no extra frames generated here, just
-    // one more overlay pass via filter_complex instead of the plain -vf
-    // path below. Only kicks in when an effect is actually active.
+    // one more overlay pass. Only kicks in when an effect is actually active.
+    // PATCH_S123_WATERMARK: and the watermark rides along the same way, so a
+    // branded export is branded on every segment rather than mysteriously
+    // skipping the bismillah and outro cards. One filter_complex now covers
+    // all four combinations instead of a separate command per case.
+    final inputsBuf =
+        StringBuffer('-y -loop 1 -t $titleCardSec -i "$png" ');
+    var inputIdx = 1;
+    int? fxIdx, wmIdx;
     if (effectSeqPattern != null) {
-      final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
-          '-framerate ${StageEffects.exportFps} -stream_loop -1 -start_number 0 -i "$effectSeqPattern" '
-          '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
-          '-filter_complex "[0:v]${vf.join(',')}[base];[1:v]format=rgba,scale=$w:$h[fx];[base][fx]overlay=0:0[outv]" '
-          '-map "[outv]" -map 2:a -t $titleCardSec ${_encodeParams(state.exportQuality)} "$mp4"';
-      await _run(cmd, titleCardSec, null);
-      return mp4;
+      inputsBuf.write('-framerate ${StageEffects.exportFps} -stream_loop -1 '
+          '-start_number 0 -i "$effectSeqPattern" ');
+      fxIdx = inputIdx++;
     }
-    final cmd = '-y -loop 1 -t $titleCardSec -i "$png" '
-        '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 '
-        '-vf "${vf.join(',')}" -map 0:v -map 1:a ${_encodeParams(state.exportQuality)} "$mp4"';
+    if (watermarkPng != null) {
+      inputsBuf.write('-loop 1 -i "$watermarkPng" ');
+      wmIdx = inputIdx++;
+    }
+    inputsBuf.write(
+        '-f lavfi -t $titleCardSec -i anullsrc=channel_layout=stereo:sample_rate=44100 ');
+    final audioIdx = inputIdx++;
+
+    final fc = <String>['[0:v]${vf.join(',')}[base]'];
+    var label = 'base';
+    if (fxIdx != null) {
+      fc.add('[$fxIdx:v]format=rgba,scale=$w:$h[fx]');
+      fc.add('[$label][fx]overlay=0:0[fxout]');
+      label = 'fxout';
+    }
+    if (wmIdx != null) {
+      fc.add('[$wmIdx:v]format=rgba[twm]');
+      fc.add('[$label][twm]overlay=0:0:shortest=1[wmout]');
+      label = 'wmout';
+    }
+    final cmd = '$inputsBuf-filter_complex "${fc.join(';')}" '
+        '-map "[$label]" -map $audioIdx:a -t $titleCardSec '
+        '${_encodeParams(state.exportQuality)} "$mp4"';
     await _run(cmd, titleCardSec, null);
     return mp4;
   }

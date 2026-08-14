@@ -110,6 +110,9 @@ class _HomeScreenState extends State<HomeScreen>
   final _captionCtrl = TextEditingController();
   final _textStartCtrl = TextEditingController();
   final _textEndCtrl = TextEditingController();
+  // PATCH_S123_WATERMARK
+  late final _watermarkCtrl =
+      TextEditingController(text: state.watermarkText);
   late final _outroCtrl = TextEditingController(text: state.outroText);
   late final _staticDurCtrl =
       TextEditingController(text: '${state.staticDurationSec}');
@@ -186,6 +189,7 @@ class _HomeScreenState extends State<HomeScreen>
       _settingsRestored = true;
       _outroCtrl.text = state.outroText;
       _staticDurCtrl.text = '${state.staticDurationSec}';
+      _watermarkCtrl.text = state.watermarkText; // PATCH_S123_WATERMARK
     });
     state.addListener(_schedulePersist);
     // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: dispose() only fires when
@@ -239,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen>
     _captionCtrl.dispose();
     _textStartCtrl.dispose();
     _textEndCtrl.dispose();
+    _watermarkCtrl.dispose(); // PATCH_S123_WATERMARK
     _outroCtrl.dispose();
     _staticDurCtrl.dispose();
     super.dispose();
@@ -2660,7 +2665,7 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _panelTitle('إعدادات التصدير',
-            'تحكّم احترافي في الإخراج النهائي — وبلا أي شعار أو علامة مائية أبدًا.'),
+            'تحكّم احترافي في الإخراج النهائي — بلا أي شعار للتطبيق، ولا علامة مائية إلا التي تضيفينها بنفسك.'),
         if (state.hasVideo) ...[
           _fieldLabel(
               'ملاءمة الفيديو مع إطار ${kAspectRatios.firstWhere((r) => r.$1 == state.aspectRatio).$2}'),
@@ -2755,13 +2760,157 @@ class _HomeScreenState extends State<HomeScreen>
           value: state.audioFadeOut,
           onChanged: (v) => state.update(() => state.audioFadeOut = v),
         ),
+        // PATCH_S123_AUDIO_MIX: attaching a reciter used to silence the clip
+        // outright. This keeps the original underneath at a chosen level.
+        if (state.selectedReciterAudio != null && state.hasVideo) ...[
+          _fieldLabel(
+              '${_t('audio.originalUnder')}: ${(state.originalAudioMix * 100).round()}٪'),
+          Slider(
+            value: state.originalAudioMix,
+            min: 0.0,
+            max: 1.0,
+            divisions: 20,
+            onChanged: (v) => state.update(() => state.originalAudioMix = v),
+          ),
+          Text(_t('audio.originalUnderHint'),
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 6),
+        ],
+        ToggleRow(
+          label: _t('audio.muteAll'),
+          value: state.muteAudio,
+          onChanged: (v) => state.update(() => state.muteAudio = v),
+        ),
         const SizedBox(height: 6),
         Text(
           'تُطبَّق هذه الإعدادات على المسار الصوتي المُصدَّر أيًّا كان مصدره (تلاوة مرفقة أو صوت الفيديو نفسه) — التلاوة نفسها لا تُسرَّع ولا تُبطَّأ أبدًا.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        const Divider(height: 32, color: AyatColors.hairline),
+        _watermarkSection(),
       ],
     );
+  }
+
+  // PATCH_S123_WATERMARK: opt-in, and visibly so. The app adds nothing to an
+  // export by default and never asks for money to remove a mark it put there
+  // itself -- this exists so a channel can sign its OWN work.
+  Widget _watermarkSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(_t('wm.section'),
+            style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(_t('wm.hint'), style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 8),
+        ToggleRow(
+          label: _t('wm.enable'),
+          value: state.watermarkEnabled,
+          onChanged: (v) => state.update(() => state.watermarkEnabled = v),
+        ),
+        if (state.watermarkEnabled) ...[
+          const SizedBox(height: 8),
+          TextField(
+            controller: _watermarkCtrl,
+            decoration: InputDecoration(
+              labelText: _t('wm.text'),
+              hintText: 'مثال: قناة نور',
+            ),
+            onChanged: (v) => state.update(() => state.watermarkText = v),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickWatermarkImage,
+                  icon: const Icon(Icons.image_outlined, size: 18),
+                  label: Text(state.watermarkImagePath == null
+                      ? _t('wm.pickImage')
+                      : _t('wm.image')),
+                ),
+              ),
+              if (state.watermarkImagePath != null) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: _t('wm.clearImage'),
+                  onPressed: () =>
+                      state.update(() => state.watermarkImagePath = null),
+                  icon: const Icon(Icons.close, color: AyatColors.gold),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            state.watermarkImagePath == null
+                ? 'بدون صورة ستُستخدم الكتابة أعلاه.'
+                : 'الصورة تحلّ محل النص. أزيليها للعودة إلى الكتابة.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 10),
+          _fieldLabel(_t('wm.position')),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in kWatermarkCorners)
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: state.watermarkCorner == entry.$1,
+                  onSelected: (_) =>
+                      state.update(() => state.watermarkCorner = entry.$1),
+                ),
+            ],
+          ),
+          _fieldLabel(
+              '${_t('wm.size')}: ${(state.watermarkScale * 100).round()}٪'),
+          Slider(
+            value: state.watermarkScale,
+            min: 0.08,
+            max: 0.45,
+            divisions: 37,
+            onChanged: (v) => state.update(() => state.watermarkScale = v),
+          ),
+          _fieldLabel(
+              '${_t('wm.opacity')}: ${(state.watermarkOpacity * 100).round()}٪'),
+          Slider(
+            value: state.watermarkOpacity,
+            min: 0.15,
+            max: 1.0,
+            divisions: 17,
+            onChanged: (v) => state.update(() => state.watermarkOpacity = v),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // PATCH_S123_WATERMARK: copied into app storage like the background
+  // uploads (S64) -- a picked file's original path can be a temporary
+  // content:// cache entry that no longer resolves on the next launch.
+  Future<void> _pickWatermarkImage() async {
+    final res = await FilePicker.platform.pickFiles(type: FileType.image);
+    final src = res?.files.single.path;
+    if (src == null) return;
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory('${docs.path}/watermark');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final ext = src.contains('.') ? src.split('.').last : 'png';
+      final dst =
+          '${dir.path}/wm_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await File(src).copy(dst);
+      state.update(() {
+        state.watermarkImagePath = dst;
+        state.watermarkEnabled = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('تعذّر استخدام هذه الصورة: $e')));
+    }
   }
 
   Widget _panelTitle(String title, [String? hint]) {

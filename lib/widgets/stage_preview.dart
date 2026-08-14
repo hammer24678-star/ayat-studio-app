@@ -472,6 +472,11 @@ class _StagePreviewState extends State<StagePreview>
                       ),
                     ),
                   ),
+                // PATCH_S123_WATERMARK: shown live, in the same corner and at
+                // the same relative size/opacity the export will burn in, so
+                // "will it cover the ayah?" is answerable before exporting
+                // rather than after.
+                if (state.hasWatermark) _watermarkPreview(state, scale),
                 // PATCH_S34_PLAYER_CONTROLS_TRIM: brief ▶/⏸ feedback after a tap.
                 if (_tapFlashIcon != null)
                   Center(
@@ -590,6 +595,60 @@ class _StagePreviewState extends State<StagePreview>
       c * sr, c * sg, c * (sb + s), 0, o,
       0, 0, 0, 1, 0,
     ]);
+  }
+
+  // PATCH_S123_WATERMARK: mirrors OverlayRenderer.renderWatermarkPng —
+  // margin is 4% of the frame, the mark is `watermarkScale` of frame width,
+  // and text sizing is 20% of that width. Preview and export therefore agree
+  // by construction rather than by two hand-tuned numbers happening to look
+  // similar.
+  Widget _watermarkPreview(StudioState state, double scale) {
+    final frameW = 270.0 * scale;
+    final margin = frameW * 0.04;
+    final markW = frameW * state.watermarkScale.clamp(0.05, 0.6);
+    final top = state.watermarkCorner == WatermarkCorner.topLeft ||
+        state.watermarkCorner == WatermarkCorner.topRight;
+    final left = state.watermarkCorner == WatermarkCorner.topLeft ||
+        state.watermarkCorner == WatermarkCorner.bottomLeft;
+    final path = state.watermarkImagePath;
+    return Positioned(
+      top: top ? margin : null,
+      bottom: top ? null : margin,
+      left: left ? margin : null,
+      right: left ? null : margin,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: state.watermarkOpacity.clamp(0.0, 1.0),
+          child: path != null && path.isNotEmpty
+              ? Image.file(
+                  File(path),
+                  width: markW,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                )
+              : SizedBox(
+                  width: markW,
+                  child: Text(
+                    state.watermarkText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: left ? TextAlign.left : TextAlign.right,
+                    style: TextStyle(
+                      fontSize: markW * 0.20,
+                      fontWeight: FontWeight.w700,
+                      color: AyatColors.goldBright,
+                      shadows: [
+                        Shadow(
+                          color: const Color(0x8C000000),
+                          blurRadius: markW * 0.07,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
   }
 
   Widget _overlay(BuildContext context, StageOverlayText? live, String text,

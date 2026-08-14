@@ -155,6 +155,89 @@ class OverlayRenderer {
     return _picToPng(rec.endRecording(), w, h);
   }
 
+  // PATCH_S123_WATERMARK: rendered as its own transparent full-frame PNG and
+  // composited by ffmpeg as one extra overlay input, rather than being drawn
+  // into the ayah overlay. The ayah overlay is re-rendered per karaoke frame
+  // and can be gated to a time window, and a watermark must do neither -- it
+  // is one still image for the whole clip, so it costs one render and one
+  // overlay pass no matter how long the video is.
+  //
+  // Drawn with Flutter's text engine like everything else here, so an Arabic
+  // watermark shapes correctly (ffmpeg's drawtext cannot shape Arabic).
+  static Future<Uint8List> renderWatermarkPng({
+    required int w,
+    required int h,
+    required String text,
+    String? imagePath,
+    required WatermarkCorner corner,
+    required double opacity,
+    required double scale,
+  }) async {
+    await ensureFontsLoaded();
+    final rec = ui.PictureRecorder();
+    final canvas = Canvas(rec);
+    // Margin scales with the frame so the mark sits the same distance from
+    // the edge at 720p and 1080p.
+    final margin = w * 0.04;
+    final alpha = opacity.clamp(0.0, 1.0);
+    final targetW = w * scale.clamp(0.05, 0.6);
+
+    double left(double markW) =>
+        (corner == WatermarkCorner.topLeft || corner == WatermarkCorner.bottomLeft)
+            ? margin
+            : w - margin - markW;
+    double top(double markH) =>
+        (corner == WatermarkCorner.topLeft || corner == WatermarkCorner.topRight)
+            ? margin
+            : h - margin - markH;
+
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final img = await _loadImageFile(imagePath);
+      try {
+        final markW = targetW;
+        final markH = markW * img.height / img.width;
+        canvas.drawImageRect(
+          img,
+          Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+          Rect.fromLTWH(left(markW), top(markH), markW, markH),
+          Paint()
+            ..filterQuality = FilterQuality.high
+            ..color = Color.fromRGBO(255, 255, 255, alpha),
+        );
+      } finally {
+        img.dispose();
+      }
+    } else if (text.trim().isNotEmpty) {
+      // Font size follows the same fraction-of-width rule as the image
+      // branch, so the two sizing sliders feel like one control.
+      final fontSize = targetW * 0.20;
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text.trim(),
+          style: GoogleFonts.tajawal(
+            textStyle: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w700,
+              color: Color.fromRGBO(236, 200, 117, alpha),
+              shadows: [
+                Shadow(
+                  color: Color.fromRGBO(0, 0, 0, 0.55 * alpha),
+                  blurRadius: fontSize * 0.35,
+                ),
+              ],
+            ),
+          ),
+        ),
+        textAlign: TextAlign.start,
+        textDirection: TextDirection.rtl,
+        maxLines: 2,
+      )..layout(maxWidth: w - margin * 2);
+      painter.paint(
+          canvas, Offset(left(painter.width), top(painter.height)));
+    }
+    return _picToPng(rec.endRecording(), w, h);
+  }
+
   /// Transparent text-overlay PNG: the (possibly partially typed) ayah and,
   /// once fully revealed, its translation. Mirrors drawExportTextOverlay().
   static Future<Uint8List> renderTextOverlayPng({

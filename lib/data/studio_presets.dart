@@ -24,6 +24,19 @@ enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass
 // caption line (reciter name, ayah-range label, ...) sits on the frame.
 enum CaptionPosition { top, bottom }
 
+// PATCH_S123_WATERMARK: which corner an (entirely optional) watermark sits
+// in. Named by real screen corners rather than start/end -- the exported MP4
+// has no text direction, and "start" would mean opposite things to an Arabic
+// and an English user looking at the same file.
+enum WatermarkCorner { topLeft, topRight, bottomLeft, bottomRight }
+
+const List<(WatermarkCorner, String)> kWatermarkCorners = [
+  (WatermarkCorner.topLeft, 'أعلى اليسار'),
+  (WatermarkCorner.topRight, 'أعلى اليمين'),
+  (WatermarkCorner.bottomLeft, 'أسفل اليسار'),
+  (WatermarkCorner.bottomRight, 'أسفل اليمين'),
+];
+
 // PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see
 // ExportService._colorGradeFilter for the ffmpeg filter each one maps to.
 // Purely visual, never touches audio.

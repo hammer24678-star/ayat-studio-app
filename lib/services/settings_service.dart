@@ -200,6 +200,33 @@ class SettingsService {
       }
       state.audioVolume =
           (read<double>('audioVolume') ?? state.audioVolume).clamp(0.0, 2.0);
+      // PATCH_S123_WATERMARK: the mark itself is remembered, so someone who
+      // brands their videos sets it up once. The image path is only trusted
+      // if the file is still there -- same rule as the custom background.
+      state.watermarkEnabled =
+          read<bool>('watermarkEnabled') ?? state.watermarkEnabled;
+      state.watermarkText = read<String>('watermarkText') ?? state.watermarkText;
+      final wmPath = read<String>('watermarkImagePath');
+      if (wmPath != null && wmPath.isNotEmpty && File(wmPath).existsSync()) {
+        state.watermarkImagePath = wmPath;
+      }
+      final wmCorner = read<int>('watermarkCorner');
+      if (wmCorner != null &&
+          wmCorner >= 0 &&
+          wmCorner < WatermarkCorner.values.length) {
+        state.watermarkCorner = WatermarkCorner.values[wmCorner];
+      }
+      state.watermarkOpacity =
+          (read<double>('watermarkOpacity') ?? state.watermarkOpacity)
+              .clamp(0.15, 1.0);
+      state.watermarkScale =
+          (read<double>('watermarkScale') ?? state.watermarkScale)
+              .clamp(0.08, 0.45);
+      // PATCH_S123_AUDIO_MIX
+      state.originalAudioMix =
+          (read<double>('originalAudioMix') ?? state.originalAudioMix)
+              .clamp(0.0, 1.0);
+      state.muteAudio = read<bool>('muteAudio') ?? state.muteAudio;
       state.audioFadeIn = read<bool>('audioFadeIn') ?? state.audioFadeIn;
       state.audioFadeOut = read<bool>('audioFadeOut') ?? state.audioFadeOut;
       // PATCH_S64_BG_UPLOAD_PERSIST: only trust a saved custom background if it was on AND
@@ -303,6 +330,17 @@ class SettingsService {
       p.setInt('${_prefix}exportQuality', state.exportQuality.index),
       p.setInt('${_prefix}exportResolution', state.exportResolution.index),
       p.setDouble('${_prefix}audioVolume', state.audioVolume),
+      // PATCH_S123_WATERMARK
+      p.setBool('${_prefix}watermarkEnabled', state.watermarkEnabled),
+      p.setString('${_prefix}watermarkText', state.watermarkText),
+      p.setString(
+          '${_prefix}watermarkImagePath', state.watermarkImagePath ?? ''),
+      p.setInt('${_prefix}watermarkCorner', state.watermarkCorner.index),
+      p.setDouble('${_prefix}watermarkOpacity', state.watermarkOpacity),
+      p.setDouble('${_prefix}watermarkScale', state.watermarkScale),
+      // PATCH_S123_AUDIO_MIX
+      p.setDouble('${_prefix}originalAudioMix', state.originalAudioMix),
+      p.setBool('${_prefix}muteAudio', state.muteAudio),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
       p.setBool('${_prefix}audioFadeOut', state.audioFadeOut),
       // PATCH_S64_BG_UPLOAD_PERSIST

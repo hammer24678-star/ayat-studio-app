@@ -505,33 +505,82 @@ const Map<String, List<String>> _table = {
   'wm.position': ['الموضع', 'Position', 'Position', 'Posisi', 'مقام'],
   'wm.opacity': ['الشفافية', 'Opacity', 'Opacité', 'Opasitas', 'شفافیت'],
   'wm.size': ['الحجم', 'Size', 'Taille', 'Ukuran', 'سائز'],
-  'wm.pos.topStart': [
-    'أعلى اليمين',
+  'wm.pos.topLeft': [
+    'أعلى اليسار',
     'Top left',
     'En haut à gauche',
     'Kiri atas',
     'اوپر بائیں',
   ],
-  'wm.pos.topEnd': [
-    'أعلى اليسار',
+  'wm.pos.topRight': [
+    'أعلى اليمين',
     'Top right',
     'En haut à droite',
     'Kanan atas',
     'اوپر دائیں',
   ],
-  'wm.pos.bottomStart': [
-    'أسفل اليمين',
+  'wm.pos.bottomLeft': [
+    'أسفل اليسار',
     'Bottom left',
     'En bas à gauche',
     'Kiri bawah',
     'نیچے بائیں',
   ],
-  'wm.pos.bottomEnd': [
-    'أسفل اليسار',
+  'wm.pos.bottomRight': [
+    'أسفل اليمين',
     'Bottom right',
     'En bas à droite',
     'Kanan bawah',
     'نیچے دائیں',
+  ],
+  'wm.image': [
+    'صورة/شعار',
+    'Image or logo',
+    'Image ou logo',
+    'Gambar atau logo',
+    'تصویر یا لوگو',
+  ],
+  'wm.pickImage': [
+    'اختيار صورة',
+    'Choose an image',
+    'Choisir une image',
+    'Pilih gambar',
+    'تصویر منتخب کریں',
+  ],
+  'wm.clearImage': [
+    'إزالة الصورة',
+    'Remove the image',
+    'Retirer l\'image',
+    'Hapus gambar',
+    'تصویر ہٹائیں',
+  ],
+  'audio.section': [
+    'الصوت',
+    'Audio',
+    'Audio',
+    'Audio',
+    'آڈیو',
+  ],
+  'audio.originalUnder': [
+    'صوت المقطع الأصلي تحت التلاوة',
+    'Original clip audio under the recitation',
+    'Son d\'origine sous la récitation',
+    'Audio asli di bawah bacaan',
+    'تلاوت کے نیچے اصل آواز',
+  ],
+  'audio.originalUnderHint': [
+    'صفر يعني كتم صوت المقطع تمامًا كما كان سابقًا — ارفعه قليلًا إن أردت بقاء صوت الطبيعة أو المطر تحت التلاوة.',
+    'Zero mutes the clip completely, as before — raise it a little to keep rain, wind or room tone under the reciter.',
+    'Zéro coupe entièrement le son du clip, comme avant — montez-le un peu pour garder la pluie ou l\'ambiance sous le récitateur.',
+    'Nol membisukan klip sepenuhnya, seperti sebelumnya — naikkan sedikit untuk mempertahankan suara alam di bawah bacaan.',
+    'صفر کا مطلب کلپ کی آواز مکمل بند — تھوڑا بڑھائیں تو قدرتی آواز تلاوت کے نیچے رہے گی۔',
+  ],
+  'audio.muteAll': [
+    'تصدير بدون صوت نهائيًا',
+    'Export with no sound at all',
+    'Exporter sans aucun son',
+    'Ekspor tanpa suara sama sekali',
+    'بالکل بغیر آواز ایکسپورٹ',
   ],
 
   // ---- editor extras ----

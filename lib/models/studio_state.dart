@@ -99,6 +99,33 @@ class StudioState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- PATCH_S123_WATERMARK: entirely opt-in --------------------------
+  // Off by default and never turned on for the user. An export carries no
+  // watermark unless this switch was flipped deliberately, and there is no
+  // "remove watermark" upsell anywhere -- the app does not brand the user's
+  // work for them.
+  bool watermarkEnabled = false;
+  String watermarkText = '';
+  /// A logo/PNG to stamp instead of text. Text is used when this is null.
+  String? watermarkImagePath;
+  WatermarkCorner watermarkCorner = WatermarkCorner.bottomRight;
+  double watermarkOpacity = 0.65; // 0.15..1.0
+  /// Width of the mark as a fraction of the frame width.
+  double watermarkScale = 0.22; // 0.08..0.45
+  bool get hasWatermark =>
+      watermarkEnabled &&
+      (watermarkImagePath != null || watermarkText.trim().isNotEmpty);
+
+  // ---- PATCH_S123_AUDIO_MIX -------------------------------------------
+  /// How loud the clip's OWN audio sits under an attached reciter track,
+  /// 0..1. 0 replaces it entirely, which is what the app always did; raising
+  /// it keeps rain/wind/room tone audible beneath the recitation instead of
+  /// forcing a choice between the two.
+  double originalAudioMix = 0.0;
+
+  /// Export with no audio track at all.
+  bool muteAudio = false;
+
   // ---- PATCH_S54_PRO_EXPORT_CONTROLS ----
   VideoFitMode videoFit = VideoFitMode.source;
   int videoRotationQuarterTurns = 0; // 0..3, clockwise
@@ -789,6 +816,16 @@ class StudioState extends ChangeNotifier {
         'showIntro': showIntro,
         'showOutro': showOutro,
         'outroText': outroText,
+        // PATCH_S123_WATERMARK + PATCH_S123_AUDIO_MIX: undoable like every
+        // other export decision.
+        'watermarkEnabled': watermarkEnabled,
+        'watermarkText': watermarkText,
+        'watermarkImagePath': watermarkImagePath,
+        'watermarkCorner': watermarkCorner,
+        'watermarkOpacity': watermarkOpacity,
+        'watermarkScale': watermarkScale,
+        'originalAudioMix': originalAudioMix,
+        'muteAudio': muteAudio,
       };
 
   void _apply(Map<String, Object?> s) {
@@ -837,6 +874,14 @@ class StudioState extends ChangeNotifier {
     showIntro = s['showIntro'] as bool;
     showOutro = s['showOutro'] as bool;
     outroText = s['outroText'] as String;
+    watermarkEnabled = s['watermarkEnabled'] as bool;
+    watermarkText = s['watermarkText'] as String;
+    watermarkImagePath = s['watermarkImagePath'] as String?;
+    watermarkCorner = s['watermarkCorner'] as WatermarkCorner;
+    watermarkOpacity = s['watermarkOpacity'] as double;
+    watermarkScale = s['watermarkScale'] as double;
+    originalAudioMix = s['originalAudioMix'] as double;
+    muteAudio = s['muteAudio'] as bool;
   }
 
   /// Pushes a pre-edit snapshot. Called automatically by [update] and the
