@@ -87,14 +87,16 @@ class FadeSlideIn extends StatefulWidget {
 
 class _FadeSlideInState extends State<FadeSlideIn>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: widget.duration,
-  );
+  // Created in initState, NOT as a lazy `late final` initializer. A lazy one
+  // is only constructed on first use -- and when motion is off nothing uses
+  // it until dispose(), at which point createTicker looks up a TickerMode
+  // ancestor on an already-deactivated element and throws.
+  late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: widget.duration);
     if (!AppMotion.on) {
       _c.value = 1;
       return;
@@ -179,25 +181,34 @@ class _PressableScaleState extends State<PressableScale> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null || widget.onLongPress != null;
+    // The ink layer sits ON TOP of the child rather than behind it. Most of
+    // what this wraps is an opaque decorated Container, and a Material placed
+    // underneath one paints its ripple where nobody can see it — the press
+    // would scale but never flash.
     Widget content = AnimatedScale(
       scale: _down && enabled ? widget.pressedScale : 1.0,
       duration: AppMotion.d(AppMotion.fast),
       curve: Curves.easeOut,
-      child: widget.child,
-    );
-    content = Material(
-      color: Colors.transparent,
-      borderRadius: widget.borderRadius,
-      child: InkWell(
-        borderRadius: widget.borderRadius,
-        splashColor: AyatColors.gold.withValues(alpha: 0.12),
-        highlightColor: AyatColors.gold.withValues(alpha: 0.06),
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        onTapDown: (_) => _set(true),
-        onTapUp: (_) => _set(false),
-        onTapCancel: () => _set(false),
-        child: content,
+      child: Stack(
+        children: [
+          widget.child,
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: widget.borderRadius,
+              child: InkWell(
+                borderRadius: widget.borderRadius,
+                splashColor: AyatColors.gold.withValues(alpha: 0.14),
+                highlightColor: AyatColors.gold.withValues(alpha: 0.06),
+                onTap: widget.onTap,
+                onLongPress: widget.onLongPress,
+                onTapDown: (_) => _set(true),
+                onTapUp: (_) => _set(false),
+                onTapCancel: () => _set(false),
+              ),
+            ),
+          ),
+        ],
       ),
     );
     if (widget.tooltip != null) {
@@ -225,12 +236,13 @@ class GoldShimmer extends StatefulWidget {
 
 class _GoldShimmerState extends State<GoldShimmer>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: widget.period);
+  // Eager, for the same reason as _FadeSlideInState._c above.
+  late final AnimationController _c;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: widget.period);
     if (AppMotion.on) _c.repeat();
   }
 

@@ -265,7 +265,18 @@ class _Section extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            ...children,
+            // PATCH_S123_SETTINGS_SCREEN: the SwitchListTiles inside a section
+            // paint their ink on the nearest Material ancestor, which here is
+            // behind this card's coloured DecoratedBox -- Flutter asserts on
+            // exactly that arrangement, and the splash would be invisible.
+            // A transparent Material of their own puts the ink in front.
+            Material(
+              type: MaterialType.transparency,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            ),
           ],
         ),
       );

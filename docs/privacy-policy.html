@@ -119,7 +119,7 @@
     <span class="badge">سياسة الخصوصية</span>
   </header>
 
-  <p class="dim" style="font-size:12.5px; margin-bottom:22px;">آخر تحديث: 17 يوليو 2026</p>
+  <p class="dim" style="font-size:12.5px; margin-bottom:22px;">آخر تحديث: 14 أغسطس 2026</p>
 
   <div class="panel">
     <h2>مقدمة</h2>
@@ -150,7 +150,7 @@
   </div>
 
   <div class="panel">
-    <h2>خدمة خارجية واحدة: توليد الخلفيات بالذكاء الاصطناعي</h2>
+    <h2>خدمة خارجية (١): توليد الخلفيات بالذكاء الاصطناعي</h2>
     <p>
       عند اختيارك توليد خلفية بالذكاء الاصطناعي لآية معيّنة، يرسل التطبيق
       <strong>نص وصف المشهد فقط</strong> (نص عربي/إنجليزي قصير يصف مضمون الآية)
@@ -165,9 +165,26 @@
   </div>
 
   <div class="panel">
+    <h2>خدمة خارجية (٢): تحميل نص التفسير</h2>
+    <p>
+      نص القرآن الكريم كاملاً مضمّن داخل التطبيق ويعمل بدون إنترنت. أمّا
+      <strong>التفسير</strong> فلا يُضمَّن (حجمه مجتمعًا مئات الميغابايتات):
+      عند فتح تفسير آية لأول مرة يطلب التطبيق ملف تلك الآية من مجموعة
+      التفاسير المفتوحة <span class="tag">spa5k/tafsir_api</span> عبر
+      <span class="tag">jsDelivr</span> أو <span class="tag">GitHub</span>.
+    </p>
+    <p>
+      الطلب يحتوي على <strong>رقم السورة ورقم الآية واسم التفسير المختار
+      فقط</strong> — لا حساب، ولا معرّف جهاز، ولا أي شيء عنك. ويُحفظ النص بعدها
+      على جهازك، فإعادة قراءة الآية نفسها لا تحتاج إنترنت إطلاقًا. يمكنك مسح
+      هذا التخزين المؤقت في أي وقت من «الإعدادات».
+    </p>
+  </div>
+
+  <div class="panel">
     <h2>أذونات التطبيق</h2>
     <ul>
-      <li><strong>الإنترنت</strong> — لتنزيل نموذج التعرّف الصوتي مرة واحدة عند أول استخدام، ولتوليد خلفيات الذكاء الاصطناعي (اختياري).</li>
+      <li><strong>الإنترنت</strong> — لتنزيل نموذج التعرّف الصوتي مرة واحدة عند أول استخدام، ولتحميل نص التفسير عند طلبه، ولتوليد خلفيات الذكاء الاصطناعي (اختياري).</li>
       <li><strong>الميكروفون</strong> — تُستخدم فقط إن فعّلتِ ميزة الكشف الصوتي المباشر عن الآية أثناء التسجيل؛ يتم التعرّف عبر خدمة النظام على جهازك (Android Speech Recognition) ولا نخزّن هذا الصوت على خوادمنا.</li>
     </ul>
   </div>
@@ -232,7 +249,7 @@
     </div>
 
     <div class="panel">
-      <h2 style="direction:ltr">One external service: AI background generation</h2>
+      <h2 style="direction:ltr">External service (1): AI background generation</h2>
       <p style="direction:ltr; text-align:left;">
         When you choose to generate an AI background for an ayah, the app
         sends only a <strong>short text description of the scene</strong>
@@ -247,9 +264,28 @@
     </div>
 
     <div class="panel">
+      <h2 style="direction:ltr">External service (2): tafsir text</h2>
+      <p style="direction:ltr; text-align:left;">
+        The full Quran text ships inside the app and works offline. The
+        <strong>tafsir</strong> does not — all editions together run to
+        hundreds of megabytes. The first time you open an ayah's tafsir, the
+        app requests that one ayah's file from the open
+        <span class="tag">spa5k/tafsir_api</span> dataset via
+        <span class="tag">jsDelivr</span> or <span class="tag">GitHub</span>.
+      </p>
+      <p style="direction:ltr; text-align:left;">
+        The request carries <strong>only the surah number, the ayah number
+        and which tafsir you picked</strong> — no account, no device
+        identifier, nothing about you. The text is then cached on your
+        device, so re-reading that ayah needs no connection at all. You can
+        clear that cache at any time from Settings.
+      </p>
+    </div>
+
+    <div class="panel">
       <h2 style="direction:ltr">Permissions</h2>
       <ul style="direction:ltr; text-align:left;">
-        <li><strong>Internet</strong> — to download the speech-recognition model once on first use, and for optional AI background generation.</li>
+        <li><strong>Internet</strong> — to download the speech-recognition model once on first use, to fetch tafsir text when you ask for it, and for optional AI background generation.</li>
         <li><strong>Microphone</strong> — only used if you enable live mic ayah-detection; recognition runs via Android's own Speech Recognition service on-device, and we do not store this audio on any server.</li>
       </ul>
     </div>

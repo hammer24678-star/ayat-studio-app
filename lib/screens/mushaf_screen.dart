@@ -18,6 +18,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../data/mushaf_meta.dart';
 import '../i18n/app_strings.dart';
@@ -170,7 +171,11 @@ class MushafScreen extends StatefulWidget {
 
 class _MushafScreenState extends State<MushafScreen>
     with TickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+  // Both controllers are created in initState rather than as lazy `late final`
+  // initializers: the "corpus not ready yet" branch of build() never touches
+  // the TabController, so dispose() would be its first use -- and building a
+  // ticker against an already-deactivated element throws.
+  late final TabController _tabs;
   late PageController _pageCtrl;
 
   /// 1..604
@@ -188,6 +193,7 @@ class _MushafScreenState extends State<MushafScreen>
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 3, vsync: this);
     final startId = widget.initialAyahId ??
         globalAyahId(widget.initialSurah.clamp(1, 114), 1);
     if (startId > 0) {
@@ -208,8 +214,23 @@ class _MushafScreenState extends State<MushafScreen>
     super.dispose();
   }
 
+  /// Which view mode the current [_pageCtrl] was built for — see [_onSettings].
+  late MushafViewMode _ctrlBuiltFor = _settings.mushafView;
+
   void _onSettings() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // A PageController's initialPage is read once, when the PageView first
+    // attaches. Switching to "whole surah" and back would therefore drop the
+    // reader onto whatever page the controller was CREATED with, not the one
+    // being read. Rebuild it with the current page instead.
+    if (_settings.mushafView != _ctrlBuiltFor) {
+      _ctrlBuiltFor = _settings.mushafView;
+      if (_settings.mushafView == MushafViewMode.page) {
+        _pageCtrl.dispose();
+        _pageCtrl = PageController(initialPage: _page - 1);
+      }
+    }
+    setState(() {});
   }
 
   int _surahOfId(int id) {
@@ -304,6 +325,7 @@ class _MushafScreenState extends State<MushafScreen>
   void _openAyahActions(int corpusIndex) {
     final ayah = widget.ayaat[corpusIndex];
     final id = corpusIndex + 1;
+    HapticFeedback.selectionClick(); // same tactile language as the studio
     setState(() => _selectedAyahId = id);
     _settings.setLastReadAyahId(id);
     showModalBottomSheet<void>(
@@ -365,12 +387,25 @@ class _MushafScreenState extends State<MushafScreen>
                 ),
                 _SheetAction(
                   palette: _p,
+                  icon: Icons.ios_share_outlined,
+                  label: _s.t('common.share'),
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    // The reference travels with the text -- an ayah pasted
+                    // into a chat without one is a quote nobody can check.
+                    SharePlus.instance.share(ShareParams(
+                      text: '${ayah.ar}\n\n[سورة ${ayah.surah}: ${ayah.num}]',
+                    ));
+                  },
+                ),
+                _SheetAction(
+                  palette: _p,
                   icon: Icons.copy_all_outlined,
                   label: _s.t('common.copy'),
                   onTap: () async {
                     await Clipboard.setData(ClipboardData(
                         text: '${ayah.ar}\n[${ayah.surah}: ${ayah.num}]'));
-                    if (!sheetCtx.mounted) return;
+                    if (!sheetCtx.mounted || !mounted) return;
                     Navigator.pop(sheetCtx);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(_s.t('common.copied'))),
@@ -402,6 +437,41 @@ class _MushafScreenState extends State<MushafScreen>
   @override
   Widget build(BuildContext context) {
     final palette = _p;
+    // PATCH_S123_MUSHAF_REBUILD: the studio hands this screen its corpus,
+    // which loads asynchronously at startup -- opening the reader in that
+    // window used to hand every page-layout path an empty list and index
+    // straight off the end of it. The reader needs the WHOLE mushaf (page
+    // ranges are absolute ayah ids), so anything short of it is "not ready".
+    if (widget.ayaat.length < kTotalAyat) {
+      return Theme(
+        data: palette.toTheme(Theme.of(context)),
+        child: Directionality(
+          textDirection: _settings.textDirection,
+          child: Scaffold(
+            backgroundColor: palette.background,
+            appBar: AppBar(
+              backgroundColor: palette.background,
+              foregroundColor: palette.text,
+              iconTheme: IconThemeData(color: palette.gold),
+              title: Text(_s.t('mushaf.title')),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                      color: palette.goldBright, strokeWidth: 2.4),
+                  const SizedBox(height: 16),
+                  Text(_s.t('common.loading'),
+                      style: GoogleFonts.tajawal(
+                          color: palette.textDim, fontSize: 13)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Theme(
       data: palette.toTheme(Theme.of(context)),
       child: Directionality(

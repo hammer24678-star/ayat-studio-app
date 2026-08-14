@@ -282,7 +282,7 @@ class TafsirService {
         _remember(key, clean);
         if (cacheFile != null) {
           // Fire-and-forget: a failed write just means we fetch again later.
-          unawaitedWrite(cacheFile, clean);
+          _writeCache(cacheFile, clean);
         }
         return TafsirResult(clean, false);
       } catch (e) {
@@ -296,7 +296,7 @@ class TafsirService {
   }
 
   /// Writes the cache entry without making callers wait on the filesystem.
-  static void unawaitedWrite(File file, String text) {
+  static void _writeCache(File file, String text) {
     () async {
       try {
         await file.parent.create(recursive: true);

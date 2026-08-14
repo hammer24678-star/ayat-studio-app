@@ -37,14 +37,17 @@ class QuranEntryButton extends StatefulWidget {
 
 class _QuranEntryButtonState extends State<QuranEntryButton>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _breath = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 3600),
-  );
+  // Eager, not a lazy `late final`: with motion off nothing would touch it
+  // until dispose(), where creating a ticker on a deactivated element throws.
+  late final AnimationController _breath;
 
   @override
   void initState() {
     super.initState();
+    _breath = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3600),
+    );
     if (AppMotion.on) _breath.repeat(reverse: true);
   }
 

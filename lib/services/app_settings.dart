@@ -106,8 +106,11 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _write(void Function(SharedPreferences p) mutate) async {
-    notifyListeners();
+  /// [notify] is false for values nothing on screen reacts to — see
+  /// [setLastReadAyahId] for why that matters.
+  Future<void> _write(void Function(SharedPreferences p) mutate,
+      {bool notify = true}) async {
+    if (notify) notifyListeners();
     try {
       mutate(await SharedPreferences.getInstance());
     } catch (_) {
@@ -150,7 +153,13 @@ class AppSettings extends ChangeNotifier {
     final c = v.clamp(0, 6236);
     if (c == _lastReadAyahId) return;
     _lastReadAyahId = c;
-    _write((p) => p.setInt('${_prefix}lastReadAyahId', c));
+    // Deliberately silent. This fires on every page turn and every ayah tap,
+    // and the whole app sits under a ListenableBuilder on this object -- so
+    // notifying here would rebuild the entire tree once per swipe to update
+    // a value nothing on screen is currently reading. The reader keeps its
+    // own position in local state; this is only ever read again on the next
+    // visit, off disk.
+    _write((p) => p.setInt('${_prefix}lastReadAyahId', c), notify: false);
   }
 
   void setTafsirEdition(String v) {

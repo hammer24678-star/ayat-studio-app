@@ -27,8 +27,10 @@ class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   static const _total = Duration(milliseconds: 2300);
 
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: _total);
+  // Eager (assigned in initState), not a lazy `late final`: with motion off
+  // the build path returns before touching it, and dispose() would then be
+  // the first use -- constructing a ticker against a deactivated element.
+  late final AnimationController _c;
 
   // The logo lands and settles first…
   late final Animation<double> _logoIn = CurvedAnimation(
@@ -59,6 +61,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: _total);
     if (!AppMotion.on) {
       // Motion is off: don't show an animation-shaped screen at all.
       WidgetsBinding.instance.addPostFrameCallback((_) => _go());
