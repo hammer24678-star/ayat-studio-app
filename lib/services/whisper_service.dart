@@ -10,6 +10,7 @@
 // starts its own download.
 // PATCH_S76_QURAN_MODEL_DEFAULT
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
@@ -64,6 +65,15 @@ class WhisperService {
   static bool _modelReady = false;
 
   static WhisperModel get _model => _modelSpecs[_size]!.model;
+
+  // PATCH_S123_WHISPER_THREADS: the package hardcodes 6 worker threads. On a
+  // 4-core phone that oversubscribes -- whisper.cpp's per-layer barriers make
+  // the extra threads pure contention, and a long auto-sync scan is a
+  // sustained thermal load, so oversubscription also pushes the phone into
+  // throttling sooner. Leave one core for the UI/decoder, cap at 8 (whisper.cpp
+  // stops scaling past that on ARM), and never drop below 2.
+  static int get _threads =>
+      math.max(2, math.min(8, Platform.numberOfProcessors - 1));
   static WhisperModelSize get currentSize => _size; // PATCH_S43_MODEL_SIZE_PICKER
   static String labelFor(WhisperModelSize size) => _modelSpecs[size]!.labelAr; // PATCH_S43_MODEL_SIZE_PICKER
 
@@ -188,6 +198,7 @@ class WhisperService {
       model: _model,
       audioPath: wavPath,
       lang: 'ar',
+      threads: _threads, // PATCH_S123_WHISPER_THREADS
     );
     return result?.transcription.text.trim() ?? '';
   }
@@ -214,6 +225,7 @@ class WhisperService {
       lang: 'ar',
       withTimestamps: true,
       splitOnWord: splitOnWord,
+      threads: _threads, // PATCH_S123_WHISPER_THREADS
     );
     final text = result?.transcription.text.trim() ?? '';
     final rawSegments = result?.transcription.segments ?? const [];

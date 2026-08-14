@@ -70,7 +70,12 @@ class TimelineBuilder {
   // The mushaf-order prior lets us accept weaker acoustic evidence, and the
   // bonus lets an expected ayah win a near-tie against an unrelated one.
   static const double contextMinConfidence = 0.22;
-  static const double contextPriorBonus = 0.08;
+  // PATCH_S123_CONTEXT_ALWAYS: 0.08 -> 0.12. Measured on tool/matcher_bench.dart's
+  // sequential pass (5-ayah runs of noisy mid-ayah windows, half of them
+  // jumping to an unrelated passage partway through): 0.12 is where the
+  // sequential prior stops leaving accuracy on the table without starting to
+  // "stick" -- recovery after a jump is unchanged at 95.8%.
+  static const double contextPriorBonus = 0.12;
   // PATCH_S31_ACCURATE_SYNC: max gap (seconds) between two same-ayah pieces
   // for them to be merged into one segment — keeps a repeated ayah heard
   // much later in the clip from stretching a stale segment across the gap.
@@ -286,15 +291,39 @@ class TimelineBuilder {
 
           var match = matcher.match(text, minConfidence: minConfidence);
 
-          // PATCH_S35_SMARTER_DETECTION: when the corpus-wide search failed
-          // or stayed below the single-piece commit bar, re-score just the
-          // ayat the mushaf order predicts here (current ayah continuing,
-          // next, next-after) with a relaxed threshold and a prior bonus.
           final anchor =
               pending?.ayah ?? (timeline.isEmpty ? null : timeline.last.ayah);
-          if (anchor != null &&
-              (match == null || match.confidence < highConfidence)) {
-            final expected = _expectedNext(matcher.ayaat, anchor);
+
+          // PATCH_S123_DUPLICATE_AYAT: an ayah whose text repeats elsewhere
+          // in the Quran (ar-Rahman's refrain, al-Mursalat's, as-Saffat's)
+          // comes back from the corpus-wide search with a perfect score for
+          // an ARBITRARY one of its occurrences -- and because that score is
+          // above highConfidence, the mushaf-order rescore below never even
+          // ran. Every repeat after the first was therefore labelled with
+          // whichever twin the search happened to reach first. Reading order
+          // is the only evidence that exists here, so use it.
+          if (match != null && matcher.isTextAmbiguous(match.ayah)) {
+            final resolved = matcher.resolveByOrder(match.ayah, anchor: anchor);
+            if (!identical(resolved, match.ayah)) {
+              match = AyahMatch(resolved, match.confidence);
+            }
+          }
+
+          // PATCH_S35_SMARTER_DETECTION: re-score just the ayat the mushaf
+          // order predicts here (current ayah continuing, next, next-after)
+          // with a relaxed threshold and a prior bonus.
+          // PATCH_S123_CONTEXT_ALWAYS: this used to be gated on the
+          // corpus-wide match being below highConfidence -- but the matches
+          // that most need context are exactly the confident-looking wrong
+          // ones. A six-second window landing mid-ayah on a phrase the Quran
+          // repeats ("تجري من تحتها الأنهار خالدين فيها", "السماوات والأرض
+          // وما بينهما") scores 0.67-0.81 against the WRONG surah and sailed
+          // straight past the gate. Reading order is evidence at every
+          // confidence level, so the rescore now always runs and the bonus
+          // above decides how much weight it carries. Worth 3.5 points of
+          // sequential top-1 in the bench (93.4% -> 96.9%).
+          if (anchor != null) {
+            final expected = _expectedNext(matcher, matcher.ayaat, anchor);
             final ctx = matcher.matchAmong(text, expected,
                 minConfidence: contextMinConfidence);
             if (ctx != null &&
@@ -533,7 +562,7 @@ class TimelineBuilder {
       // slightly-off boundary on the SAME or an ADJACENT ayah, not a wild
       // miss -- falling back to a corpus-wide search so a genuinely
       // different ayah can still win if the neighbourhood check fails.
-      final neighbours = _expectedNext(matcher.ayaat, seg.ayah);
+      final neighbours = _expectedNext(matcher, matcher.ayaat, seg.ayah);
       var candidate = matcher.matchAmong(text, neighbours,
           minConfidence: contextMinConfidence);
       candidate ??= matcher.match(text, minConfidence: minConfidence);
@@ -654,12 +683,21 @@ class TimelineBuilder {
   // [anchor]: the anchor itself (still being recited) and the next two.
   // PATCH_S82_AUTOSYNC_MAX: plus the ayah BEFORE the anchor — repeating the
   // previous ayah is common in memorization/practice recordings.
-  static List<Ayah> _expectedNext(List<Ayah> ayaat, Ayah anchor) {
-    final i = ayaat.indexOf(anchor); // identity ==, Ayah defines no operator==
+  // PATCH_S123_DUPLICATE_AYAT: was ayaat.indexOf(anchor) -- an O(6236) scan
+  // per analysis window, on the hot path of every scan. The matcher now
+  // publishes each ayah's mushaf position, so this is a map lookup.
+  // The look-ahead also grew from 2 to 3 ayat: a 6-second window over fast
+  // recitation of short ayat (juz 30, ar-Rahman) can cover four of them, and
+  // anything past the old window fell out of the sequential prior entirely.
+  static const int _lookAheadAyat = 4;
+
+  static List<Ayah> _expectedNext(
+      AyahMatcher matcher, List<Ayah> ayaat, Ayah anchor) {
+    final i = matcher.positionOf(anchor);
     if (i < 0) return [anchor];
     return [
       if (i > 0) ayaat[i - 1],
-      ...ayaat.sublist(i, min(ayaat.length, i + 3)),
+      ...ayaat.sublist(i, min(ayaat.length, i + _lookAheadAyat)),
     ];
   }
 

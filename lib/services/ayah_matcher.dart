@@ -148,6 +148,22 @@ class AyahMatcher {
   final Map<String, double> _idf = {};
   double _corpusMaxIdf = 1;
 
+  // PATCH_S123_DUPLICATE_AYAT: mushaf position of every ayah, so callers can
+  // reason about order without an O(n) List.indexOf on every window.
+  final Map<Ayah, int> _positionOf = {};
+
+  // PATCH_S123_DUPLICATE_AYAT: ayat that are word-for-word identical once
+  // normalized, grouped by that normalized text.
+  //
+  // This is not an edge case: "فبأي آلاء ربكما تكذبان" is 31 separate ayat of
+  // ar-Rahman, "ويل يومئذ للمكذبين" is 10 of al-Mursalat, and as-Saffat and
+  // ash-Shu'ara repeat whole refrains. NOTHING in the audio distinguishes
+  // them -- they are the same words -- so a text matcher picking between
+  // them is guessing, and it guessed wrong most of the time. The only real
+  // evidence is where the reciter already was, which is why the matcher now
+  // publishes the ambiguity instead of hiding it behind a 100% confidence.
+  final Map<String, List<Ayah>> _sameTextGroups = {};
+
   AyahMatcher(this.ayaat) {
     _rebuildCache();
   }
@@ -173,9 +189,14 @@ class AyahMatcher {
   void _rebuildCache() {
     _cache.clear();
     _entryByAyah.clear(); // PATCH_S35_SMARTER_DETECTION
+    _positionOf.clear(); // PATCH_S123_DUPLICATE_AYAT
+    _sameTextGroups.clear(); // PATCH_S123_DUPLICATE_AYAT
     final df = <String, int>{};
-    for (final a in ayaat) {
+    for (var i = 0; i < ayaat.length; i++) {
+      final a = ayaat[i];
+      _positionOf[a] = i; // PATCH_S123_DUPLICATE_AYAT
       final norm = normalize(a.ar);
+      (_sameTextGroups[norm] ??= <Ayah>[]).add(a); // PATCH_S123_DUPLICATE_AYAT
       final tokens = norm.split(' ').where((t) => t.isNotEmpty).toList();
       final tokenSet = tokens.toSet();
       final bigramSet = _bigramsOf(tokens);
@@ -297,11 +318,19 @@ class AyahMatcher {
   // PATCH_S35_SMARTER_DETECTION: shared input featurization + gates for all
   // matching entry points. Returns null when the input is unmatchable
   // (empty, single word, or a Whisper hallucination loop).
+  // PATCH_S123_SHORT_INPUT_GATE: two words is not evidence. "الحمد لله"
+  // used to match الفاتحة:2 at 64% -- but those two words open dozens of
+  // ayat and are the single most common phrase in the whole corpus, so a
+  // confident answer there is a coin flip dressed up as a detection. Three
+  // tokens is the shortest input that can carry a real word ORDER, which is
+  // what the bigram and edit-distance terms actually measure.
+  static const int minInputTokens = 3;
+
   _InputFeatures? _featuresOf(String rawText) {
     final norm = normalize(rawText);
     if (norm.isEmpty) return null;
     final inTokens = norm.split(' ').where((t) => t.isNotEmpty).toList();
-    if (inTokens.length < 2) return null;
+    if (inTokens.length < minInputTokens) return null;
     if (_looksLikeHallucination(inTokens)) return null;
     if (_cache.length != ayaat.length) _rebuildCache();
     return _InputFeatures(norm, inTokens, _bigramsOf(inTokens),
@@ -388,5 +417,55 @@ class AyahMatcher {
       }
     }
     return best;
+  }
+
+  // ---- PATCH_S123_DUPLICATE_AYAT -----------------------------------------
+
+  /// Mushaf position of [a] in this corpus (0-based), or -1.
+  int positionOf(Ayah a) => _positionOf[a] ?? -1;
+
+  /// Every ayah whose text is word-for-word identical to [a]'s once
+  /// normalized, in mushaf order — [a] itself included. A single-element
+  /// list means the text is unique in the Quran.
+  List<Ayah> textIdenticalTo(Ayah a) =>
+      _sameTextGroups[normalize(a.ar)] ?? <Ayah>[a];
+
+  /// True when [a]'s text also appears elsewhere in the Quran, i.e. no
+  /// amount of listening can tell which occurrence was recited. Callers
+  /// should resolve it from reading order instead of trusting the score.
+  bool isTextAmbiguous(Ayah a) => textIdenticalTo(a).length > 1;
+
+  /// Given a match that may be one of several identical ayat, returns the
+  /// occurrence that best continues a recitation last heard at [anchor].
+  ///
+  /// Recitation runs forward through the mushaf, so the right answer is the
+  /// nearest occurrence at or after the anchor; only when there is none
+  /// ahead does it look back. With no anchor at all the first occurrence
+  /// wins, which is where a passage is most likely being started from.
+  Ayah resolveByOrder(Ayah matched, {Ayah? anchor}) {
+    final group = textIdenticalTo(matched);
+    if (group.length < 2) return matched;
+    if (anchor == null) return group.first;
+    final anchorPos = positionOf(anchor);
+    if (anchorPos < 0) return matched;
+    Ayah? bestAhead;
+    var bestAheadGap = 1 << 30;
+    Ayah? bestBehind;
+    var bestBehindGap = 1 << 30;
+    for (final candidate in group) {
+      final pos = positionOf(candidate);
+      if (pos < 0) continue;
+      final gap = pos - anchorPos;
+      if (gap >= 0) {
+        if (gap < bestAheadGap) {
+          bestAheadGap = gap;
+          bestAhead = candidate;
+        }
+      } else if (-gap < bestBehindGap) {
+        bestBehindGap = -gap;
+        bestBehind = candidate;
+      }
+    }
+    return bestAhead ?? bestBehind ?? matched;
   }
 }
