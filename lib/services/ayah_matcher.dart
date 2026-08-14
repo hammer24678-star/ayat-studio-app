@@ -69,6 +69,78 @@ class _InputFeatures {
   _InputFeatures(this.norm, this.tokens, this.bigrams, this.phonetic);
 }
 
+// PATCH_S123_SHARED_NORMALIZER: the exact normalization the matcher uses,
+// lifted to a top-level function so the mushaf reader's ayah search can
+// share it. Search and detection must agree on what "the same text" means --
+// two normalizers would drift and a user would get different answers for the
+// same words typed vs. recited. The regexes are built once, not per call:
+// normalizing all 6,236 ayat to build the search index used to recompile
+// five patterns per ayah.
+final RegExp _reTashkeel = RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED]');
+final RegExp _reNonArabic = RegExp(r'[^\u0600-\u06FF\s]');
+final RegExp _reSpaces = RegExp(r'\s+');
+
+String normalizeArabic(String text) => normalizeArabicMapped(text).$1;
+
+/// [normalizeArabic], plus a source offset for every character it produced.
+///
+/// The mushaf reader's search runs on normalized text but has to highlight
+/// the match inside the ORIGINAL, fully-vocalized ayah — which is a
+/// different string, of a different length, in every ayah that carries
+/// tashkeel (i.e. all of them). Doing the normalization character by
+/// character here is what makes that mapping possible, and keeping it in the
+/// same function the matcher uses is what stops search and detection from
+/// ever disagreeing about what a word is.
+(String, List<int>) normalizeArabicMapped(String text) {
+  final buf = StringBuffer();
+  final offsets = <int>[];
+  var pendingSpace = false;
+  var started = false;
+  for (var i = 0; i < text.length; i++) {
+    final ch = text[i];
+    // tashkeel + tatweel: dropped outright
+    if (ch == '\u0640' || _reTashkeel.hasMatch(ch)) continue;
+    if (_reSpaces.hasMatch(ch)) {
+      // Collapsed, and never emitted before the first real character or
+      // after the last one — same as the trim()+\s+ pass this replaced.
+      pendingSpace = started;
+      continue;
+    }
+    final mapped = _foldLetter(ch);
+    if (mapped == null) continue; // non-Arabic, dropped
+    if (pendingSpace) {
+      buf.write(' ');
+      offsets.add(i);
+      pendingSpace = false;
+    }
+    buf.write(mapped);
+    offsets.add(i);
+    started = true;
+  }
+  return (buf.toString(), offsets);
+}
+
+/// One character's normalized form, or null when it isn't Arabic at all.
+String? _foldLetter(String ch) {
+  switch (ch) {
+    case '\u0625': // إ
+    case '\u0623': // أ
+    case '\u0622': // آ
+    case '\u0627': // ا
+    case '\u0671': // ٱ
+      return 'ا';
+    case 'ى':
+      return 'ي';
+    case 'ة':
+      return 'ه';
+    case 'ؤ':
+      return 'و';
+    case 'ئ':
+      return 'ي';
+  }
+  return _reNonArabic.hasMatch(ch) ? null : ch;
+}
+
 class AyahMatcher {
   final List<Ayah> ayaat;
   final List<_CacheEntry> _cache = [];
@@ -80,19 +152,7 @@ class AyahMatcher {
     _rebuildCache();
   }
 
-  String normalize(String text) {
-    var t = text;
-    t = t.replaceAll(RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED]'), ''); // tashkeel
-    t = t.replaceAll('\u0640', ''); // tatweel
-    t = t.replaceAll(RegExp(r'[إأآاٱ]'), 'ا');
-    t = t.replaceAll('ى', 'ي');
-    t = t.replaceAll('ة', 'ه');
-    t = t.replaceAll('ؤ', 'و');
-    t = t.replaceAll('ئ', 'ي');
-    t = t.replaceAll(RegExp(r'[^\u0600-\u06FF\s]'), '');
-    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t;
-  }
+  String normalize(String text) => normalizeArabic(text);
 
   String _phoneticFoldToken(String token) {
     final buf = StringBuffer();

@@ -497,11 +497,17 @@ class ExportService {
   // literally any Color, not just the two quick blue/gold presets in the UI.
   static String _tintFilter(Color color, int intensity) {
     final strength = intensity.clamp(0, 100) / 100;
-    double channel(int value) =>
-        (((value - 128) / 128) * strength).clamp(-1.0, 1.0);
-    final rm = channel(color.red);
-    final gm = channel(color.green);
-    final bm = channel(color.blue);
+    // PATCH_S123_QOL: Color.red/green/blue are deprecated in favour of the
+    // 0..1 .r/.g/.b components; the maths below wants 0..255, so convert
+    // once here instead of reaching for the removed integer getters.
+    double channel(double component) {
+      final value = (component * 255.0).round().clamp(0, 255);
+      return (((value - 128) / 128) * strength).clamp(-1.0, 1.0);
+    }
+
+    final rm = channel(color.r);
+    final gm = channel(color.g);
+    final bm = channel(color.b);
     return 'colorbalance=rm=${rm.toStringAsFixed(3)}'
         ':gm=${gm.toStringAsFixed(3)}'
         ':bm=${bm.toStringAsFixed(3)}';

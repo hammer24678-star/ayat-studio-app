@@ -34,14 +34,18 @@ import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
 import '../services/timeline_builder.dart';
 import '../services/whisper_service.dart';
+import '../services/app_settings.dart'; // PATCH_S123_I18N
 import '../theme/ayat_fonts.dart'; // PATCH_S106_FIX_AYAHTEXTSTYLE_IMPORT
 import '../theme/ayat_theme.dart';
 import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
 import '../widgets/gold_switch.dart';
+import '../widgets/motion.dart'; // PATCH_S123_MOTION
+import '../widgets/quran_entry_button.dart'; // PATCH_S123_QURAN_ENTRY
 import '../widgets/stage_preview.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
+import 'settings_screen.dart'; // PATCH_S123_SETTINGS_SCREEN
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -110,16 +114,47 @@ class _HomeScreenState extends State<HomeScreen>
   late final _staticDurCtrl =
       TextEditingController(text: '${state.staticDurationSec}');
 
-  static const _tabs = [
-    (Icons.menu_book_outlined, 'الآية'),
-    (Icons.dark_mode_outlined, 'خلفيات'),
-    (Icons.water_drop_outlined, 'تأثيرات'), // PATCH_S34_STAGE_EFFECTS
-    (Icons.filter_hdr_outlined, 'كروم'),
-    (Icons.graphic_eq, 'قرّاء'),
-    (Icons.grid_view_outlined, 'قوالب'),
-    (Icons.text_fields, 'النص'),
-    (Icons.video_settings_outlined, 'تصدير'), // PATCH_S54_PRO_EXPORT_CONTROLS
-  ];
+  // PATCH_S123_I18N: the tab strip is the app's main navigation, so it is
+  // localized even though the deeper panel copy is still Arabic-only.
+  // A getter, not a const list, because the language can change at runtime.
+  List<(IconData, String)> get _tabs => [
+        (Icons.menu_book_outlined, _t('studio.tab.ayah')),
+        (Icons.dark_mode_outlined, _t('studio.tab.backgrounds')),
+        (Icons.water_drop_outlined, _t('studio.tab.effects')), // PATCH_S34_STAGE_EFFECTS
+        (Icons.filter_hdr_outlined, _t('studio.tab.chroma')),
+        (Icons.graphic_eq, _t('studio.tab.reciters')),
+        (Icons.grid_view_outlined, _t('studio.tab.templates')),
+        (Icons.text_fields, _t('studio.tab.text')),
+        (Icons.video_settings_outlined, _t('studio.tab.export')), // PATCH_S54_PRO_EXPORT_CONTROLS
+      ];
+
+  /// Shorthand for a localized string in this screen's chrome.
+  String _t(String key) => AppSettings.instance.strings.t(key);
+
+  // PATCH_S123_QURAN_ENTRY: an ayah chosen while reading the mushaf comes
+  // straight back here as the studio's current ayah -- same path a manual
+  // dropdown pick takes, so AI art, karaoke and the partial-ayah slicer all
+  // see it exactly as if it had been picked from the list.
+  void _useAyahFromMushaf(Ayah a) {
+    final idx = state.ayaat.indexWhere(
+        (x) => x.surahNum == a.surahNum && x.num == a.num);
+    _liveOverlay.value = null;
+    state.setAyah(a.ar, a.en, 'من المصحف: سورة ${a.surah} — آية ${a.num}',
+        surahNum: a.surahNum, ayahNum: a.num);
+    final words =
+        a.ar.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    setState(() {
+      _selectedSurah = a.surahNum;
+      if (idx >= 0) _selectedAyahIdx = idx;
+      _partialSourceAyah = a;
+      _partialFromWord = 0;
+      _partialToWord = words.isEmpty ? 0 : words.length - 1;
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_t('mushaf.ayahAdded'))),
+    );
+  }
 
   @override
   void initState() {
@@ -189,6 +224,10 @@ class _HomeScreenState extends State<HomeScreen>
     // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: flush, don't just drop,
     // whatever change was still waiting on the debounce.
     _persistDebounce?.cancel();
+    // PATCH_S123_QOL: the 10Hz auto-sync ticker was started in initState and
+    // never cancelled -- it kept firing _tickAutoSync() against a disposed
+    // State (and a disposed VideoPlayerController) after leaving the studio.
+    _syncTimer?.cancel();
     if (_settingsRestored) SettingsService.persist(state);
     _video?.dispose();
     _reciterPreview?.dispose();
@@ -974,7 +1013,7 @@ class _HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: AyatColors.ink,
       appBar: AppBar(
-        title: const Text('استوديو الآيات'),
+        title: Text(_t('app.name')),
         actions: [
           // PATCH_S56_UNDO_REDO: tester-requested step back / step forward
           ListenableBuilder(
@@ -985,20 +1024,28 @@ class _HomeScreenState extends State<HomeScreen>
                 IconButton(
                   onPressed: state.canUndo ? state.undoStep : null,
                   icon: const Icon(Icons.undo),
-                  tooltip: 'تراجع',
+                  tooltip: _t('studio.undo'),
                 ),
                 IconButton(
                   onPressed: state.canRedo ? state.redoStep : null,
                   icon: const Icon(Icons.redo),
-                  tooltip: 'إعادة',
+                  tooltip: _t('studio.redo'),
                 ),
               ],
             ),
           ),
+          // PATCH_S123_SETTINGS_SCREEN: language, animations and the reader's
+          // light mode live one tap from anywhere in the studio.
+          IconButton(
+            onPressed: () => Navigator.of(context)
+                .push(AppMotion.route(const SettingsScreen())),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: _t('settings.title'),
+          ),
           IconButton(
             onPressed: _showInfo,
             icon: const Icon(Icons.info_outline),
-            tooltip: 'معلومات عن التطبيق',
+            tooltip: _t('studio.info'),
           ),
         ],
       ),
@@ -2839,7 +2886,7 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               child: DropdownButtonFormField<int>(
                 decoration: const InputDecoration(labelText: 'من كلمة'),
-                value: from,
+                initialValue: from,
                 items: [
                   for (var i = 0; i < words.length; i++)
                     DropdownMenuItem(
@@ -2863,7 +2910,7 @@ class _HomeScreenState extends State<HomeScreen>
             Expanded(
               child: DropdownButtonFormField<int>(
                 decoration: const InputDecoration(labelText: 'إلى كلمة'),
-                value: to,
+                initialValue: to,
                 items: [
                   for (var i = 0; i < words.length; i++)
                     DropdownMenuItem(
@@ -3067,21 +3114,26 @@ class _HomeScreenState extends State<HomeScreen>
           onChanged: (v) => state.update(() => state.captionText = v),
         ),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            for (final pos in CaptionPosition.values)
-              Expanded(
-                child: RadioListTile<CaptionPosition>(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(pos == CaptionPosition.top ? 'أعلى' : 'أسفل'),
-                  value: pos,
-                  groupValue: state.captionPosition,
-                  onChanged: (v) => state.update(
-                      () => state.captionPosition = v ?? CaptionPosition.bottom),
+        // PATCH_S123_QOL: RadioListTile's own groupValue/onChanged are
+        // deprecated -- the group is declared once by the RadioGroup
+        // ancestor now, and each tile only carries its own value.
+        RadioGroup<CaptionPosition>(
+          groupValue: state.captionPosition,
+          onChanged: (v) => state.update(
+              () => state.captionPosition = v ?? CaptionPosition.bottom),
+          child: Row(
+            children: [
+              for (final pos in CaptionPosition.values)
+                Expanded(
+                  child: RadioListTile<CaptionPosition>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(pos == CaptionPosition.top ? 'أعلى' : 'أسفل'),
+                    value: pos,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
@@ -3107,22 +3159,24 @@ class _HomeScreenState extends State<HomeScreen>
             'اختر السورة ثم الآية، أو استخدم أزرار التعرّف بالذكاء الاصطناعي، أو اكتب نصًا مخصصًا.'),
         // PATCH_S62_MUSHAF_READER: standalone full-mushaf browser, separate from
         // the single-ayah picker below it -- reuses state.ayaat, no extra load.
-        OutlinedButton.icon(
-          onPressed: () => Navigator.push(
+        // PATCH_S123_QURAN_ENTRY: was a bare OutlinedButton -- the plainest
+        // control on the screen for the app's most meaningful destination.
+        // Now the ornamented card, and it hands the chosen ayah straight back
+        // into the editor instead of being a read-only detour.
+        QuranEntryButton(
+          title: _t('mushaf.open'),
+          subtitle: _t('mushaf.openHint'),
+          onTap: () => Navigator.push(
             context,
-            MaterialPageRoute( // PATCH_S63_MUSHAF_FONT_FIX: pass the user's selected ayah font
-                builder: (_) => MushafScreen(
-                      ayaat: state.ayaat,
-                      fontKey: state.fontKey,
-                    )),
+            AppMotion.route( // PATCH_S63_MUSHAF_FONT_FIX: pass the user's selected ayah font
+              MushafScreen(
+                ayaat: state.ayaat,
+                fontKey: state.fontKey,
+                initialSurah: _selectedSurah,
+                onUseAyah: _useAyahFromMushaf,
+              ),
+            ),
           ),
-          icon: const Icon(Icons.auto_stories_outlined, size: 18),
-          label: const Text('فتح المصحف كاملاً للقراءة'),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'تصفّحي أي سورة واقرئيها كاملة، بمعزل عن تحرير الفيديو.',
-          style: Theme.of(context).textTheme.bodyMedium,
         ),
         const Divider(height: 28, color: AyatColors.hairline),
         _fieldLabel('السورة'),
