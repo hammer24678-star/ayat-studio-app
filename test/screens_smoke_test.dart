@@ -14,6 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ayat_studio_app/data/mushaf_meta.dart';
 import 'package:ayat_studio_app/i18n/app_strings.dart';
+import 'package:ayat_studio_app/main.dart';
+import 'package:ayat_studio_app/screens/splash_screen.dart';
 import 'package:ayat_studio_app/screens/mushaf_screen.dart';
 import 'package:ayat_studio_app/screens/settings_screen.dart';
 import 'package:ayat_studio_app/screens/welcome_screen.dart';
@@ -62,6 +64,48 @@ void main() {
     AppSettings.instance.setLang(AppLang.ar);
     AppSettings.instance.setMushafLight(false);
     AppSettings.instance.setMushafView(MushafViewMode.page);
+  });
+
+  // PATCH_S124_ROOT_COVERAGE: lib/main.dart and the splash were imported by
+  // no test at all, so `flutter test` never compiled them -- and CI's only
+  // other Dart compile is inside `flutter build apk`, which needs the Android
+  // SDK and runs after everything else. A break in either would have reached
+  // a user before it reached a test. These two pump the real root widget.
+  testWidgets('the app root builds and reaches the welcome screen', (t) async {
+    await t.pumpWidget(const AyatStudioApp());
+    // Motion is off, so the splash replaces itself on the first post-frame.
+    await t.pump();
+    await t.pump();
+    expect(find.text(const AppStrings(AppLang.ar).t('app.start')), findsOneWidget);
+    expect(tester_exception(), isNull);
+  });
+
+  testWidgets('the app root follows the chosen language and direction',
+      (t) async {
+    AppSettings.instance.setLang(AppLang.en);
+    await t.pumpWidget(const AyatStudioApp());
+    await t.pump();
+    await t.pump();
+    expect(find.text('Start designing'), findsOneWidget);
+    expect(
+      Directionality.of(t.element(find.text('Start designing'))),
+      TextDirection.ltr,
+    );
+    expect(tester_exception(), isNull);
+  });
+
+  testWidgets('the animated splash renders without throwing', (t) async {
+    AppSettings.instance.setAnimations(true);
+    await t.pumpWidget(const MaterialApp(home: SplashScreen()));
+    await t.pump(const Duration(milliseconds: 120));
+    await t.pump(const Duration(milliseconds: 600));
+    await t.pump(const Duration(milliseconds: 600));
+    expect(find.byType(SplashScreen), findsOneWidget);
+    expect(tester_exception(), isNull);
+    // Tear the tree down explicitly: the splash and the welcome screen behind
+    // it run repeating shimmer/glow tickers, which never settle on their own.
+    await t.pumpWidget(const SizedBox.shrink());
+    AppSettings.instance.setAnimations(false);
   });
 
   testWidgets('the welcome screen builds with both entry points', (t) async {

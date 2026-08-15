@@ -91,7 +91,20 @@ jobs:
           channel: stable
 
       - name: Generate platform folders (android/ etc.) if missing
-        run: flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
+        run: |
+          flutter create --platforms=android --org com.ayatstudio --project-name ayat_studio_app .
+          # PATCH_S124_DROP_TEMPLATE_TEST: `flutter create` also writes its
+          # counter-app template test to test/widget_test.dart, which calls
+          # `const MyApp()` -- a class this project has never had (our entry
+          # point is AyatStudioApp in lib/main.dart). It was harmless while
+          # this workflow only ever built; the moment `flutter test` was added
+          # below it failed compilation and took the whole run down with it.
+          # Deleted only when it IS that template, so a real widget_test.dart
+          # added later is never destroyed by this step.
+          if [ -f test/widget_test.dart ] && grep -q 'MyApp' test/widget_test.dart; then
+            echo "Removing flutter create's template test (references MyApp)."
+            rm -f test/widget_test.dart
+          fi
 
       - name: Diagnose root-level Android Gradle files (app-level compileSdk=36 doesn't propagate to plugin subprojects like file_picker — need to see the actual generated root build.gradle(.kts)/settings.gradle(.kts) before writing the subprojects-wide fix)
         run: |
