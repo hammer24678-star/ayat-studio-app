@@ -47,6 +47,7 @@ import '../widgets/quran_entry_button.dart'; // PATCH_S123_QURAN_ENTRY
 import '../widgets/stage_preview.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
+import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import 'settings_screen.dart'; // PATCH_S123_SETTINGS_SCREEN
 
 class HomeScreen extends StatefulWidget {
@@ -377,6 +378,46 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (mounted) setState(() {});
     _toast('تم رفع الملف ✓');
+  }
+
+  // PATCH_S125_SEQUENCE: builds a multi-clip sequence in its own screen and
+  // adopts the rendered file as the studio's working clip. Everything
+  // downstream keeps seeing a single source, so nothing else had to change.
+  Future<void> _openSequence() async {
+    final (fw, fh) = state.frameSize;
+    final merged = await openSequenceBuilder(
+      context,
+      initialClipPath: state.videoPath,
+      frameWidth: fw,
+      frameHeight: fh,
+    );
+    if (merged == null || !mounted) return;
+    // A new source invalidates any timeline detected against the old one --
+    // setVideo already clears it, which is exactly what's wanted here.
+    await _video?.dispose();
+    _liveOverlay.value = null;
+    _playbackSpeed = 1.0;
+    _loopAyah = false;
+    _loopSeg = null;
+    final controller = VideoPlayerController.file(File(merged));
+    _video = controller;
+    state.setVideo(merged);
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
+      state.update(() => state.videoDurationSec =
+          controller.value.duration.inMilliseconds / 1000.0);
+    } catch (_) {
+      // The rendered sequence should always be a valid mp4, but a preview
+      // player refusing it must not lose the render.
+    }
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('تم تركيب المقاطع — شغّلي المزامنة التلقائية من جديد')),
+    );
   }
 
   // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE: appends a second picked video/clip onto the end of
@@ -1473,6 +1514,15 @@ class _HomeScreenState extends State<HomeScreen>
           onPressed: (_busy || !state.hasVideo) ? null : _pickAndMergeVideo,
           icon: const Icon(Icons.video_collection_outlined, size: 18),
           label: const Text('دمج مع فيديو آخر'),
+        ),
+        const SizedBox(height: 8),
+        // PATCH_S125_SEQUENCE: S79's merge is two clips, whole, butted
+        // together. This is the general case -- any number of clips, each
+        // trimmed, reordered, joined with a real transition.
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _openSequence,
+          icon: const Icon(Icons.playlist_add, size: 18),
+          label: const Text('تركيب عدة مقاطع (قصّ وترتيب وانتقالات)'),
         ),
         const SizedBox(height: 8),
         ElevatedButton.icon(

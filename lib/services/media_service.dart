@@ -144,4 +144,190 @@ class MediaService {
     }
     return outPath;
   }
+
+  // PATCH_S125_SEQUENCE: S79's merge took exactly two clips, whole, butted
+  // end to end. This is the general case -- N clips, each with its own trim,
+  // joined either with a hard cut or a real transition.
+  //
+  // It is deliberately a PRE-PASS rather than a change to the export graph:
+  // it renders the sequence to one file, which then becomes the studio's
+  // working clip, so auto-sync, the ayah overlay, effects and export all
+  // continue to see exactly what they saw before -- a single source. That is
+  // not a multi-track NLE, and it is not pretending to be one; it is the
+  // shape of multi-clip editing this app's workflow actually needs.
+  //
+  // filter_complex, not the concat demuxer, for S79's reason: the clips
+  // almost certainly differ in resolution, fps and codec, so each is scaled,
+  // padded and fps-normalised onto a common canvas first.
+  static String buildSequenceCommand(
+    List<SequenceClip> clips, {
+    required String outPath,
+    required int width,
+    required int height,
+    required String encodeParams,
+    SequenceTransition transition = SequenceTransition.cut,
+    double transitionSec = 0.5,
+  }) {
+    if (clips.length < 2) {
+      throw ArgumentError('a sequence needs at least two clips');
+    }
+    final inputs = StringBuffer('-y ');
+    final filters = <String>[];
+
+    // Per-clip trim happens on the INPUT (-ss/-t before -i), which seeks
+    // rather than decoding-and-discarding — on a phone that is the
+    // difference between seconds and minutes on a long source.
+    for (var i = 0; i < clips.length; i++) {
+      final c = clips[i];
+      final ss = c.start > 0.001 ? '-ss ${c.start.toStringAsFixed(3)} ' : '';
+      inputs.write('$ss-t ${c.duration.toStringAsFixed(3)} -i "${c.path}" ');
+      filters.add('[$i:v]scale=$width:$height:force_original_aspect_ratio=decrease,'
+          'pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v$i]');
+      // apad keeps a silent clip from ending its audio stream early, which
+      // would desync everything after it in the concat.
+      filters.add('[$i:a]aresample=44100,aformat=channel_layouts=stereo,'
+          'apad,atrim=0:${c.duration.toStringAsFixed(3)}[a$i]');
+    }
+
+    String vOut, aOut;
+    if (transition == SequenceTransition.cut) {
+      final pairs = [
+        for (var i = 0; i < clips.length; i++) '[v$i][a$i]',
+      ].join();
+      filters.add('${pairs}concat=n=${clips.length}:v=1:a=1[outv][outa]');
+      vOut = 'outv';
+      aOut = 'outa';
+    } else {
+      // xfade overlaps the two clips, so each join SHORTENS the sequence by
+      // the transition length -- the offset for join i is the running total
+      // of the clips so far minus every transition already spent. Getting
+      // this wrong is what makes transitions drift later and later.
+      final d = transitionSec.clamp(0.1, 3.0);
+      var vPrev = 'v0';
+      var aPrev = 'a0';
+      var elapsed = clips.first.duration;
+      for (var i = 1; i < clips.length; i++) {
+        final offset = (elapsed - d).clamp(0.0, double.infinity);
+        final vLabel = i == clips.length - 1 ? 'outv' : 'vx$i';
+        final aLabel = i == clips.length - 1 ? 'outa' : 'ax$i';
+        filters.add('[$vPrev][v$i]xfade=transition=${transition.ffmpegName}:'
+            'duration=${d.toStringAsFixed(3)}:'
+            'offset=${offset.toStringAsFixed(3)}[$vLabel]');
+        filters.add('[$aPrev][a$i]acrossfade=d=${d.toStringAsFixed(3)}[$aLabel]');
+        vPrev = vLabel;
+        aPrev = aLabel;
+        elapsed += clips[i].duration - d;
+      }
+      vOut = 'outv';
+      aOut = 'outa';
+    }
+
+    return '$inputs-filter_complex "${filters.join(';')}" '
+        '-map "[$vOut]" -map "[$aOut]" $encodeParams "$outPath"';
+  }
+
+  /// Total length of the rendered sequence, accounting for the overlap each
+  /// transition costs. Shown before rendering so nobody waits on a render to
+  /// find out how long it came out.
+  static double sequenceDuration(
+    List<SequenceClip> clips, {
+    SequenceTransition transition = SequenceTransition.cut,
+    double transitionSec = 0.5,
+  }) {
+    if (clips.isEmpty) return 0;
+    final total = clips.fold<double>(0, (a, c) => a + c.duration);
+    if (transition == SequenceTransition.cut || clips.length < 2) return total;
+    final d = transitionSec.clamp(0.1, 3.0);
+    return (total - d * (clips.length - 1)).clamp(0.1, double.infinity);
+  }
+
+  /// Renders [clips] into one file and returns its path.
+  static Future<String> renderSequence(
+    List<SequenceClip> clips, {
+    int width = 1080,
+    int height = 1920,
+    SequenceTransition transition = SequenceTransition.cut,
+    double transitionSec = 0.5,
+  }) async {
+    for (final c in clips) {
+      if (!File(c.path).existsSync()) {
+        throw Exception('تعذّر الوصول إلى أحد المقاطع — قد يكون حُذف أو نُقل.\n${c.path}');
+      }
+    }
+    final dir = await getTemporaryDirectory();
+    final outPath =
+        '${dir.path}/sequence_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final cmd = buildSequenceCommand(
+      clips,
+      outPath: outPath,
+      width: width,
+      height: height,
+      encodeParams:
+          '-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k',
+      transition: transition,
+      transitionSec: transitionSec,
+    );
+    final session = await FFmpegKit.execute(cmd);
+    final rc = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(rc)) {
+      final rawLog = (await session.getOutput()) ?? '';
+      final log =
+          rawLog.length > 900 ? rawLog.substring(rawLog.length - 900) : rawLog;
+      throw Exception('تعذّر تركيب المقاطع (ffmpeg rc=$rc)\n$log');
+    }
+    return outPath;
+  }
+}
+
+// PATCH_S125_SEQUENCE: one clip in the sequence, with its own in/out points.
+class SequenceClip {
+  final String path;
+
+  /// Seconds into the source where this clip starts.
+  final double start;
+
+  /// How much of the source to use, in seconds.
+  final double duration;
+  const SequenceClip({
+    required this.path,
+    this.start = 0,
+    required this.duration,
+  });
+
+  SequenceClip copyWith({double? start, double? duration}) => SequenceClip(
+        path: path,
+        start: start ?? this.start,
+        duration: duration ?? this.duration,
+      );
+}
+
+/// How consecutive clips are joined. Names map to ffmpeg's xfade transitions.
+enum SequenceTransition {
+  cut,
+  fade,
+  wipeleft,
+  wiperight,
+  slideup,
+  slidedown,
+  circleopen,
+  dissolve,
+  smoothleft,
+  fadeblack,
+}
+
+extension SequenceTransitionMeta on SequenceTransition {
+  String get ffmpegName => name;
+
+  String get labelAr => switch (this) {
+        SequenceTransition.cut => 'قطع مباشر',
+        SequenceTransition.fade => 'تلاشٍ',
+        SequenceTransition.wipeleft => 'مسح لليسار',
+        SequenceTransition.wiperight => 'مسح لليمين',
+        SequenceTransition.slideup => 'انزلاق لأعلى',
+        SequenceTransition.slidedown => 'انزلاق لأسفل',
+        SequenceTransition.circleopen => 'دائرة تتّسع',
+        SequenceTransition.dissolve => 'ذوبان',
+        SequenceTransition.smoothleft => 'انسياب لليسار',
+        SequenceTransition.fadeblack => 'تلاشٍ عبر الأسود',
+      };
 }
