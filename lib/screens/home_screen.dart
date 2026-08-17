@@ -30,6 +30,7 @@ import '../services/media_service.dart';
 import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import '../services/stage_effects_library.dart'; // PATCH_S125_EFFECTS_LIBRARY
 import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
 import '../services/timeline_builder.dart';
@@ -2357,25 +2358,14 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _panelTitle('تأثيرات مرئية',
-            'مطر أو ثلج أو غبار ضوئي فوق الفيديو أو الخلفية — يظهر التأثير في المعاينة مباشرة ويُدمج في الفيديو المُصدَّر بنفس الشكل.'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final e in StageEffect.values)
-              ChoiceChip(
-                avatar: Icon(e.icon,
-                    size: 15,
-                    color: state.effect == e
-                        ? AyatColors.goldBright
-                        : AyatColors.parchmentDim),
-                label: Text(e.label),
-                selected: state.effect == e,
-                // tapping the already-selected effect cancels it
-                onSelected: (_) => state.update(() => state.effect =
-                    state.effect == e ? StageEffect.none : e),
-              ),
-          ],
+            '${StageEffect.values.length - 1} تأثيرًا فوق الفيديو أو الخلفية — يظهر التأثير في المعاينة مباشرة ويُدمج في الفيديو المُصدَّر بنفس الشكل.'),
+        // PATCH_S125_EFFECTS_LIBRARY: 74 effects in one flat Wrap is a wall of
+        // chips nobody reads to the end of. Grouped by category, with the
+        // group holding the current selection expanded, it stays a menu.
+        _EffectPicker(
+          selected: state.effect,
+          onSelected: (e) => state.update(
+              () => state.effect = state.effect == e ? StageEffect.none : e),
         ),
         if (state.effect != StageEffect.none) ...[
           _fieldLabel('كثافة التأثير'),
@@ -4375,6 +4365,120 @@ class _HomeScreenState extends State<HomeScreen>
                 state.staticDurationSec = (int.tryParse(v) ?? 6).clamp(2, 60),
           ),
         ),
+      ],
+    );
+  }
+}
+
+// PATCH_S125_EFFECTS_LIBRARY: category-grouped effect picker. One category is
+// open at a time (the one holding the current selection, so reopening the
+// panel lands you where you left off), and "بدون تأثير" is always reachable
+// at the top rather than buried inside a group.
+class _EffectPicker extends StatefulWidget {
+  final StageEffect selected;
+  final ValueChanged<StageEffect> onSelected;
+  const _EffectPicker({required this.selected, required this.onSelected});
+
+  @override
+  State<_EffectPicker> createState() => _EffectPickerState();
+}
+
+class _EffectPickerState extends State<_EffectPicker> {
+  late EffectCategory _open = widget.selected == StageEffect.none
+      ? EffectCategory.nature
+      : widget.selected.category;
+
+  @override
+  void didUpdateWidget(covariant _EffectPicker old) {
+    super.didUpdateWidget(old);
+    if (widget.selected != old.selected &&
+        widget.selected != StageEffect.none) {
+      _open = widget.selected.category;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final byCategory = <EffectCategory, List<StageEffect>>{};
+    for (final e in StageEffect.values) {
+      if (e == StageEffect.none) continue;
+      byCategory.putIfAbsent(e.category, () => []).add(e);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: ChoiceChip(
+            avatar: const Icon(Icons.block, size: 15),
+            label: Text(StageEffect.none.label),
+            selected: widget.selected == StageEffect.none,
+            onSelected: (_) => widget.onSelected(StageEffect.none),
+          ),
+        ),
+        const SizedBox(height: 10),
+        for (final cat in EffectCategory.values)
+          if ((byCategory[cat] ?? const []).isNotEmpty) ...[
+            InkWell(
+              onTap: () => setState(() => _open = cat),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(cat.icon,
+                        size: 16,
+                        color: _open == cat
+                            ? AyatColors.goldBright
+                            : AyatColors.parchmentDim),
+                    const SizedBox(width: 8),
+                    Text(
+                      cat.labelAr,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _open == cat
+                            ? AyatColors.goldBright
+                            : AyatColors.parchmentDim,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('(${byCategory[cat]!.length})',
+                        style: const TextStyle(
+                            fontSize: 11, color: AyatColors.parchmentDim)),
+                    const Spacer(),
+                    Icon(
+                      _open == cat ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                      color: AyatColors.gold,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_open == cat)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final e in byCategory[cat]!)
+                      ChoiceChip(
+                        avatar: Icon(e.icon,
+                            size: 15,
+                            color: widget.selected == e
+                                ? AyatColors.goldBright
+                                : AyatColors.parchmentDim),
+                        label: Text(e.label),
+                        selected: widget.selected == e,
+                        onSelected: (_) => widget.onSelected(e),
+                      ),
+                  ],
+                ),
+              ),
+            const Divider(height: 1, color: AyatColors.hairline),
+          ],
       ],
     );
   }

@@ -16,10 +16,34 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'stage_effects_library.dart';
+
 // PATCH_S85_MORE_EFFECTS: fireflies/fog/rays appended at the END — the
 // settings persistence stores effect.index, so existing saved choices keep
 // pointing at the same effect.
-enum StageEffect { none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch, fireflies, fog, rays, spinningStar, starBurst, flowerBurst } // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+// PATCH_S125_EFFECTS_LIBRARY: 61 more effects appended below. Order matters
+// and is APPEND-ONLY -- SettingsService persists effect.index, so inserting
+// anywhere but the end would silently repoint every saved choice at a
+// different effect. Everything from `heavyRain` down is defined in
+// stage_effects_library.dart (labels, icons, category and painter).
+enum StageEffect {
+  none, rain, snow, dust, sparkle, geometricShimmer, confetti, glitch,
+  fireflies, fog, rays, spinningStar, starBurst, flowerBurst, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+  heavyRain, drizzle, blizzard, sandstorm, fallingLeaves, petals, mist,
+  cloudDrift, bubbles, embers, ashfall, meteorShower,
+  bokeh, starfield, twinkleStars, glowPulse, candleGlow, lanternGlow,
+  prismSplit, shimmerHaze, warmGodRays, lightLeak, lensFlare, aurora,
+  spotlightSweep,
+  star8Grid, star12Grid, crescentDrift, goldFiligree, rosetteBloom,
+  arabesqueTile, mashrabiya, kufiGrid, borderOrnament, domeArch, tessellation,
+  minaretSilhouette,
+  orbitDots, spiralGalaxy, fireSparks, smokeWisp, dustDevil, cometTrail,
+  zoomStreaks, snowGlobe, ripplesConcentric, plasmaWave,
+  filmGrainFlicker, scanLines, vhsTracking, filmScratches, halftoneDots,
+  duotoneSweep, chromaticDrift, vignettePulse,
+  pulseRings, breathingGlow, waveformBars, equalizerBars, speedLines,
+  kaleidoscope, heartbeatGlow,
+}
 
 extension StageEffectLabel on StageEffect {
   String get label => switch (this) {
@@ -37,6 +61,49 @@ extension StageEffectLabel on StageEffect {
         StageEffect.spinningStar => 'نجمة إسلامية دوّارة', // PATCH_S100_FONTS_SPINSTAR_TINT
         StageEffect.starBurst => 'انفجار نجمي', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
         StageEffect.flowerBurst => 'تفتّح الزهور', // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        // PATCH_S125_EFFECTS_LIBRARY
+        _ => kExtendedEffects[this]?.labelAr ?? name,
+      };
+
+  /// English label, for the localized effect picker.
+  String get labelEn => switch (this) {
+        StageEffect.none => 'No effect',
+        StageEffect.rain => 'Rain',
+        StageEffect.snow => 'Snow',
+        StageEffect.dust => 'Light dust',
+        StageEffect.sparkle => 'Star sparkle',
+        StageEffect.geometricShimmer => 'Islamic shimmer',
+        StageEffect.confetti => 'Gold confetti',
+        StageEffect.glitch => 'Glitch',
+        StageEffect.fireflies => 'Fireflies',
+        StageEffect.fog => 'Soft fog',
+        StageEffect.rays => 'Light rays',
+        StageEffect.spinningStar => 'Spinning star',
+        StageEffect.starBurst => 'Star burst',
+        StageEffect.flowerBurst => 'Flower bloom',
+        _ => kExtendedEffects[this]?.labelEn ?? name,
+      };
+
+  /// Which group this effect belongs to in the picker.
+  EffectCategory get category => switch (this) {
+        StageEffect.rain ||
+        StageEffect.snow ||
+        StageEffect.fog =>
+          EffectCategory.nature,
+        StageEffect.dust ||
+        StageEffect.sparkle ||
+        StageEffect.rays ||
+        StageEffect.fireflies =>
+          EffectCategory.light,
+        StageEffect.geometricShimmer ||
+        StageEffect.spinningStar ||
+        StageEffect.flowerBurst =>
+          EffectCategory.ornament,
+        StageEffect.confetti ||
+        StageEffect.starBurst =>
+          EffectCategory.particles,
+        StageEffect.glitch => EffectCategory.film,
+        _ => kExtendedEffects[this]?.category ?? EffectCategory.particles,
       };
 
   IconData get icon => switch (this) {
@@ -54,6 +121,8 @@ extension StageEffectLabel on StageEffect {
         StageEffect.spinningStar => Icons.star_rate_rounded, // PATCH_S100_FONTS_SPINSTAR_TINT
         StageEffect.starBurst => Icons.auto_awesome_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
         StageEffect.flowerBurst => Icons.local_florist_outlined, // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
+        // PATCH_S125_EFFECTS_LIBRARY
+        _ => kExtendedEffects[this]?.icon ?? Icons.auto_awesome,
       };
 }
 
@@ -112,6 +181,11 @@ class StageEffects {
         _paintStarBurst(canvas, size, timeSec, intensity);
       case StageEffect.flowerBurst: // PATCH_S102_MORE_BACKGROUNDS_BURST_EFFECTS
         _paintFlowerBurst(canvas, size, timeSec, intensity);
+      // PATCH_S125_EFFECTS_LIBRARY: everything added after S102 lives in
+      // stage_effects_library.dart -- same seamless-loop contract, same
+      // deterministic randomness, so preview and export still agree.
+      default:
+        StageEffectsLibrary.paint(canvas, size, effect, timeSec, intensity);
     }
   }
 
@@ -245,9 +319,22 @@ class StageEffects {
       final depth = _rand(i, 1); // 0..1: bigger/heavier drops slide faster
       final r = (5.0 + 4.0 * depth) * w / 1080; // big, glassy drops
       final range = h + r * 6;
-      // clinging to glass, not falling through air -- far slower than the
-      // old free-falling streaks, heavier drops a little faster than light ones.
-      final v = (range / loopSeconds) * (0.35 + 0.25 * depth);
+      // PATCH_S125_RAIN_SEAMLESS: this used to be
+      //   v = (range / loopSeconds) * (0.35 + 0.25 * depth)
+      // i.e. each drop covered 35-60% of its wrap range per loop period.
+      // Every other effect in this file is careful to move a WHOLE number of
+      // ranges per period, and this one wasn't: at the seam each drop
+      // teleported by the leftover fraction, so exported rain visibly jumped
+      // every three seconds. (Caught by the loop-identity check in
+      // test/stage_effects_test.dart.)
+      //
+      // A wrapping fall cannot be seamless below one traversal per period --
+      // the drop has to clear the screen before it reappears. So the speed is
+      // now a whole 1 or 2 traversals, which keeps "heavier drops outrun
+      // lighter ones" while landing exactly on the seam. Rain slides
+      // somewhat faster than before; it no longer stutters.
+      final traversals = depth > 0.55 ? 2 : 1;
+      final v = traversals * range / loopSeconds;
       final y = ((_rand(i, 2) * range + v * t) % range) - r * 3;
       // a real droplet on glass doesn't fall straight -- surface tension
       // catches and releases it in a slight zigzag. Whole sway cycles per
@@ -471,9 +558,16 @@ class StageEffects {
       final pulse = 0.6 + 0.4 * sin(2 * pi * t / loopSeconds + phase);
       final r = (i == 1 ? 0.09 : 0.065) * w;
       // PATCH_S105_SLOW_SPINSTAR: 8x slower spin (45° per loop instead of a
-      // full 360°). Still a seamless loop -- an 8-pointed star has 8-fold
-      // rotational symmetry, so any multiple of a 45° (2π/8) turn per loop
-      // lines up identically at the seam.
+      // full 360°). The figure is an 8-pointed star, so a 45° turn maps it
+      // onto itself and the seam shows no movement.
+      // PATCH_S125_SPINSTAR_NOTE: the original comment here claimed the seam
+      // was therefore pixel-identical. Measured, it isn't: these stars are
+      // anchored at fractions of the frame, so a rotated hairline stroke
+      // lands on different sub-pixels and its antialiased edge differs by up
+      // to ~15% of a level. Nothing MOVES -- only the edge shading shimmers,
+      // on well under 0.5% of the frame -- but the claim was wrong, and the
+      // loop check in test/stage_effects_test.dart is written to tell that
+      // apart from a real jump rather than to assert bit-identity.
       final angle = (pi / 4) * (t / loopSeconds) * (i.isEven ? 1 : -1) + phase;
       final alpha = (0.55 + 0.25 * pulse) * intensity;
       glowPaint
