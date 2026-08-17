@@ -10,12 +10,19 @@ enum AyahTextPosition { top, center, bottom }
 // are the audio-only/static-export canvas AND the source of truth for
 // the live-preview frame's AspectRatio -- see export_service.dart and
 // stage_preview.dart.
-enum AyatAspectRatio { story916, square11, landscape169 }
+// PATCH_S125_CUSTOM_ASPECT: `custom` appended last -- SettingsService stores
+// aspectRatio.index, so it has to go on the end. Its dimensions come from
+// StudioState.customAspectW/H rather than from this table.
+enum AyatAspectRatio { story916, square11, landscape169, portrait45, custom }
 
 const List<(AyatAspectRatio, String, int, int)> kAspectRatios = [
   (AyatAspectRatio.story916, '9:16 قصة', 1080, 1920),
   (AyatAspectRatio.square11, '1:1 مربع', 1080, 1080),
   (AyatAspectRatio.landscape169, '16:9 عريض', 1920, 1080), // PATCH_S53_LANDSCAPE_EXPORT
+  // PATCH_S125_CUSTOM_ASPECT: 4:5 is the tallest frame Instagram's feed
+  // shows without cropping -- the single most-requested shape after 9:16.
+  (AyatAspectRatio.portrait45, '4:5 منشور', 1080, 1350),
+  (AyatAspectRatio.custom, 'مخصص', 1080, 1920),
 ];
 
 enum FrameExtra { none, boxed, framed, glass } // PATCH_S38_VIDEO_EFFECTS: glass = frosted-panel look

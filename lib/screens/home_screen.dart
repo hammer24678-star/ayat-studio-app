@@ -30,6 +30,7 @@ import '../services/media_service.dart';
 import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../services/stage_effects_library.dart'; // PATCH_S125_EFFECTS_LIBRARY
 import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
@@ -111,6 +112,11 @@ class _HomeScreenState extends State<HomeScreen>
   final _captionCtrl = TextEditingController();
   final _textStartCtrl = TextEditingController();
   final _textEndCtrl = TextEditingController();
+  // PATCH_S125_CUSTOM_ASPECT
+  late final _customWCtrl =
+      TextEditingController(text: '${state.customAspectW}');
+  late final _customHCtrl =
+      TextEditingController(text: '${state.customAspectH}');
   // PATCH_S123_WATERMARK
   late final _watermarkCtrl =
       TextEditingController(text: state.watermarkText);
@@ -191,6 +197,8 @@ class _HomeScreenState extends State<HomeScreen>
       _outroCtrl.text = state.outroText;
       _staticDurCtrl.text = '${state.staticDurationSec}';
       _watermarkCtrl.text = state.watermarkText; // PATCH_S123_WATERMARK
+      _customWCtrl.text = '${state.customAspectW}'; // PATCH_S125_CUSTOM_ASPECT
+      _customHCtrl.text = '${state.customAspectH}';
     });
     state.addListener(_schedulePersist);
     // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: dispose() only fires when
@@ -244,6 +252,8 @@ class _HomeScreenState extends State<HomeScreen>
     _captionCtrl.dispose();
     _textStartCtrl.dispose();
     _textEndCtrl.dispose();
+    _customWCtrl.dispose(); // PATCH_S125_CUSTOM_ASPECT
+    _customHCtrl.dispose();
     _watermarkCtrl.dispose(); // PATCH_S123_WATERMARK
     _outroCtrl.dispose();
     _staticDurCtrl.dispose();
@@ -1220,20 +1230,67 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _ratioToggle() {
-    // PATCH_S53_LANDSCAPE_EXPORT: renders all three shapes from kAspectRatios instead of
+    // PATCH_S53_LANDSCAPE_EXPORT: renders all shapes from kAspectRatios instead of
     // two hardcoded chips.
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
+    // PATCH_S125_CUSTOM_ASPECT: plus a custom size, for the platforms and
+    // print sizes no preset covers.
+    final (fw, fh) = state.frameSize;
+    return Column(
       children: [
-        for (final entry in kAspectRatios)
-          ChoiceChip(
-            label: Text(entry.$2),
-            selected: state.aspectRatio == entry.$1,
-            onSelected: (_) =>
-                state.update(() => state.aspectRatio = entry.$1),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in kAspectRatios)
+              ChoiceChip(
+                label: Text(entry.$2),
+                selected: state.aspectRatio == entry.$1,
+                onSelected: (_) =>
+                    state.update(() => state.aspectRatio = entry.$1),
+              ),
+          ],
+        ),
+        if (state.aspectRatio == AyatAspectRatio.custom) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _customWCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: 'العرض', isDense: true),
+                  onChanged: (v) => state.update(() =>
+                      state.customAspectW = int.tryParse(v) ?? state.customAspectW),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('×'),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _customHCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: 'الارتفاع', isDense: true),
+                  onChanged: (v) => state.update(() =>
+                      state.customAspectH = int.tryParse(v) ?? state.customAspectH),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 6),
+          Text(
+            // Both are forced even and clamped, so say what will actually be
+            // encoded rather than what was typed -- H.264 cannot encode an
+            // odd dimension and libx264 fails outright on one.
+            'سيتم التصدير بمقاس $fw × $fh بكسل (يُقرَّب لأقرب رقم زوجي، بين 240 و3840).',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
       ],
     );
   }
@@ -2777,7 +2834,83 @@ class _HomeScreenState extends State<HomeScreen>
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const Divider(height: 32, color: AyatColors.hairline),
+        _subtitleSection(),
+        const Divider(height: 32, color: AyatColors.hairline),
         _watermarkSection(),
+      ],
+    );
+  }
+
+  // PATCH_S125_SUBTITLES: the auto-sync timeline already knows which ayah was
+  // recited between which two seconds -- that IS a subtitle track, it just
+  // had nowhere to go. Burned-in text can't be switched off, translated or
+  // read by a screen reader; a sidecar file can.
+  Widget _subtitleSection() {
+    final cues = SubtitleService.cueCount(state.timeline);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('ملف الترجمة (SRT / VTT)',
+            style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(
+          'يُحفظ ملف ترجمة بجانب الفيديو في مجلد التنزيلات، مبنيًّا على توقيت '
+          'الآيات المرصودة. مفيد ليوتيوب وللمشاهدين الذين يحتاجون نصًا يمكن '
+          'إيقافه أو ترجمته — بخلاف النص المحروق في الصورة.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        ToggleRow(
+          label: 'تصدير ملف ترجمة مع الفيديو',
+          value: state.exportSubtitles,
+          onChanged: (v) => state.update(() => state.exportSubtitles = v),
+        ),
+        if (state.exportSubtitles) ...[
+          const SizedBox(height: 8),
+          if (state.timeline.isEmpty)
+            Text(
+              'لا توجد آيات مرصودة بعد — شغّلي «المزامنة التلقائية» أو أضيفي '
+              'آيات للخط الزمني يدويًا، وإلا فلن يحتوي الملف على شيء.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AyatColors.goldBright),
+            )
+          else
+            Text('سيحتوي الملف على $cues مقطعًا نصيًا.',
+                style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          _fieldLabel('الصيغة'),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final f in SubtitleFormat.values)
+                ChoiceChip(
+                  label: Text(f.labelAr),
+                  selected: state.subtitleFormat == f,
+                  onSelected: (_) =>
+                      state.update(() => state.subtitleFormat = f),
+                ),
+            ],
+          ),
+          _fieldLabel('المحتوى'),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final c in SubtitleContent.values)
+                ChoiceChip(
+                  label: Text(switch (c) {
+                    SubtitleContent.arabic => 'الآية بالعربية',
+                    SubtitleContent.translation => 'ترجمة المعاني',
+                    SubtitleContent.both => 'الاثنان معًا',
+                  }),
+                  selected: state.subtitleContent == c,
+                  onSelected: (_) =>
+                      state.update(() => state.subtitleContent = c),
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }

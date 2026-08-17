@@ -4,6 +4,7 @@ import '../services/ayah_matcher.dart';
 import '../services/ai_art_service.dart'; // PATCH_S32_AI_ART_NANO_BANANA
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/whisper_service.dart'; // PATCH_S43_MODEL_SIZE_PICKER
+import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -326,6 +327,33 @@ class StudioState extends ChangeNotifier {
   // PATCH_S53_LANDSCAPE_EXPORT: was `bool squareRatio` (9:16 vs. 1:1 only); story916 is the
   // same default the old `false` gave.
   AyatAspectRatio aspectRatio = AyatAspectRatio.story916;
+
+  // ---- PATCH_S125_CUSTOM_ASPECT ----
+  /// Frame size used when [aspectRatio] is [AyatAspectRatio.custom]. Kept as
+  /// real pixel dimensions rather than a ratio so what the user types is
+  /// exactly what the encoder gets.
+  int customAspectW = 1080;
+  int customAspectH = 1920;
+
+  /// The exported frame size, whichever ratio is selected. Both are forced
+  /// even: H.264 4:2:0 chroma subsampling cannot represent an odd dimension,
+  /// and libx264 fails outright on one.
+  (int, int) get frameSize {
+    if (aspectRatio == AyatAspectRatio.custom) {
+      final w = customAspectW.clamp(240, 3840);
+      final h = customAspectH.clamp(240, 3840);
+      return (w - (w % 2), h - (h % 2));
+    }
+    final preset = kAspectRatios.firstWhere((r) => r.$1 == aspectRatio);
+    return (preset.$3, preset.$4);
+  }
+
+  // ---- PATCH_S125_SUBTITLES ----
+  /// Write an .srt/.vtt next to the exported MP4. Off by default: most
+  /// exports are for platforms that burn in their own captions.
+  bool exportSubtitles = false;
+  SubtitleFormat subtitleFormat = SubtitleFormat.srt;
+  SubtitleContent subtitleContent = SubtitleContent.arabic;
   int staticDurationSec = 6; // export length when no video is loaded (2..60)
 
   List<AyahFontChoice> get allFonts => [...kBuiltInFonts, ...customFonts];

@@ -13,6 +13,7 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import 'stage_effects.dart';
 import 'whisper_service.dart'; // PATCH_S47_SETTINGS_WHISPER_IMPORT_FIX: WhisperModelSize lives here
+import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'ai_art_service.dart'; // PATCH_S69_AI_ART_FIX: AiArtService.apiKey
 
 class SettingsService {
@@ -227,6 +228,23 @@ class SettingsService {
           (read<double>('originalAudioMix') ?? state.originalAudioMix)
               .clamp(0.0, 1.0);
       state.muteAudio = read<bool>('muteAudio') ?? state.muteAudio;
+      // PATCH_S125_CUSTOM_ASPECT + PATCH_S125_SUBTITLES
+      state.customAspectW =
+          (read<int>('customAspectW') ?? state.customAspectW).clamp(240, 3840);
+      state.customAspectH =
+          (read<int>('customAspectH') ?? state.customAspectH).clamp(240, 3840);
+      state.exportSubtitles =
+          read<bool>('exportSubtitles') ?? state.exportSubtitles;
+      final subFmt = read<int>('subtitleFormat');
+      if (subFmt != null && subFmt >= 0 && subFmt < SubtitleFormat.values.length) {
+        state.subtitleFormat = SubtitleFormat.values[subFmt];
+      }
+      final subContent = read<int>('subtitleContent');
+      if (subContent != null &&
+          subContent >= 0 &&
+          subContent < SubtitleContent.values.length) {
+        state.subtitleContent = SubtitleContent.values[subContent];
+      }
       state.audioFadeIn = read<bool>('audioFadeIn') ?? state.audioFadeIn;
       state.audioFadeOut = read<bool>('audioFadeOut') ?? state.audioFadeOut;
       // PATCH_S64_BG_UPLOAD_PERSIST: only trust a saved custom background if it was on AND
@@ -341,6 +359,12 @@ class SettingsService {
       // PATCH_S123_AUDIO_MIX
       p.setDouble('${_prefix}originalAudioMix', state.originalAudioMix),
       p.setBool('${_prefix}muteAudio', state.muteAudio),
+      // PATCH_S125_CUSTOM_ASPECT + PATCH_S125_SUBTITLES
+      p.setInt('${_prefix}customAspectW', state.customAspectW),
+      p.setInt('${_prefix}customAspectH', state.customAspectH),
+      p.setBool('${_prefix}exportSubtitles', state.exportSubtitles),
+      p.setInt('${_prefix}subtitleFormat', state.subtitleFormat.index),
+      p.setInt('${_prefix}subtitleContent', state.subtitleContent.index),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
       p.setBool('${_prefix}audioFadeOut', state.audioFadeOut),
       // PATCH_S64_BG_UPLOAD_PERSIST

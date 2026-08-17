@@ -28,6 +28,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
 import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
@@ -104,10 +105,9 @@ class ExportService {
       // overridden below to follow the source video, if any.
       // PATCH_S53_LANDSCAPE_EXPORT: canvas size for the audio-only/static-export case now
       // comes from the 3-way ratio picker instead of a squareRatio bool.
-      final ratioSpec =
-          kAspectRatios.firstWhere((r) => r.$1 == state.aspectRatio);
-      var w = ratioSpec.$3;
-      var h = ratioSpec.$4;
+      // PATCH_S125_CUSTOM_ASPECT: one source of truth for the frame size,
+      // shared with the live preview, so a custom size is honoured by both.
+      var (w, h) = state.frameSize;
       if (state.hasVideo) {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
@@ -133,8 +133,10 @@ class ExportService {
             srcH = t;
           }
           if (state.videoFit != VideoFitMode.source) {
-            srcW = ratioSpec.$3;
-            srcH = ratioSpec.$4;
+            // PATCH_S125_CUSTOM_ASPECT
+            final (fw, fh) = state.frameSize;
+            srcW = fw;
+            srcH = fh;
           }
           final longest = srcW > srcH ? srcW : srcH;
           final scale = longest > maxExportResolutionCap
@@ -359,6 +361,47 @@ class ExportService {
           await _run(reencodeCmd, null, null);
         }
       }
+      // PATCH_S125_SUBTITLES: write the detected timeline out as a real
+      // subtitle file beside the MP4. Deliberately AFTER the video exists, so
+      // a subtitle failure can never cost someone their render -- the whole
+      // block is best-effort.
+      if (state.exportSubtitles && state.timeline.isNotEmpty) {
+        try {
+          onStatus?.call('جارٍ كتابة ملف الترجمة…');
+          // The exported file starts at zero, but the timeline is in source
+          // time -- without clipStart every cue would sit late by exactly the
+          // trim offset. And a bismillah card in front pushes everything
+          // later by its own length.
+          final body = SubtitleService.build(
+            state.timeline,
+            format: state.subtitleFormat,
+            content: state.subtitleContent,
+            clipStart: clipStart,
+            clipDuration: duration,
+            leadInSec: state.showIntro ? titleCardSec : 0,
+          );
+          if (body.trim().isNotEmpty) {
+            final subPath =
+                outPath.replaceAll(RegExp(r'\.mp4$'), '') +
+                    '.${state.subtitleFormat.extension}';
+            await File(subPath).writeAsString(body);
+            if (Platform.isAndroid) {
+              try {
+                await MediaStore().saveFile(
+                  tempFilePath: subPath,
+                  dirType: DirType.download,
+                  dirName: DirName.download,
+                );
+              } catch (_) {
+                // same best-effort rule as the MP4 copy below
+              }
+            }
+          }
+        } catch (_) {
+          // A missing .srt is a disappointment; a lost export is a disaster.
+        }
+      }
+
       onProgress?.call(1);
       // PATCH_S25_SAVE_TO_DOWNLOADS: also publish a copy into the public Download/
       // folder so the video shows up in the device's file manager /
