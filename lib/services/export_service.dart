@@ -20,6 +20,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui' show Color;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
@@ -298,7 +300,7 @@ class ExportService {
       onStatus?.call('جارٍ التصدير الفعلي…');
       final mainMp4 = '${work.path}/main.mp4';
       final reciterPath = state.selectedReciterAudio;
-      final cmd = _buildMainCommand(
+      final cmd = buildMainCommand(
         state: state,
         w: w,
         h: h,
@@ -825,7 +827,14 @@ class ExportService {
   static double spedDuration(double duration, double speed) =>
       duration / speed.clamp(0.25, 4.0);
 
-  static String _buildMainCommand({
+  // PATCH_S125_GRAPH_TEST: public so test/export_graph_test.dart can build
+  // the filtergraph and check it structurally. This graph is otherwise only
+  // ever validated by ffmpeg itself, at runtime, on a user's phone, at the
+  // end of a long render -- and a single undefined label there means the
+  // export simply fails. Three features (watermark, audio mixing, speed) have
+  // been layered onto it; that needed a way to check them without an encoder.
+  @visibleForTesting
+  static String buildMainCommand({
     required StudioState state,
     required int w,
     required int h,
