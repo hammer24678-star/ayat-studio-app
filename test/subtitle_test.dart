@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ayat_studio_app/data/studio_presets.dart';
 import 'package:ayat_studio_app/models/studio_state.dart';
 import 'package:ayat_studio_app/services/ayah_matcher.dart';
+import 'package:ayat_studio_app/services/export_service.dart';
 import 'package:ayat_studio_app/services/subtitle_service.dart';
 
 Ayah _ayah(int surah, int num, String ar, [String en = '']) => Ayah(
@@ -197,6 +198,75 @@ void main() {
       final (w, h) = s.frameSize;
       expect(w, 3840);
       expect(h, 240);
+    });
+  });
+
+  // PATCH_S125_SPEED: ffmpeg's atempo only accepts 0.5..2.0 per instance, so
+  // the chain arithmetic is where a speed feature quietly goes wrong — the
+  // audio ends up at the wrong rate, or ffmpeg rejects the filtergraph.
+  group('speed', () {
+    double product(List<String> chain) => chain
+        .map((f) => double.parse(f.split('=')[1]))
+        .fold<double>(1, (a, b) => a * b);
+
+    test('1x produces no filter at all', () {
+      expect(ExportService.atempoChain(1.0), isEmpty);
+      expect(ExportService.atempoChain(1.004), isEmpty);
+    });
+
+    test('rates inside atempo range are a single filter', () {
+      expect(ExportService.atempoChain(2.0), ['atempo=2.0000']);
+      expect(ExportService.atempoChain(0.5), ['atempo=0.5000']);
+      expect(ExportService.atempoChain(1.5).length, 1);
+    });
+
+    test('rates outside the range chain to the right product', () {
+      for (final s in [0.25, 0.3, 3.0, 4.0]) {
+        final chain = ExportService.atempoChain(s);
+        expect(chain.length, greaterThan(1),
+            reason: '$s needs chaining');
+        expect(product(chain), closeTo(s, 0.001),
+            reason: 'chain for $s multiplies to the wrong rate');
+      }
+    });
+
+    test('every factor in a chain is one ffmpeg will accept', () {
+      for (final s in [0.25, 0.3, 0.5, 0.75, 1.5, 2.0, 3.0, 4.0]) {
+        for (final f in ExportService.atempoChain(s)) {
+          final v = double.parse(f.split('=')[1]);
+          expect(v, inInclusiveRange(0.5, 2.0),
+              reason: 'atempo=$v (from speed $s) is outside 0.5..2.0');
+        }
+      }
+    });
+
+    test('out-of-range speeds are clamped, not passed through', () {
+      expect(product(ExportService.atempoChain(99)), closeTo(4.0, 0.001));
+      expect(product(ExportService.atempoChain(0.01)), closeTo(0.25, 0.001));
+    });
+
+    test('the exported clip length follows the speed', () {
+      expect(ExportService.spedDuration(60, 2.0), closeTo(30, 0.001));
+      expect(ExportService.spedDuration(60, 0.5), closeTo(120, 0.001));
+      expect(ExportService.spedDuration(60, 1.0), closeTo(60, 0.001));
+    });
+
+    test('subtitle cues are retimed by the same factor as the picture', () {
+      final segs = [_seg(10, 20, a1)];
+      final fast = SubtitleService.build(segs,
+          format: SubtitleFormat.srt, speed: 2.0);
+      expect(fast, contains('00:00:05,000 --> 00:00:10,000'));
+
+      final slow = SubtitleService.build(segs,
+          format: SubtitleFormat.srt, speed: 0.5);
+      expect(slow, contains('00:00:20,000 --> 00:00:40,000'));
+    });
+
+    test('speed and a lead-in card compose in the right order', () {
+      // The card is prepended AFTER the retime, so its length is not scaled.
+      final out = SubtitleService.build([_seg(0, 10, a1)],
+          format: SubtitleFormat.srt, speed: 2.0, leadInSec: 2.0);
+      expect(out, contains('00:00:02,000 --> 00:00:07,000'));
     });
   });
 }

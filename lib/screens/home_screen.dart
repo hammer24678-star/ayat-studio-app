@@ -2834,9 +2834,57 @@ class _HomeScreenState extends State<HomeScreen>
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const Divider(height: 32, color: AyatColors.hairline),
+        _speedSection(),
+        const Divider(height: 32, color: AyatColors.hairline),
         _subtitleSection(),
         const Divider(height: 32, color: AyatColors.hairline),
         _watermarkSection(),
+      ],
+    );
+  }
+
+  // PATCH_S125_SPEED: constant-rate speed change, applied to the finished
+  // composite so picture, synced text and particles all move together.
+  Widget _speedSection() {
+    const presets = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0];
+    final hasReciter = state.selectedReciterAudio != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('سرعة المقطع', style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(
+          'أقل من ١× حركة بطيئة، وأكثر تسريع. تُطبَّق على الصورة وعلى نص الآية '
+          'المتزامن معًا، فلا ينفصل أحدهما عن الآخر.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final sp in presets)
+              ChoiceChip(
+                label: Text(sp == 1.0 ? 'عادي ١×' : '${sp}×'),
+                selected: (state.playbackSpeed - sp).abs() < 0.005,
+                onSelected: (_) =>
+                    state.update(() => state.playbackSpeed = sp),
+              ),
+          ],
+        ),
+        if (state.hasSpeedChange) ...[
+          const SizedBox(height: 8),
+          Text(
+            hasReciter
+                ? 'تلاوة القارئ المرفقة لا تُسرَّع ولا تُبطَّأ إطلاقًا — تبقى بطبقة '
+                    'صوتها الأصلية. السرعة تُطبَّق على الصورة وصوت المقطع فقط.'
+                : 'صوت المقطع الأصلي يتغيّر مع الصورة للحفاظ على التزامن.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: AyatColors.goldBright),
+          ),
+        ],
       ],
     );
   }

@@ -379,6 +379,9 @@ class ExportService {
             clipStart: clipStart,
             clipDuration: duration,
             leadInSec: state.showIntro ? titleCardSec : 0,
+            // PATCH_S125_SPEED: the picture was retimed, so the cues must be
+            // too -- otherwise the subtitles describe the original pacing.
+            speed: state.playbackSpeed,
           );
           if (body.trim().isNotEmpty) {
             final subPath =
@@ -798,6 +801,30 @@ class ExportService {
     return parts;
   }
 
+  // PATCH_S125_SPEED: ffmpeg's atempo only accepts 0.5..2.0 per instance, so
+  // anything outside that has to be reached by chaining. Public and pure so
+  // the arithmetic is unit-tested rather than eyeballed in a filtergraph.
+  static List<String> atempoChain(double speed) {
+    if ((speed - 1.0).abs() <= 0.005) return const [];
+    final parts = <String>[];
+    var remaining = speed.clamp(0.25, 4.0);
+    // Peel off legal factors until what's left is inside the allowed range.
+    while (remaining > 2.0) {
+      parts.add('atempo=2.0');
+      remaining /= 2.0;
+    }
+    while (remaining < 0.5) {
+      parts.add('atempo=0.5');
+      remaining /= 0.5;
+    }
+    parts.add('atempo=${remaining.toStringAsFixed(4)}');
+    return parts;
+  }
+
+  /// How long the exported clip actually is once [speed] is applied.
+  static double spedDuration(double duration, double speed) =>
+      duration / speed.clamp(0.25, 4.0);
+
   static String _buildMainCommand({
     required StudioState state,
     required int w,
@@ -1065,9 +1092,37 @@ class ExportService {
       outLabel = 'outv3';
     }
 
+    // PATCH_S125_SPEED: applied LAST, to the finished composite. The karaoke
+    // overlay sequence is rendered in source time and composited above, so
+    // retiming the composite carries picture, text and particles together --
+    // there is no separate overlay retiming to get wrong.
+    var outDuration = duration;
+    if (state.hasSpeedChange) {
+      final speed = state.playbackSpeed.clamp(0.25, 4.0);
+      filters.add('[$outLabel]setpts=PTS/${speed.toStringAsFixed(4)}[outvsp]');
+      outLabel = 'outvsp';
+      outDuration = spedDuration(duration, speed);
+      // The clip's own audio rides along; an attached reciter track does not
+      // (see StudioState.playbackSpeed for why), so it is only retimed when
+      // the audio being exported IS the clip's.
+      final tempo = atempoChain(speed);
+      if (tempo.isNotEmpty && reciterPath == null && !state.muteAudio) {
+        if (audioMap.startsWith('-map "[')) {
+          // already a filter_complex chain — extend it
+          filters.add('[aout]${tempo.join(',')}[aoutsp]');
+          audioMap = '-map "[aoutsp]"';
+        } else if (audioFilter.startsWith('-af "')) {
+          audioFilter =
+              '${audioFilter.substring(0, audioFilter.length - 1)},${tempo.join(',')}"';
+        } else {
+          audioFilter = '-af "${tempo.join(',')}"';
+        }
+      }
+    }
+
     return '$inputs-filter_complex "${filters.join(';')}" '
         '-map "[$outLabel]" $audioMap $audioFilter '
-        '-t ${duration.toStringAsFixed(3)} ${_encodeParams(state.exportQuality)} "$outPath"';
+        '-t ${outDuration.toStringAsFixed(3)} ${_encodeParams(state.exportQuality)} "$outPath"';
   }
 
   static Future<String> _renderTitleSegment(Directory work, String name,

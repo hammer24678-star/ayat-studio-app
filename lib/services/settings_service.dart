@@ -235,6 +235,10 @@ class SettingsService {
           (read<int>('customAspectH') ?? state.customAspectH).clamp(240, 3840);
       state.exportSubtitles =
           read<bool>('exportSubtitles') ?? state.exportSubtitles;
+      // PATCH_S125_SPEED
+      state.playbackSpeed =
+          (read<double>('playbackSpeed') ?? state.playbackSpeed)
+              .clamp(0.25, 4.0);
       final subFmt = read<int>('subtitleFormat');
       if (subFmt != null && subFmt >= 0 && subFmt < SubtitleFormat.values.length) {
         state.subtitleFormat = SubtitleFormat.values[subFmt];
@@ -363,6 +367,7 @@ class SettingsService {
       p.setInt('${_prefix}customAspectW', state.customAspectW),
       p.setInt('${_prefix}customAspectH', state.customAspectH),
       p.setBool('${_prefix}exportSubtitles', state.exportSubtitles),
+      p.setDouble('${_prefix}playbackSpeed', state.playbackSpeed), // PATCH_S125_SPEED
       p.setInt('${_prefix}subtitleFormat', state.subtitleFormat.index),
       p.setInt('${_prefix}subtitleContent', state.subtitleContent.index),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),

@@ -348,6 +348,16 @@ class StudioState extends ChangeNotifier {
     return (preset.$3, preset.$4);
   }
 
+  // ---- PATCH_S125_SPEED ----
+  /// Export speed multiplier. 1.0 is untouched; below 1 is slow motion,
+  /// above 1 speeds the clip up. Applied to picture, the clip's own audio and
+  /// the synced ayah overlay together, so nothing drifts out of step.
+  ///
+  /// An attached reciter track is deliberately NOT retimed -- pitching up a
+  /// recitation is not something this app will do to someone's tilawa.
+  double playbackSpeed = 1.0; // 0.25 .. 4.0
+  bool get hasSpeedChange => (playbackSpeed - 1.0).abs() > 0.005;
+
   // ---- PATCH_S125_SUBTITLES ----
   /// Write an .srt/.vtt next to the exported MP4. Off by default: most
   /// exports are for platforms that burn in their own captions.

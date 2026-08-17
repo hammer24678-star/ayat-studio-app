@@ -84,7 +84,12 @@ class SubtitleService {
     double clipDuration = double.infinity,
     double leadInSec = 0,
     bool includeReference = false,
+    double speed = 1.0,
   }) {
+    // PATCH_S125_SPEED: cue times are in the ORIGINAL pacing; if the export
+    // was sped up or slowed down, every timestamp has to be divided by the
+    // same factor or the file describes a video that no longer exists.
+    final rate = speed.clamp(0.25, 4.0);
     final buf = StringBuffer();
     if (format == SubtitleFormat.vtt) buf.writeln('WEBVTT\n');
 
@@ -94,8 +99,8 @@ class SubtitleService {
       final end = seg.end - clipStart;
       // Entirely before or after the exported window.
       if (end <= 0 || start >= clipDuration) continue;
-      final from = max(0.0, start) + leadInSec;
-      final to = min(clipDuration, end) + leadInSec;
+      final from = max(0.0, start) / rate + leadInSec;
+      final to = min(clipDuration, end) / rate + leadInSec;
       if (to - from < 0.05) continue; // too short to read, and to render
 
       final text = _cueText(seg, content, includeReference);
