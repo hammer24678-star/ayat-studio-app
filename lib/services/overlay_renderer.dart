@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../data/studio_presets.dart';
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../theme/ayat_fonts.dart';
 
 class OverlayStyle {
@@ -32,6 +33,10 @@ class OverlayStyle {
   final Set<int> redWordIndices;
   final String captionText;
   final CaptionPosition captionPosition;
+  // PATCH_S126_TEXT_TRANSITIONS: where the text is in its entrance/exit.
+  // Identity on every frame that is simply "showing text", so the whole
+  // transform path is skipped for the vast majority of frames.
+  final TextMotion motion;
   const OverlayStyle({
     required this.fontKey,
     required this.ayahFontSize,
@@ -49,7 +54,32 @@ class OverlayStyle {
     this.redWordIndices = const {},
     this.captionText = '',
     this.captionPosition = CaptionPosition.bottom,
+    this.motion = TextMotion.identity,
   });
+
+  /// PATCH_S126_TEXT_TRANSITIONS: the same style at a different point in its
+  /// transition. Every other field is shared across a whole sequence, so
+  /// rebuilding the lot per frame would be wasteful and easy to get subtly
+  /// wrong.
+  OverlayStyle withMotion(TextMotion m) => OverlayStyle(
+        fontKey: fontKey,
+        ayahFontSize: ayahFontSize,
+        transFontSize: transFontSize,
+        color: color,
+        position: position,
+        extra: extra,
+        showTranslation: showTranslation,
+        glowEnabled: glowEnabled,
+        glowIntensity: glowIntensity,
+        letterSpacing: letterSpacing,
+        lineHeightMultiplier: lineHeightMultiplier,
+        offset: offset,
+        userScale: userScale,
+        redWordIndices: redWordIndices,
+        captionText: captionText,
+        captionPosition: captionPosition,
+        motion: m,
+      );
 }
 
 class OverlayRenderer {
@@ -238,6 +268,87 @@ class OverlayRenderer {
     return _picToPng(rec.endRecording(), w, h);
   }
 
+  // PATCH_S126_TEXT_TRANSITIONS: rebuilds a span so its words (or letters)
+  // arrive one after another instead of all at once.
+  //
+  // Each item gets its own slice of the progress bar and fades across a
+  // window WIDER than that slice, so neighbouring items overlap. That
+  // overlap is the whole point: give each word a hard on/off and the line
+  // stutters in exactly as many steps as it has words, which is the chopping
+  // this patch exists to remove.
+  static InlineSpan _revealedSpan(
+      InlineSpan original, OverlayStyle style, Color baseColor, double opacity) {
+    final text = original.toPlainText();
+    if (text.trim().isEmpty) return original;
+    final byLetter = style.motion.revealMode == RevealMode.letters;
+    final units = byLetter
+        ? text.split('')
+        : text.split(' ').where((w) => w.isNotEmpty).toList();
+    if (units.isEmpty) return original;
+
+    final p = style.motion.reveal.clamp(0.0, 1.0);
+    final style0 = ayahTextStyle(
+      style.fontKey,
+      fontSize: null,
+      color: baseColor,
+      height: style.lineHeightMultiplier,
+      letterSpacing: style.letterSpacing,
+    );
+
+    final children = <InlineSpan>[];
+    for (var i = 0; i < units.length; i++) {
+      // Same ramp the live preview uses — see revealUnitAlpha.
+      final a = revealUnitAlpha(index: i, count: units.length, progress: p);
+      children.add(TextSpan(
+        text: byLetter ? units[i] : (i == 0 ? units[i] : ' ${units[i]}'),
+        style: style0.copyWith(
+          color: baseColor.withValues(alpha: baseColor.a * a * opacity),
+        ),
+      ));
+    }
+    // Keep the original's font size/shadows by inheriting from it.
+    final rootStyle = original is TextSpan ? original.style : null;
+    return TextSpan(style: rootStyle, children: children);
+  }
+
+  // PATCH_S126_TEXT_TRANSITIONS: clips the canvas to the revealed portion of
+  // the text block. Word/letter reveals are NOT handled here -- those change
+  // which glyphs are drawn, not which pixels survive, and are applied while
+  // building the span.
+  static void _applyReveal(Canvas canvas, Rect block, TextMotion m) {
+    final r = m.reveal.clamp(0.0, 1.0);
+    if (m.revealMode == RevealMode.none || r >= 1) return;
+    // Generous vertical padding: glyph ascenders and shadows draw outside the
+    // laid-out block, and clipping them mid-transition looks like a bug.
+    final pad = block.height * 0.6;
+    switch (m.revealMode) {
+      case RevealMode.wipeUp:
+        canvas.clipRect(Rect.fromLTRB(block.left - pad,
+            block.bottom - block.height * r, block.right + pad, block.bottom));
+      case RevealMode.wipeDown:
+        canvas.clipRect(Rect.fromLTRB(block.left - pad, block.top,
+            block.right + pad, block.top + block.height * r));
+      case RevealMode.wipeStart:
+        canvas.clipRect(Rect.fromLTRB(block.right - block.width * r,
+            block.top - pad, block.right, block.bottom + pad));
+      case RevealMode.wipeEnd:
+        canvas.clipRect(Rect.fromLTRB(block.left, block.top - pad,
+            block.left + block.width * r, block.bottom + pad));
+      case RevealMode.iris:
+        final maxR = block.longestSide * 0.75;
+        canvas.clipPath(Path()
+          ..addOval(Rect.fromCircle(center: block.center, radius: maxR * r)));
+      case RevealMode.curtain:
+        final half = block.height * r / 2;
+        canvas.clipRect(Rect.fromLTRB(block.left - pad, block.center.dy - half,
+            block.right + pad, block.center.dy + half));
+      case RevealMode.none:
+      case RevealMode.words:
+      case RevealMode.letters:
+        return;
+    }
+  }
+
   /// Transparent text-overlay PNG: the (possibly partially typed) ayah and,
   /// once fully revealed, its translation. Mirrors drawExportTextOverlay().
   static Future<Uint8List> renderTextOverlayPng({
@@ -351,6 +462,14 @@ class OverlayRenderer {
           );
         }
       }
+      // PATCH_S126_TEXT_TRANSITIONS: word/letter reveals rebuild the span with
+      // a per-item alpha ramp. Done AFTER the karaoke/red-word branches above
+      // so it composes with them rather than replacing them -- a typewriter
+      // reveal of a karaoke line still lights its words.
+      if (style.motion.revealMode.isPerUnit) {
+        ayahSpan = _revealedSpan(ayahSpan, style, effColor, opacity);
+      }
+
       final ayahPainter = TextPainter(
         text: ayahSpan,
         textAlign: TextAlign.center,
@@ -385,6 +504,45 @@ class OverlayRenderer {
           style.offset.dy * scale; // PATCH_S50_DRAGGABLE_TEXT
       final top = centerY - totalH / 2;
       final dx = style.offset.dx * scale; // PATCH_S50_DRAGGABLE_TEXT
+
+      // PATCH_S126_TEXT_TRANSITIONS: the whole text block -- frame panel
+      // included -- moves, scales, blurs and is revealed as ONE object, so a
+      // boxed/glass panel can never drift away from the words it contains.
+      // Skipped entirely when the motion is identity, which is every frame
+      // that is simply showing text.
+      final motion = style.motion;
+      final blockRect = Rect.fromLTWH(
+          w * 0.07 + dx, top, w * 0.86, totalH);
+      var layers = 0;
+      if (!motion.isIdentity) {
+        canvas.save();
+        layers++;
+        // Transform about the block's own centre, so a scale grows outward
+        // from the text rather than dragging it toward a frame corner.
+        final c = blockRect.center;
+        canvas.translate(
+            c.dx + motion.dx * w, c.dy + motion.dy * h);
+        if (motion.scale != 1) canvas.scale(motion.scale);
+        if (motion.rotation != 0) canvas.rotate(motion.rotation);
+        canvas.translate(-c.dx, -c.dy);
+
+        _applyReveal(canvas, blockRect, motion);
+
+        if (motion.opacity < 1 || motion.blur > 0) {
+          final paint = Paint()
+            ..color = Color.fromRGBO(0, 0, 0, motion.opacity.clamp(0.0, 1.0));
+          if (motion.blur > 0) {
+            final sigma = motion.blur * w;
+            paint.imageFilter =
+                ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
+          }
+          // Padded generously: a blur samples outside the block, and a
+          // clipped layer would show a hard edge exactly where the softness
+          // is supposed to be.
+          canvas.saveLayer(blockRect.inflate(w * 0.25), paint);
+          layers++;
+        }
+      }
 
       if (style.extra != FrameExtra.none) {
         final padX = 24 * scale, padY = 18 * scale;
@@ -439,6 +597,10 @@ class OverlayRenderer {
           canvas,
           Offset((w - transPainter.width) / 2 + dx,
               top + ayahPainter.height + gap));
+      // PATCH_S126_TEXT_TRANSITIONS
+      for (var i = 0; i < layers; i++) {
+        canvas.restore();
+      }
     }
 
     // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: optional extra line (ayah

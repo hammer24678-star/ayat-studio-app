@@ -31,6 +31,7 @@ import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_D
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../services/stage_effects_library.dart'; // PATCH_S125_EFFECTS_LIBRARY
 import '../services/overlay_renderer.dart';
 import '../services/speech_service.dart';
@@ -2893,6 +2894,99 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // PATCH_S126_TEXT_TRANSITIONS: how the ayah text arrives and leaves.
+  // Split in/out, because "rise in, fade out" is the pairing most people
+  // actually want and forcing one setting for both makes it unreachable.
+  Widget _textTransitionSection() {
+    Widget picker({
+      required String label,
+      required TextTransition current,
+      required ValueChanged<TextTransition> onPick,
+    }) {
+      final plain = TextTransition.values.where((t) => !t.isReveal).toList();
+      final reveals = TextTransition.values.where((t) => t.isReveal).toList();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _fieldLabel(label),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in plain)
+                ChoiceChip(
+                  label: Text(t.labelAr),
+                  selected: current == t,
+                  onSelected: (_) => onPick(t),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('كشف تدريجي',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AyatColors.gold, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in reveals)
+                ChoiceChip(
+                  label: Text(t.labelAr),
+                  selected: current == t,
+                  onSelected: (_) => onPick(t),
+                ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('ظهور النص واختفاؤه',
+            style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(
+          '${TextTransition.values.length} أسلوبًا لدخول النص وخروجه. المعاينة '
+          'أعلاه تعرض الأسلوب نفسه الذي سيُدمج في الفيديو تمامًا.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 10),
+        picker(
+          label: 'أسلوب الدخول',
+          current: state.textInTransition,
+          onPick: (t) => state.update(() => state.textInTransition = t),
+        ),
+        const SizedBox(height: 14),
+        picker(
+          label: 'أسلوب الخروج',
+          current: state.textOutTransition,
+          onPick: (t) => state.update(() => state.textOutTransition = t),
+        ),
+        const SizedBox(height: 14),
+        _fieldLabel('مدة الحركة: ${state.textTransitionMs} مللي ثانية'),
+        Slider(
+          value: state.textTransitionMs
+              .toDouble()
+              .clamp(kMinTextTransitionMs.toDouble(),
+                  kMaxTextTransitionMs.toDouble()),
+          min: kMinTextTransitionMs.toDouble(),
+          max: kMaxTextTransitionMs.toDouble(),
+          divisions: (kMaxTextTransitionMs - kMinTextTransitionMs) ~/ 50,
+          onChanged: (v) =>
+              state.update(() => state.textTransitionMs = v.round()),
+        ),
+        Text(
+          'الأطول أهدأ وأنعم. تُرسم الحركة بـ ${ExportService.overlayFps} إطارًا '
+          'في الثانية عند التصدير، فلا يظهر أي تقطيع.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
+    );
+  }
+
   // PATCH_S125_SPEED: constant-rate speed change, applied to the finished
   // composite so picture, synced text and particles all move together.
   Widget _speedSection() {
@@ -4416,6 +4510,9 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _panelTitle('تنسيق النص'),
+        // PATCH_S126_TEXT_TRANSITIONS
+        _textTransitionSection(),
+        const Divider(height: 32, color: AyatColors.hairline),
         _fieldLabel('خط الآية'),
         // PATCH_S46_DEFAULT_FONT_AND_GLOW: default fallback is now the bundled elgharib font.
         DropdownButton<String>(

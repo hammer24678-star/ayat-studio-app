@@ -14,8 +14,10 @@ import 'package:video_player/video_player.dart';
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../theme/ayat_fonts.dart';
 import '../theme/ayat_theme.dart';
+import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 
 /// What the overlay is currently showing. During auto-sync playback the
 /// karaoke ticker feeds the current ayah part through here; otherwise it
@@ -403,13 +405,44 @@ class _StagePreviewState extends State<StagePreview>
                     final overlayKey = (live != null && live.segmentKey.isNotEmpty)
                         ? live.segmentKey
                         : text;
+                    // PATCH_S126_TEXT_TRANSITIONS: the preview used to
+                    // cross-fade on its own 450ms curve while the export used
+                    // a linear 300ms ramp at 6fps -- two different animations
+                    // for the same thing. Both now evaluate the SAME pure
+                    // motion function, so the preview is an honest preview.
+                    // AnimatedSwitcher hands the incoming child a 0->1
+                    // animation and the outgoing one a 1->0, which maps
+                    // exactly onto the in/out transitions.
                     return AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 450),
-                      switchInCurve: Curves.easeOut,
-                      switchOutCurve: Curves.easeIn,
+                      duration:
+                          Duration(milliseconds: state.textTransitionMs),
+                      transitionBuilder: (child, animation) =>
+                          AnimatedBuilder(
+                        animation: animation,
+                        builder: (context, _) {
+                          final motion = textMotionFor(
+                            animation.status == AnimationStatus.reverse
+                                ? state.textOutTransition
+                                : state.textInTransition,
+                            animation.value,
+                          );
+                          // The per-unit reveals have to reach the span
+                          // builder, not just wrap it — hence the scope. The
+                          // subtree below depends on it, so it rebuilds each
+                          // frame of a typewriter and is left alone by every
+                          // other transition.
+                          return _MotionScope(
+                            motion: motion,
+                            child: TextMotionBox(motion: motion, child: child),
+                          );
+                        },
+                      ),
                       child: KeyedSubtree(
                         key: ValueKey(overlayKey),
-                        child: _overlay(context, live, text, trans, scale),
+                        child: _MotionScopeBuilder(
+                          builder: (context, motion) =>
+                              _overlay(context, live, text, trans, scale, motion),
+                        ),
                       ),
                     );
                   },
@@ -654,7 +687,7 @@ class _StagePreviewState extends State<StagePreview>
   }
 
   Widget _overlay(BuildContext context, StageOverlayText? live, String text,
-      String trans, double scale) {
+      String trans, double scale, TextMotion motion) {
     final state = widget.state; // PATCH_S28_ANIMATED_BACKGROUND: now a State method, not a field
     final alignY = switch (state.textPosition) {
       AyahTextPosition.top => -0.68,
@@ -669,6 +702,13 @@ class _StagePreviewState extends State<StagePreview>
     // rest dimmed until الشيخ reaches them.
     final karaokeWords = live?.karaokeWords;
     final ayahFontSize = state.ayahFontSize * scale * ayahAutoFontScale(text) * state.textUserScale; // PATCH_S24_AUTO_SHRINK_LONG_AYAH, PATCH_S50_DRAGGABLE_TEXT
+    // PATCH_S126_TEXT_TRANSITIONS: word/letter reveals are applied per span
+    // rather than by clipping, so they are threaded through every branch
+    // below. revealProgress is 1 (nothing hidden) for the other 27.
+    final perUnitReveal = motion.revealMode.isPerUnit && motion.reveal < 1;
+    final revealByLetter =
+        perUnitReveal && motion.revealMode == RevealMode.letters;
+    final revealProgress = perUnitReveal ? motion.reveal : 1.0;
     Widget ayahWidget;
     if (karaokeWords != null && karaokeWords.isNotEmpty) {
       // PATCH_S46_DEFAULT_FONT_AND_GLOW: glow now optional + intensity-scaled
@@ -689,27 +729,25 @@ class _StagePreviewState extends State<StagePreview>
       const redColor = Color(0xFFE53935);
       ayahWidget = Text.rich(
         TextSpan(
-          children: [
-            for (var i = 0; i < karaokeWords.length; i++)
-              TextSpan(
-                text: i == 0 ? karaokeWords[i] : ' ${karaokeWords[i]}',
-                style: ayahTextStyle(
-                  state.fontKey,
-                  fontSize: ayahFontSize,
-                  color: state.redWordIndices.contains(i)
-                      ? redColor
-                      : (i < live!.litWords ? state.textColor : dimColor),
-                  height: state.lineHeightMultiplier,
-                  letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
-                  // PATCH_S115_HOTFIX_LIVE_LITWORDS_NULL_CHECK: `live` is
-                  // non-null in this branch (karaokeWords came from
-                  // live?.karaokeWords and passed the isNotEmpty check
-                  // above) but the analyzer can't see that across the
-                  // ternary -- same `!` the line above already uses.
-                  shadows: i < live!.litWords ? litShadows : shadows,
-                ),
-              ),
-          ],
+          children: _revealedWordSpans(
+            words: karaokeWords,
+            byLetter: revealByLetter,
+            progress: revealProgress,
+            // PATCH_S115_HOTFIX_LIVE_LITWORDS_NULL_CHECK: `live` is
+            // non-null in this branch (karaokeWords came from
+            // live?.karaokeWords and passed the isNotEmpty check above)
+            // but the analyzer can't see that, hence the `!`.
+            styleFor: (i) => ayahTextStyle(
+              state.fontKey,
+              fontSize: ayahFontSize,
+              color: state.redWordIndices.contains(i)
+                  ? redColor
+                  : (i < live!.litWords ? state.textColor : dimColor),
+              height: state.lineHeightMultiplier,
+              letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
+              shadows: i < live!.litWords ? litShadows : shadows,
+            ),
+          ),
         ),
         textAlign: TextAlign.center,
         textDirection: TextDirection.rtl,
@@ -730,25 +768,26 @@ class _StagePreviewState extends State<StagePreview>
       // in the "تلوين كلمات بالأحمر" section had zero visible effect
       // in the live preview -- it only ever reached the exported
       // video's static-text path. Mirror that path here.
-      if (state.redWordIndices.isNotEmpty) {
+      if (state.redWordIndices.isNotEmpty || perUnitReveal) {
         const redColor = Color(0xFFE53935);
         final ws = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
         ayahWidget = Text.rich(
           TextSpan(
-            children: [
-              for (var i = 0; i < ws.length; i++)
-                TextSpan(
-                  text: i == 0 ? ws[i] : ' ${ws[i]}',
-                  style: ayahTextStyle(
-                    state.fontKey,
-                    fontSize: ayahFontSize,
-                    color: state.redWordIndices.contains(i) ? redColor : state.textColor,
-                    height: state.lineHeightMultiplier,
-                    letterSpacing: state.letterSpacing,
-                    shadows: staticShadows,
-                  ),
-                ),
-            ],
+            children: _revealedWordSpans(
+              words: ws,
+              byLetter: revealByLetter,
+              progress: revealProgress,
+              styleFor: (i) => ayahTextStyle(
+                state.fontKey,
+                fontSize: ayahFontSize,
+                color: state.redWordIndices.contains(i)
+                    ? redColor
+                    : state.textColor,
+                height: state.lineHeightMultiplier,
+                letterSpacing: state.letterSpacing,
+                shadows: staticShadows,
+              ),
+            ),
           ),
           textAlign: TextAlign.center,
           textDirection: TextDirection.rtl,
@@ -849,6 +888,94 @@ class _StagePreviewState extends State<StagePreview>
       ),
     );
   }
+}
+
+
+// PATCH_S126_TEXT_TRANSITIONS: the word/letter reveals change WHICH GLYPHS
+// are painted, so they cannot be applied by wrapping the finished text the
+// way the wipes are — they have to reach the span builder. _MotionScope
+// carries the current motion down to it, and because _MotionScopeBuilder
+// depends on the scope, only the typewriter transitions actually rebuild the
+// overlay per frame; everything else just re-wraps an unchanged subtree.
+class _MotionScope extends InheritedWidget {
+  final TextMotion motion;
+  const _MotionScope({required this.motion, required super.child});
+
+  static TextMotion of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_MotionScope>()
+          ?.motion ??
+      TextMotion.identity;
+
+  @override
+  bool updateShouldNotify(_MotionScope old) =>
+      old.motion.reveal != motion.reveal ||
+      old.motion.revealMode != motion.revealMode;
+}
+
+class _MotionScopeBuilder extends StatelessWidget {
+  final Widget Function(BuildContext, TextMotion) builder;
+  const _MotionScopeBuilder({required this.builder});
+
+  @override
+  Widget build(BuildContext context) => builder(context, _MotionScope.of(context));
+}
+
+TextStyle _fadedBy(TextStyle base, double a) {
+  if (a >= 1) return base;
+  final c = base.color;
+  return base.copyWith(
+    color: c == null ? null : c.withValues(alpha: c.a * a),
+    shadows: base.shadows
+        ?.map((sh) => Shadow(
+              color: sh.color.withValues(alpha: sh.color.a * a),
+              offset: sh.offset,
+              blurRadius: sh.blurRadius,
+            ))
+        .toList(),
+  );
+}
+
+/// Per-word (or per-letter) spans with the reveal ramp applied — the live
+/// twin of OverlayRenderer._revealedSpan, sharing [revealUnitAlpha] with it
+/// so a typewriter looks identical in the preview and in the exported file.
+List<InlineSpan> _revealedWordSpans({
+  required List<String> words,
+  required bool byLetter,
+  required double progress,
+  required TextStyle Function(int wordIndex) styleFor,
+}) {
+  final out = <InlineSpan>[];
+  if (!byLetter) {
+    for (var i = 0; i < words.length; i++) {
+      out.add(TextSpan(
+        text: i == 0 ? words[i] : ' ${words[i]}',
+        style: _fadedBy(styleFor(i),
+            revealUnitAlpha(index: i, count: words.length, progress: progress)),
+      ));
+    }
+    return out;
+  }
+  // Letter mode counts every code unit of the joined line, spaces included,
+  // exactly as the export renderer does — otherwise the two would run at
+  // different speeds.
+  final total = words.join(' ').length;
+  var cursor = 0;
+  for (var i = 0; i < words.length; i++) {
+    final piece = i == 0 ? words[i] : ' ${words[i]}';
+    final base = styleFor(i);
+    for (var j = 0; j < piece.length; j++) {
+      out.add(TextSpan(
+        text: piece[j],
+        style: _fadedBy(
+            base,
+            revealUnitAlpha(
+                index: cursor + j, count: total, progress: progress)),
+      ));
+    }
+    cursor += piece.length;
+  }
+  return out;
 }
 
 // PATCH_S58_LIVE_EFFECTS_PREVIEW: rough live-preview twin of ExportService._colorGradeFilter's

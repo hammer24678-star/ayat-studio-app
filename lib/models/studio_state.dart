@@ -5,6 +5,7 @@ import '../services/ai_art_service.dart'; // PATCH_S32_AI_ART_NANO_BANANA
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/whisper_service.dart'; // PATCH_S43_MODEL_SIZE_PICKER
 import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -347,6 +348,21 @@ class StudioState extends ChangeNotifier {
     final preset = kAspectRatios.firstWhere((r) => r.$1 == aspectRatio);
     return (preset.$3, preset.$4);
   }
+
+  // ---- PATCH_S126_TEXT_TRANSITIONS ----
+  /// How the ayah text arrives and leaves. Separate in/out so an ayah can
+  /// rise in and simply fade out, which is the combination most people
+  /// actually want.
+  TextTransition textInTransition = TextTransition.riseFade;
+  TextTransition textOutTransition = TextTransition.fade;
+
+  /// Length of each transition in milliseconds. Longer reads as calmer;
+  /// this is the single biggest lever on whether text feels smooth.
+  int textTransitionMs = 550;
+
+  bool get hasTextTransition =>
+      textInTransition != TextTransition.none ||
+      textOutTransition != TextTransition.none;
 
   // ---- PATCH_S125_SPEED ----
   /// Export speed multiplier. 1.0 is untouched; below 1 is slow motion,

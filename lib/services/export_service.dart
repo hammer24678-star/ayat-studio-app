@@ -18,6 +18,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -29,6 +30,7 @@ import 'package:media_store_plus/media_store_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../data/studio_presets.dart';
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../models/studio_state.dart';
 import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
@@ -40,7 +42,13 @@ class ExportService {
   // karaoke.dart (proportional to each part's slice of the recitation).
   static const double fadeMs = 300; // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out duration
   static const double titleCardSec = 2.2;
-  static const int overlayFps = 6; // typewriter granularity in the export
+  // PATCH_S126_TEXT_TRANSITIONS: was 6. Six frames per second means a 300ms
+  // fade is two or three visible steps -- that IS the chopping. At 24 the
+  // ramp is smooth to the eye, and it costs almost nothing extra because
+  // identical frames are hard-linked rather than re-rendered or re-written
+  // (see _renderKaraokeSequence), so disk and CPU scale with the number of
+  // DISTINCT frames, not the frame rate.
+  static const int overlayFps = 24;
   // PATCH_S31_UNLIMITED_EXPORT_NATURE_BGS: no more 120s cap and no more forced 1080 tier --
   // duration follows the full trim, resolution follows the source video.
   // This is only a safety ceiling against pathological 8K phone footage
@@ -227,6 +235,26 @@ class ExportService {
       if (state.hasVideo && state.timelineActive && state.timeline.isNotEmpty) {
         final seqDir = Directory('${work.path}/seq')..createSync();
         await _renderKaraokeSequence(
+          dir: seqDir.path,
+          state: state,
+          style: style,
+          w: w,
+          h: h,
+          clipStart: clipStart,
+          duration: duration,
+          onStatus: onStatus,
+        );
+        overlaySeqPattern = '${seqDir.path}/ov_%05d.png';
+      } else if (state.hasAyah && state.hasTextTransition) {
+        // PATCH_S126_TEXT_TRANSITIONS: a single-ayah export used to be one
+        // still PNG with an ffmpeg alpha fade bolted on — which can do a fade
+        // and nothing else. Rendering it as a sequence too means one ayah
+        // gets exactly the same transitions, and the same smoothness, as a
+        // synced one. Frames outside the entrance and exit are identical, so
+        // the dedupe+hard-link path below makes this nearly free.
+        onStatus?.call('جارٍ رسم ظهور النص…');
+        final seqDir = Directory('${work.path}/ov')..createSync();
+        await _renderTextSequence(
           dir: seqDir.path,
           state: state,
           style: style,
@@ -453,8 +481,10 @@ class ExportService {
     void Function(String status)? onStatus,
   }) async {
     final frames = (duration * overlayFps).ceil() + 1;
-    final cache = <String, List<int>>{};
+    final firstPathForKey = <String, String>{};
     final chunkCache = <TimelineSegment, List<KaraokeChunk>>{};
+    final transSec = (state.textTransitionMs / 1000.0)
+        .clamp(kMinTextTransitionMs / 1000.0, kMaxTextTransitionMs / 1000.0);
     for (var i = 0; i < frames; i++) {
       _checkCancel(); // PATCH_S37_CANCEL_LONG_JOBS
       if (i % (overlayFps * 5) == 0) {
@@ -473,7 +503,7 @@ class ExportService {
       List<String>? words;
       var lit = 0;
       String key = 'empty';
-      double opacity = 1.0; // PATCH_S27_FADE_TEXT_ANIMATIONS
+      var motion = TextMotion.identity; // PATCH_S126_TEXT_TRANSITIONS
       if (seg != null) {
         final cue =
             karaokeCueAt(chunkCache[seg] ??= buildKaraokeChunks(seg), videoT);
@@ -485,32 +515,150 @@ class ExportService {
         // already renders static text whenever karaokeWords is null/empty.
         words = state.karaokeEnabled ? chunk.words : null;
         lit = state.karaokeEnabled ? cue.litWords : 0;
-        // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in over the first 300ms and out over the
-        // last 300ms of this part's on-screen window.
-        final msIntoChunk = (videoT - chunk.start) * 1000;
-        final msToChunkEnd = (chunk.end - videoT) * 1000;
-        final fadeIn = (msIntoChunk / fadeMs).clamp(0.0, 1.0);
-        final fadeOut = (msToChunkEnd / fadeMs).clamp(0.0, 1.0);
-        opacity = fadeIn < fadeOut ? fadeIn : fadeOut;
-        key =
-            '${seg.ayah.surahNum}:${seg.ayah.num}:${chunk.index}:$lit:${(opacity * 20).round()}';
+        // PATCH_S126_TEXT_TRANSITIONS: was a linear alpha ramp over a fixed
+        // 300ms. Now the chosen in/out transition, evaluated by the same pure
+        // function the live preview uses, so the two finally agree.
+        motion = _motionAt(
+          state: state,
+          tIntoWindow: videoT - chunk.start,
+          windowLength: chunk.end - chunk.start,
+          transSec: transSec,
+        );
+        key = '${seg.ayah.surahNum}:${seg.ayah.num}:${chunk.index}:$lit:'
+            '${_motionKey(motion)}';
       }
-      var bytes = cache[key];
-      if (bytes == null) {
-        bytes = await OverlayRenderer.renderTextOverlayPng(
-            w: w,
-            h: h,
-            text: text,
-            translation: trans,
-            style: style,
-            opacity: opacity,
-            karaokeWords: words,
-            litWords: lit);
-        cache[key] = bytes;
-      }
-      final name = 'ov_${i.toString().padLeft(5, '0')}.png';
-      await File('$dir/$name').writeAsBytes(bytes);
+      await _writeFrame(
+        dir: dir,
+        index: i,
+        key: key,
+        firstPathForKey: firstPathForKey,
+        render: () => OverlayRenderer.renderTextOverlayPng(
+          w: w,
+          h: h,
+          text: text,
+          translation: trans,
+          style: style.withMotion(motion),
+          karaokeWords: words,
+          litWords: lit,
+        ),
+      );
     }
+  }
+
+  // PATCH_S126_TEXT_TRANSITIONS: the single-ayah counterpart of
+  // _renderKaraokeSequence -- one block of text for the whole clip, entering
+  // at the start and leaving at the end. Same frame budget, same dedupe, so
+  // the only frames that actually get rendered are the ones inside the two
+  // transitions.
+  static Future<void> _renderTextSequence({
+    required String dir,
+    required StudioState state,
+    required OverlayStyle style,
+    required int w,
+    required int h,
+    required double clipStart,
+    required double duration,
+    void Function(String status)? onStatus,
+  }) async {
+    final frames = (duration * overlayFps).ceil() + 1;
+    final firstPathForKey = <String, String>{};
+    final transSec = (state.textTransitionMs / 1000.0)
+        .clamp(kMinTextTransitionMs / 1000.0, kMaxTextTransitionMs / 1000.0);
+    for (var i = 0; i < frames; i++) {
+      _checkCancel();
+      if (i % (overlayFps * 5) == 0) {
+        onStatus?.call('جارٍ رسم ظهور النص… ${(i * 100 / frames).round()}٪');
+      }
+      final t = i / overlayFps;
+      final motion = _motionAt(
+        state: state,
+        tIntoWindow: t,
+        windowLength: duration,
+        transSec: transSec,
+      );
+      await _writeFrame(
+        dir: dir,
+        index: i,
+        key: _motionKey(motion),
+        firstPathForKey: firstPathForKey,
+        render: () => OverlayRenderer.renderTextOverlayPng(
+          w: w,
+          h: h,
+          text: state.ayahText,
+          translation: state.translationText,
+          style: style.withMotion(motion),
+        ),
+      );
+    }
+  }
+
+  /// Where the text is in its entrance/exit at [tIntoWindow] seconds into a
+  /// window [windowLength] long.
+  ///
+  /// The two transitions are evaluated independently and the SMALLER
+  /// progress wins, so a window shorter than both never snaps: it simply
+  /// never fully arrives, which is the graceful failure rather than a pop.
+  static TextMotion _motionAt({
+    required StudioState state,
+    required double tIntoWindow,
+    required double windowLength,
+    required double transSec,
+  }) {
+    final inP = state.textInTransition == TextTransition.none
+        ? 1.0
+        : (tIntoWindow / transSec).clamp(0.0, 1.0);
+    final outP = state.textOutTransition == TextTransition.none
+        ? 1.0
+        : ((windowLength - tIntoWindow) / transSec).clamp(0.0, 1.0);
+    if (inP <= outP) return textMotionFor(state.textInTransition, inP);
+    return textMotionFor(state.textOutTransition, outP);
+  }
+
+  /// Cache key for a motion. Quantised finely enough that a 24fps ramp keeps
+  /// every distinct frame distinct, but coarsely enough that floating-point
+  /// noise can't manufacture a "new" frame that looks identical.
+  static String _motionKey(TextMotion m) => [
+        (m.opacity * 200).round(),
+        (m.dx * 2000).round(),
+        (m.dy * 2000).round(),
+        (m.scale * 1000).round(),
+        (m.rotation * 1000).round(),
+        (m.blur * 2000).round(),
+        (m.reveal * 500).round(),
+        m.revealMode.index,
+      ].join(',');
+
+  /// Writes frame [index], rendering it only if this [key] hasn't been seen.
+  ///
+  /// Repeats are HARD LINKED to the first file with the same content, not
+  /// copied: the image2 demuxer needs a file per frame number, but at 24fps
+  /// most of them are byte-identical, and copying them would multiply the
+  /// temp-directory footprint of a long export by four. A filesystem that
+  /// refuses links falls back to a real copy.
+  static Future<void> _writeFrame({
+    required String dir,
+    required int index,
+    required String key,
+    required Map<String, String> firstPathForKey,
+    required Future<Uint8List> Function() render,
+  }) async {
+    final path = '$dir/ov_${index.toString().padLeft(5, '0')}.png';
+    final existing = firstPathForKey[key];
+    if (existing != null) {
+      try {
+        await Link(path).create(existing);
+        return;
+      } catch (_) {
+        try {
+          await File(existing).copy(path);
+          return;
+        } catch (_) {
+          // fall through and re-render
+        }
+      }
+    }
+    await File(path).writeAsBytes(await render());
+    firstPathForKey[key] = path;
   }
 
   // PATCH_S38_VIDEO_EFFECTS: export-time video effects. All ffmpeg-side, all

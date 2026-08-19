@@ -6,9 +6,11 @@
 // AppSettings.instance.animations is false — no controllers are started, no
 // tickers run, and the child is laid out exactly where it would have landed.
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../services/app_settings.dart';
 import '../theme/ayat_theme.dart';
 
@@ -352,4 +354,134 @@ class _ParticlePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ParticlePainter old) =>
       old.progress != progress || old.count != count || old.seed != seed;
+}
+
+/// PATCH_S126_TEXT_TRANSITIONS: applies a [TextMotion] to a widget, so the
+/// live preview animates the ayah text with the very same motion model the
+/// exporter bakes into the overlay frames. One model, two renderers — which
+/// is the only way "what you see is what you get" can actually hold.
+///
+/// The clip-based reveals (wipes, iris, curtain) are applied here. The
+/// per-unit ones (word- and letter-by-letter) are not: they change which
+/// glyphs are painted rather than which pixels survive, so the stage applies
+/// them while building the text spans, using the same [revealUnitAlpha] ramp
+/// the export renderer uses.
+class TextMotionBox extends StatelessWidget {
+  final TextMotion motion;
+  final Widget child;
+  const TextMotionBox({super.key, required this.motion, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (motion.isIdentity) return child;
+    Widget out = child;
+
+    final reveal = motion.reveal.clamp(0.0, 1.0);
+    if (reveal < 1) {
+      switch (motion.revealMode) {
+        case RevealMode.wipeUp:
+          out = ClipRect(
+              clipper: _FactorClipper(heightFactor: reveal, alignY: 1),
+              child: out);
+        case RevealMode.wipeDown:
+          out = ClipRect(
+              clipper: _FactorClipper(heightFactor: reveal, alignY: -1),
+              child: out);
+        case RevealMode.wipeStart:
+          out = ClipRect(
+              clipper: _FactorClipper(widthFactor: reveal, alignX: 1),
+              child: out);
+        case RevealMode.wipeEnd:
+          out = ClipRect(
+              clipper: _FactorClipper(widthFactor: reveal, alignX: -1),
+              child: out);
+        case RevealMode.curtain:
+          out = ClipRect(
+              clipper: _FactorClipper(heightFactor: reveal), child: out);
+        case RevealMode.iris:
+          out = ClipOval(clipper: _IrisClipper(reveal), child: out);
+        case RevealMode.words:
+        case RevealMode.letters:
+          // Nothing to clip: these reveals change which glyphs are painted,
+          // and the stage builds them into the text spans itself via
+          // revealUnitAlpha — the same ramp the exporter uses.
+          break;
+        case RevealMode.none:
+          break;
+      }
+    }
+
+    if (motion.blur > 0) {
+      // motion.blur is a fraction of frame width; the preview stage is 270
+      // design units wide, the same reference the text sizes use.
+      final sigma = motion.blur * 270;
+      out = ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+        child: out,
+      );
+    }
+    if (motion.opacity < 1) {
+      out = Opacity(opacity: motion.opacity.clamp(0.0, 1.0), child: out);
+    }
+    if (motion.scale != 1 || motion.rotation != 0) {
+      out = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()
+          ..rotateZ(motion.rotation)
+          ..scaleByDouble(motion.scale, motion.scale, 1, 1),
+        child: out,
+      );
+    }
+    if (motion.dx != 0 || motion.dy != 0) {
+      out = FractionalTranslation(
+          translation: Offset(motion.dx, motion.dy), child: out);
+    }
+    return out;
+  }
+}
+
+class _FactorClipper extends CustomClipper<Rect> {
+  final double widthFactor;
+  final double heightFactor;
+
+  /// -1 anchors to the leading/top edge, 1 to the trailing/bottom, 0 centres.
+  final double alignX;
+  final double alignY;
+  const _FactorClipper({
+    this.widthFactor = 1,
+    this.heightFactor = 1,
+    this.alignX = 0,
+    this.alignY = 0,
+  });
+
+  @override
+  Rect getClip(Size size) {
+    final w = size.width * widthFactor;
+    final h = size.height * heightFactor;
+    final left = (size.width - w) * (alignX + 1) / 2;
+    final top = (size.height - h) * (alignY + 1) / 2;
+    return Rect.fromLTWH(left, top, w, h);
+  }
+
+  @override
+  bool shouldReclip(_FactorClipper old) =>
+      old.widthFactor != widthFactor ||
+      old.heightFactor != heightFactor ||
+      old.alignX != alignX ||
+      old.alignY != alignY;
+}
+
+class _IrisClipper extends CustomClipper<Rect> {
+  final double reveal;
+  const _IrisClipper(this.reveal);
+
+  @override
+  Rect getClip(Size size) {
+    final r = size.longestSide * 0.75 * reveal;
+    return Rect.fromCircle(
+        center: Offset(size.width / 2, size.height / 2), radius: r);
+  }
+
+  @override
+  bool shouldReclip(_IrisClipper old) => old.reveal != reveal;
 }

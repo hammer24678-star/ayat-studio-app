@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/studio_presets.dart';
+import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../models/studio_state.dart';
 import 'stage_effects.dart';
 import 'whisper_service.dart'; // PATCH_S47_SETTINGS_WHISPER_IMPORT_FIX: WhisperModelSize lives here
@@ -235,6 +236,18 @@ class SettingsService {
           (read<int>('customAspectH') ?? state.customAspectH).clamp(240, 3840);
       state.exportSubtitles =
           read<bool>('exportSubtitles') ?? state.exportSubtitles;
+      // PATCH_S126_TEXT_TRANSITIONS
+      final tIn = read<int>('textInTransition');
+      if (tIn != null && tIn >= 0 && tIn < TextTransition.values.length) {
+        state.textInTransition = TextTransition.values[tIn];
+      }
+      final tOut = read<int>('textOutTransition');
+      if (tOut != null && tOut >= 0 && tOut < TextTransition.values.length) {
+        state.textOutTransition = TextTransition.values[tOut];
+      }
+      state.textTransitionMs =
+          (read<int>('textTransitionMs') ?? state.textTransitionMs)
+              .clamp(kMinTextTransitionMs, kMaxTextTransitionMs);
       // PATCH_S125_SPEED
       state.playbackSpeed =
           (read<double>('playbackSpeed') ?? state.playbackSpeed)
@@ -368,6 +381,10 @@ class SettingsService {
       p.setInt('${_prefix}customAspectH', state.customAspectH),
       p.setBool('${_prefix}exportSubtitles', state.exportSubtitles),
       p.setDouble('${_prefix}playbackSpeed', state.playbackSpeed), // PATCH_S125_SPEED
+      // PATCH_S126_TEXT_TRANSITIONS
+      p.setInt('${_prefix}textInTransition', state.textInTransition.index),
+      p.setInt('${_prefix}textOutTransition', state.textOutTransition.index),
+      p.setInt('${_prefix}textTransitionMs', state.textTransitionMs),
       p.setInt('${_prefix}subtitleFormat', state.subtitleFormat.index),
       p.setInt('${_prefix}subtitleContent', state.subtitleContent.index),
       p.setBool('${_prefix}audioFadeIn', state.audioFadeIn),
