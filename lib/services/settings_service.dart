@@ -279,6 +279,20 @@ class SettingsService {
       } else if (savedUseCustomBg) {
         state.useCustomBg = false;
       }
+      // PATCH_S127_MUSIC_BED: same treatment as the custom background -- the
+      // level and the fade always come back, the file only if it still
+      // exists. A vanished input would fail the export outright, and doing
+      // that silently on the next launch is worse than losing the choice.
+      state.musicBedVolume =
+          (read<double>('musicBedVolume') ?? state.musicBedVolume)
+              .clamp(0.0, 1.0);
+      state.musicBedFade = read<bool>('musicBedFade') ?? state.musicBedFade;
+      final savedBed = read<String>('musicBedPath');
+      if (savedBed != null &&
+          savedBed.isNotEmpty &&
+          File(savedBed).existsSync()) {
+        state.musicBedPath = savedBed;
+      }
       // PATCH_S82_CUSTOM_BG_LIBRARY: restore the full uploaded-background
       // library, uncapped. Paths whose file no longer exists on disk (app
       // storage cleared, etc.) are dropped silently instead of showing a
@@ -376,6 +390,13 @@ class SettingsService {
       // PATCH_S123_AUDIO_MIX
       p.setDouble('${_prefix}originalAudioMix', state.originalAudioMix),
       p.setBool('${_prefix}muteAudio', state.muteAudio),
+      // PATCH_S127_MUSIC_BED: the level and the fade are preferences, so they
+      // are remembered. The PATH is remembered too, but restore() only
+      // reinstates it if the file is still there -- an uploaded track can be
+      // gone by the next launch, and a missing input fails the whole export.
+      p.setString('${_prefix}musicBedPath', state.musicBedPath ?? ''),
+      p.setDouble('${_prefix}musicBedVolume', state.musicBedVolume),
+      p.setBool('${_prefix}musicBedFade', state.musicBedFade),
       // PATCH_S125_CUSTOM_ASPECT + PATCH_S125_SUBTITLES
       p.setInt('${_prefix}customAspectW', state.customAspectW),
       p.setInt('${_prefix}customAspectH', state.customAspectH),

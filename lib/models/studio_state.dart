@@ -128,6 +128,26 @@ class StudioState extends ChangeNotifier {
   /// Export with no audio track at all.
   bool muteAudio = false;
 
+  // ---- PATCH_S127_MUSIC_BED ------------------------------------------
+  /// An optional background music / ambience track, mixed UNDER whatever
+  /// audio the export already has (the recitation, the clip's own sound, or
+  /// both). Separate from [originalAudioMix], which only rebalances the two
+  /// tracks that were already there.
+  ///
+  /// A bed shorter than the clip is looped rather than leaving silence, and
+  /// a longer one is cut to length, so its duration never has to match.
+  String? musicBedPath;
+
+  /// 0..1, how loud the bed sits under everything else. The default is
+  /// deliberately quiet: this is meant to sit behind a recitation.
+  double musicBedVolume = 0.18;
+
+  /// Ease the bed in and out rather than starting and stopping it dead.
+  bool musicBedFade = true;
+
+  bool get hasMusicBed =>
+      !muteAudio && musicBedPath != null && musicBedVolume > 0.005;
+
   // ---- PATCH_S54_PRO_EXPORT_CONTROLS ----
   VideoFitMode videoFit = VideoFitMode.source;
   int videoRotationQuarterTurns = 0; // 0..3, clockwise
@@ -880,6 +900,10 @@ class StudioState extends ChangeNotifier {
         'watermarkScale': watermarkScale,
         'originalAudioMix': originalAudioMix,
         'muteAudio': muteAudio,
+        // PATCH_S127_MUSIC_BED
+        'musicBedPath': musicBedPath,
+        'musicBedVolume': musicBedVolume,
+        'musicBedFade': musicBedFade,
       };
 
   void _apply(Map<String, Object?> s) {
@@ -936,6 +960,9 @@ class StudioState extends ChangeNotifier {
     watermarkScale = s['watermarkScale'] as double;
     originalAudioMix = s['originalAudioMix'] as double;
     muteAudio = s['muteAudio'] as bool;
+    musicBedPath = s['musicBedPath'] as String?;
+    musicBedVolume = s['musicBedVolume'] as double;
+    musicBedFade = s['musicBedFade'] as bool;
   }
 
   /// Pushes a pre-edit snapshot. Called automatically by [update] and the

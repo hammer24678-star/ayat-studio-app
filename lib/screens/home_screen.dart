@@ -2885,6 +2885,8 @@ class _HomeScreenState extends State<HomeScreen>
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const Divider(height: 32, color: AyatColors.hairline),
+        _musicBedSection(),
+        const Divider(height: 32, color: AyatColors.hairline),
         _speedSection(),
         const Divider(height: 32, color: AyatColors.hairline),
         _subtitleSection(),
@@ -2985,6 +2987,83 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ],
     );
+  }
+
+  // PATCH_S127_MUSIC_BED: an ambience/nasheed track UNDER everything else.
+  // Distinct from the reciter mix above, which only rebalances the two tracks
+  // that were already in the clip.
+  Widget _musicBedSection() {
+    final path = state.musicBedPath;
+    final name = path == null ? null : path.split(Platform.pathSeparator).last;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('خلفية موسيقية / أجواء',
+            style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 4),
+        Text(
+          'مسار صوتي هادئ يُمزج تحت التلاوة وصوت المقطع. يُكرَّر تلقائيًا إذا '
+          'كان أقصر من الفيديو ويُقصّ إذا كان أطول، فلا حاجة لمطابقة المدة.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _pickMusicBed,
+                icon: const Icon(Icons.library_music_outlined),
+                label: Text(path == null ? 'اختيار ملف صوتي' : 'تغيير الملف'),
+              ),
+            ),
+            if (path != null) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'إزالة الخلفية الموسيقية',
+                onPressed: () => state.update(() => state.musicBedPath = null),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ],
+        ),
+        if (name != null) ...[
+          const SizedBox(height: 6),
+          Text(name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AyatColors.gold)),
+          const SizedBox(height: 10),
+          _fieldLabel(
+              'مستوى الخلفية: ${(state.musicBedVolume * 100).round()}٪'),
+          Slider(
+            value: state.musicBedVolume,
+            min: 0.0,
+            max: 1.0,
+            divisions: 20,
+            onChanged: (v) => state.update(() => state.musicBedVolume = v),
+          ),
+          ToggleRow(
+            label: 'دخول وخروج تدريجي للخلفية',
+            value: state.musicBedFade,
+            onChanged: (v) => state.update(() => state.musicBedFade = v),
+          ),
+          if (state.muteAudio)
+            Text('الصوت مكتوم بالكامل حاليًا — أوقف الكتم لتسمع الخلفية.',
+                style: Theme.of(context).textTheme.bodyMedium),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _pickMusicBed() async {
+    final res = await FilePicker.platform.pickFiles(type: FileType.audio);
+    final path = res?.files.single.path;
+    if (path == null) return;
+    state.update(() => state.musicBedPath = path);
+    _toast('تمت إضافة خلفية موسيقية ✓');
   }
 
   // PATCH_S125_SPEED: constant-rate speed change, applied to the finished

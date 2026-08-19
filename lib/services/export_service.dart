@@ -922,7 +922,10 @@ class ExportService {
 
   // PATCH_S54_PRO_EXPORT_CONTROLS: audio chain for the exported track —
   // optional apad, volume and gentle fades. Empty when nothing applies.
-  static String _audioFilterArgs(StudioState state,
+  // PATCH_S127_MUSIC_BED: returns the bare filter list rather than a finished
+  // `-af "..."` argument, so the same chain can be spliced into a
+  // filter_complex when the audio has to be mixed with something.
+  static List<String> _audioFilterChain(StudioState state,
       {required bool needsPad, required double duration}) {
     final parts = <String>[];
     if (needsPad) parts.add('apad');
@@ -930,17 +933,12 @@ class ExportService {
       parts.add(
           'volume=${state.audioVolume.clamp(0.0, 2.0).toStringAsFixed(2)}');
     }
-    if (state.audioFadeIn) parts.add('afade=t=in:st=0:d=1.0');
-    if (state.audioFadeOut) {
-      final st = max(0.0, duration - 1.5);
-      parts.add('afade=t=out:st=${st.toStringAsFixed(3)}:d=1.5');
-    }
-    return parts.isEmpty ? '' : '-af "${parts.join(',')}"';
+    parts.addAll(_audioFadeFilters(state, duration));
+    return parts;
   }
 
-  // PATCH_S123_AUDIO_MIX: the same fades as _audioFilterArgs, but as bare
-  // filter names for splicing into a filter_complex chain rather than a -af
-  // argument. One definition, so the two paths can't drift.
+  // PATCH_S123_AUDIO_MIX: the fades, as bare filter names. Shared by
+  // _audioFilterChain and the mixing paths so the two can't drift.
   static List<String> _audioFadeFilters(StudioState state, double duration) {
     final parts = <String>[];
     if (state.audioFadeIn) parts.add('afade=t=in:st=0:d=1.0');
@@ -1151,8 +1149,18 @@ class ExportService {
       filters.add('[$base]null[outv]');
     }
 
-    String audioMap;
-    var audioFilter = '';
+    // PATCH_S127_MUSIC_BED: the audio used to be assembled as two ready-made
+    // command fragments (`-map 0:a` plus an `-af "..."` string), which meant
+    // any later stage that wanted to MIX something in had to parse them back
+    // apart -- the speed patch already had to sniff `audioMap.startsWith`.
+    // It is now carried as what it actually is: either a raw input stream or
+    // a filtergraph label, plus the chain still to apply. Both the speed
+    // retime and the music bed operate on that, and the two command
+    // fragments are assembled once, at the end.
+    String? aStream; // e.g. '0:a' -- a raw input, not yet in the graph
+    String? aLabel; // e.g. 'aout' -- already produced by a filter chain
+    var aChain = <String>[]; // pending filters, only valid alongside aStream
+
     // PATCH_S123_AUDIO_MIX: an explicit silent export. It still gets a real
     // (silent) AAC track rather than -an, because the intro/outro cards are
     // concatenated with `-c copy` and concat refuses segments whose stream
@@ -1160,7 +1168,7 @@ class ExportService {
     if (state.muteAudio) {
       inputs.write(
           '-f lavfi -t ${duration.toStringAsFixed(3)} -i anullsrc=channel_layout=stereo:sample_rate=44100 ');
-      audioMap = '-map $idx:a';
+      aStream = '$idx:a';
       idx++;
     } else if (reciterPath != null) {
       inputs.write('-i "$reciterPath" ');
@@ -1184,13 +1192,12 @@ class ExportService {
         final tail = fades.isEmpty ? '' : ',${fades.join(',')}';
         filters.add('[amixsrc][amixrec]'
             'amix=inputs=2:duration=first:dropout_transition=0,volume=2$tail[aout]');
-        audioMap = '-map "[aout]"';
+        aLabel = 'aout';
       } else {
-        audioMap = '-map $reciterIdx:a';
+        aStream = '$reciterIdx:a';
         // pad recitation with silence up to -t
         // PATCH_S54_PRO_EXPORT_CONTROLS: + volume/fades
-        audioFilter =
-            _audioFilterArgs(state, needsPad: true, duration: duration);
+        aChain = _audioFilterChain(state, needsPad: true, duration: duration);
       }
     } else if (state.hasVideo && !videoHasVideoStream && videoHasAudio) {
       // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX: the "video" upload was actually an audio-only
@@ -1201,19 +1208,17 @@ class ExportService {
       final aTrim =
           clipStart > 0.001 ? '-ss ${clipStart.toStringAsFixed(3)} ' : '';
       inputs.write('$aTrim-t ${duration.toStringAsFixed(3)} -i "${state.videoPath}" ');
-      audioMap = '-map $idx:a';
-      audioFilter =
-          _audioFilterArgs(state, needsPad: true, duration: duration);
+      aStream = '$idx:a';
+      aChain = _audioFilterChain(state, needsPad: true, duration: duration);
       idx++;
     } else if (state.hasVideo && videoHasVideoStream && videoHasAudio) {
-      audioMap = '-map 0:a';
+      aStream = '0:a';
       // PATCH_S54_PRO_EXPORT_CONTROLS: volume/fades on the clip's own track
-      audioFilter =
-          _audioFilterArgs(state, needsPad: false, duration: duration);
+      aChain = _audioFilterChain(state, needsPad: false, duration: duration);
     } else {
       inputs.write(
           '-f lavfi -t ${duration.toStringAsFixed(3)} -i anullsrc=channel_layout=stereo:sample_rate=44100 ');
-      audioMap = '-map $idx:a';
+      aStream = '$idx:a';
       idx++;
     }
 
@@ -1264,18 +1269,53 @@ class ExportService {
       // the audio being exported IS the clip's.
       final tempo = atempoChain(speed);
       if (tempo.isNotEmpty && reciterPath == null && !state.muteAudio) {
-        if (audioMap.startsWith('-map "[')) {
-          // already a filter_complex chain — extend it
-          filters.add('[aout]${tempo.join(',')}[aoutsp]');
-          audioMap = '-map "[aoutsp]"';
-        } else if (audioFilter.startsWith('-af "')) {
-          audioFilter =
-              '${audioFilter.substring(0, audioFilter.length - 1)},${tempo.join(',')}"';
+        if (aLabel != null) {
+          filters.add('[$aLabel]${tempo.join(',')}[aoutsp]');
+          aLabel = 'aoutsp';
         } else {
-          audioFilter = '-af "${tempo.join(',')}"';
+          aChain.addAll(tempo);
         }
       }
     }
+
+    // PATCH_S127_MUSIC_BED: mixed in LAST, after any speed retime, so the bed
+    // plays at its own tempo for the finished length of the clip rather than
+    // being pitched along with the picture. It is looped to cover the whole
+    // export and cut to length, so the user never has to find a track that
+    // happens to match the duration.
+    if (state.hasMusicBed) {
+      // Whatever the audio is at this point has to be a graph label before it
+      // can be an amix input.
+      if (aLabel == null) {
+        final head = aChain.isEmpty ? 'anull' : aChain.join(',');
+        filters.add('[$aStream]$head,aresample=44100[abase]');
+        aChain = [];
+        aLabel = 'abase';
+      }
+      inputs.write('-stream_loop -1 -t ${outDuration.toStringAsFixed(3)} '
+          '-i "${state.musicBedPath}" ');
+      final bedIdx = idx++;
+      final bedVol = state.musicBedVolume.clamp(0.0, 1.0).toStringAsFixed(3);
+      final bedParts = <String>['volume=$bedVol', 'aresample=44100'];
+      if (state.musicBedFade) {
+        // A bed that starts and stops dead is the giveaway that it was pasted
+        // on; 1.2s either end is enough to read as intentional.
+        bedParts.add('afade=t=in:st=0:d=1.2');
+        final st = max(0.0, outDuration - 1.6);
+        bedParts.add('afade=t=out:st=${st.toStringAsFixed(3)}:d=1.6');
+      }
+      filters.add('[$bedIdx:a]${bedParts.join(',')}[abed]');
+      // amix AVERAGES its inputs, so volume=2 puts the main track back where
+      // it was and leaves the bed sitting at the level the user chose --
+      // the same convention the reciter mix above uses.
+      filters.add('[$aLabel][abed]'
+          'amix=inputs=2:duration=first:dropout_transition=0,volume=2[abedmix]');
+      aLabel = 'abedmix';
+    }
+
+    final audioMap = aLabel != null ? '-map "[$aLabel]"' : '-map $aStream';
+    final audioFilter =
+        (aLabel == null && aChain.isNotEmpty) ? '-af "${aChain.join(',')}"' : '';
 
     return '$inputs-filter_complex "${filters.join(';')}" '
         '-map "[$outLabel]" $audioMap $audioFilter '

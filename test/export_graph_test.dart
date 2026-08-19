@@ -199,6 +199,39 @@ void main() {
       assertGraphIsSound(build(s, overlayPng: '/tmp/ov.png'), what: 'chroma');
     });
 
+    test('with a music bed', () {
+      final s = withVideo()..musicBedPath = '/tmp/bed.mp3';
+      assertGraphIsSound(build(s, overlayPng: '/tmp/ov.png'), what: 'music bed');
+    });
+
+    test('a music bed under a reciter with the clip audio mixed in', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..originalAudioMix = 0.4;
+      assertGraphIsSound(
+        build(s, overlayPng: '/tmp/ov.png', reciterPath: '/tmp/rec.mp3'),
+        what: 'bed + reciter + mix',
+      );
+    });
+
+    test('a music bed over a still image with no audio anywhere', () {
+      final s = StudioState()..musicBedPath = '/tmp/bed.mp3';
+      assertGraphIsSound(
+        build(s,
+            overlayPng: '/tmp/ov.png',
+            videoHasAudio: false,
+            videoHasVideoStream: false),
+        what: 'bed over silence',
+      );
+    });
+
+    test('a music bed together with a speed change', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..playbackSpeed = 1.5;
+      assertGraphIsSound(build(s, overlayPng: '/tmp/ov.png'), what: 'bed + speed');
+    });
+
     test('everything at once', () {
       final s = withVideo()
         ..chromaEnabled = true
@@ -210,6 +243,7 @@ void main() {
         ..showIntro = true
         ..showOutro = true
         ..softTransitions = true
+        ..musicBedPath = '/tmp/bed.mp3'
         ..videoFit = VideoFitMode.fitBlur;
       assertGraphIsSound(
         build(s,
@@ -272,6 +306,61 @@ void main() {
       final cmd = build(s, overlayPng: '/tmp/ov.png');
       expect(cmd, contains('anullsrc'));
       expect(cmd, isNot(contains(' -an ')));
+    });
+
+    // PATCH_S127_MUSIC_BED
+    test('a bed adds an input, loops it, and cuts it to the clip length', () {
+      final without = build(withVideo(), overlayPng: '/tmp/ov.png');
+      final s = withVideo()..musicBedPath = '/tmp/bed.mp3';
+      final with_ = build(s, overlayPng: '/tmp/ov.png');
+      expect(_inputCount(with_), _inputCount(without) + 1);
+      expect(with_, contains('-stream_loop -1'),
+          reason: 'a bed shorter than the clip must repeat, not run out');
+      expect(with_, contains('-t 30.000 -i "/tmp/bed.mp3"'),
+          reason: 'a bed longer than the clip must be cut, not extend it');
+      expect(with_, contains('amix=inputs=2'));
+    });
+
+    test('the bed is cut to the SPED-UP length, not the source length', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..playbackSpeed = 2.0;
+      final cmd = build(s, overlayPng: '/tmp/ov.png');
+      // 30s at 2x is 15s of output; the bed plays at its own tempo for that
+      // long rather than being pitched up with the picture.
+      expect(cmd, contains('-t 15.000 -i "/tmp/bed.mp3"'));
+      expect(cmd, isNot(contains('[abed]atempo')));
+    });
+
+    test('no bed means nothing is added at all', () {
+      final cmd = build(withVideo(), overlayPng: '/tmp/ov.png');
+      expect(cmd, isNot(contains('abed')));
+      expect(cmd, isNot(contains('-stream_loop')));
+    });
+
+    test('a muted export has no bed, however loud it was set', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..musicBedVolume = 1.0
+        ..muteAudio = true;
+      expect(build(s, overlayPng: '/tmp/ov.png'), isNot(contains('abed')));
+    });
+
+    test('a bed at zero volume is not wired in', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..musicBedVolume = 0.0;
+      expect(build(s, overlayPng: '/tmp/ov.png'), isNot(contains('abed')));
+    });
+
+    test('the bed fade is optional', () {
+      final s = withVideo()
+        ..musicBedPath = '/tmp/bed.mp3'
+        ..musicBedFade = false;
+      final cmd = build(s, overlayPng: '/tmp/ov.png');
+      expect(cmd, contains('[abed]'));
+      expect(RegExp(r'\[abed\]').hasMatch(cmd), isTrue);
+      expect(cmd.contains('afade=t=in:st=0:d=1.2'), isFalse);
     });
 
     test('a custom frame size reaches the scaler', () {
