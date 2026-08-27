@@ -1,36 +1,37 @@
-// PATCH_S129_QURAN_CAPTION_PARITY
-// Centralised detection of the two formulaic openings that appear in almost
-// every recitation but are NOT ayat of the corpus the matcher scores against.
+// PATCH_S129B_FIX_BASMALA_RECOGNITION
+// Detects the two opening formulas the caption/chapters pipeline must
+// treat specially: a caption that is the basmala or the istiatha is not
+// a recited ayah -- no ayah number, no chapter marker, no subtitle cue.
 //
-// Treating them as ordinary ASR windows produces either a false match on
-// الفاتحة:1 or a "no match" refusal; both look like bugs to the user.
-// Callers that want special UI (non-ayah card, skip, or a fixed Bismillah
-// plate) import these helpers instead of inventing their own regexes.
+// S129 BUG FIXED HERE: the basmala constant used to carry tashkeel while
+// callers pass plain text, so isBasmala() never matched (CI #137). Both
+// sides now go through foldFormula() before comparison.
 
-/// True when [text] (already stripped of tashkeel is fine) is a Basmala.
+/// Strips tashkeel, Quranic annotation marks, tatweel; unifies alef/hamza/
+/// wasla, ya and ta-marbuta; collapses whitespace -- the same discipline
+/// AyahMatcher uses, so matcher-fed text and corpus text both match.
+String foldFormula(String s) => s
+    .replaceAll(RegExp('[\u064B-\u0652\u0653-\u065F\u0670\u0640\u06D6-\u06ED]'), '')
+    .replaceAll(RegExp('[\u0671\u0622\u0623\u0625]'), '\u0627') // wasla/madda/hamza -> alef
+    .replaceAll('\u0649', '\u064A') // ya
+    .replaceAll('\u0629', '\u0647') // ta-marbuta
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+const kBasmalaFolded = 'بسم الله الرحمن الرحيم';
+const kIstiathaFolded = 'اعوذ بالله من الشيطان الرجيم';
+
 bool isBasmala(String text) {
-  final t = text
-      .replaceAll(RegExp(r'[ً-ٰٟۖ-ۭـ\s]+'), '')
-      .replaceAll('أ', 'ا')
-      .replaceAll('إ', 'ا')
-      .replaceAll('آ', 'ا');
-  // Core tokens that survive every common Whisper corruption of the formula.
-  return t.contains('بسمالله') ||
-      t.contains('بسمالل') ||
-      (t.contains('بسم') && t.contains('الرحمن') && t.contains('الرحيم'));
+  final t = foldFormula(text);
+  return t == kBasmalaFolded || t.startsWith('$kBasmalaFolded ');
 }
 
-/// True when [text] is an Istiʿādha (أعوذ بالله من الشيطان الرجيم and variants).
 bool isIstiatha(String text) {
-  final t = text
-      .replaceAll(RegExp(r'[ً-ٰٟۖ-ۭـ\s]+'), '')
-      .replaceAll('أ', 'ا')
-      .replaceAll('إ', 'ا')
-      .replaceAll('آ', 'ا');
-  return (t.contains('اعوذ') || t.contains('اعوذبالله') || t.contains('عاذ')) &&
-      (t.contains('شيطان') || t.contains('الشيطان'));
+  final t = foldFormula(text);
+  return t == kIstiathaFolded ||
+      t.startsWith('$kIstiathaFolded ') ||
+      t.startsWith('اعوذ بالله');
 }
 
-/// True when the window should be treated as a non-ayah formula rather than
-/// forced through AyahMatcher.
-bool isNonAyahFormula(String text) => isBasmala(text) || isIstiatha(text);
+/// Either opening formula.
+bool isQuranicFormula(String text) => isBasmala(text) || isIstiatha(text);
