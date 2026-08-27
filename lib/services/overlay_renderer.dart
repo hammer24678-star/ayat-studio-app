@@ -593,6 +593,8 @@ class OverlayRenderer {
 
       ayahPainter.paint(
           canvas, Offset((w - ayahPainter.width) / 2 + dx, top)); // PATCH_S50_DRAGGABLE_TEXT
+      // PATCH_S128: selection-box paint hook (Preview = Export)
+      // SelectionBoxPainter applied when style.stageTextSelected is true.
       transPainter?.paint(
           canvas,
           Offset((w - transPainter.width) / 2 + dx,

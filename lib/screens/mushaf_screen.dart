@@ -34,8 +34,12 @@ import '../widgets/motion.dart';
 // (٠١٢٣٤٥٦٧٨٩) for the ayah-end ornament, matching printed mushaf
 // convention instead of Western digits.
 const _kEasternArabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-String easternArabicNumeral(int n) =>
-    n.toString().split('').map((d) => _kEasternArabicDigits[int.parse(d)]).join();
+String easternArabicNumeral(int n) {
+  // PATCH_S128: guard negative input
+  if (n < 0) n = 0;
+  return n.toString().split('')
+      .map((d) => _kEasternArabicDigits[int.parse(d)]).join();
+}
 
 // PATCH_S112_MUSHAF_AYAH_ROSETTE_FIX: matches a real printed-mushaf
 // ayah-stop -- a single thin scalloped ring (one continuous outline, not

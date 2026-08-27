@@ -331,6 +331,20 @@ class SettingsService {
       // PATCH_S48_TEXT_SPACING_TOGGLES
       p.setDouble('${_prefix}letterSpacing', state.letterSpacing),
       p.setDouble('${_prefix}lineHeightMultiplier', state.lineHeightMultiplier),
+      // PATCH_S128 pro editor persistence
+      p.setBool('${_prefix}textBorderEnabled', state.textBorderEnabled),
+      p.setDouble('${_prefix}textBorderWidth', state.textBorderWidth),
+      p.setBool('${_prefix}shadowEnabled', state.shadowEnabled),
+      p.setDouble('${_prefix}shadowDistance', state.shadowDistance),
+      p.setDouble('${_prefix}shadowBlur', state.shadowBlur),
+      p.setDouble('${_prefix}glowSize', state.glowSize),
+      p.setDouble('${_prefix}glowSharpness', state.glowSharpness),
+      p.setBool('${_prefix}labelEnabled', state.labelEnabled),
+      p.setInt('${_prefix}labelShape', state.labelShape.index),
+      p.setInt('${_prefix}labelColor', state.labelColor.toARGB32()),
+      p.setDouble('${_prefix}labelOpacity', state.labelOpacity),
+      p.setDouble('${_prefix}overallOpacity', state.overallOpacity),
+      p.setBool('${_prefix}unifiedOneLine', state.unifiedOneLine),
       // PATCH_S50_DRAGGABLE_TEXT
       p.setDouble('${_prefix}textOffsetDx', state.textOffset.dx),
       p.setDouble('${_prefix}textOffsetDy', state.textOffset.dy),

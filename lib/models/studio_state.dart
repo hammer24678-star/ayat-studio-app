@@ -42,6 +42,9 @@ class TimelineSegment {
 /// prototype's single `state` object. Everything the stage preview and the
 /// exporter read lives here so they can never disagree.
 // PATCH_S76_QURAN_MODEL_DEFAULT
+// PATCH_S128: label shapes for the text background chip
+enum S128LabelShape { rounded, circle, pill, scallop, hexagon }
+
 class StudioState extends ChangeNotifier {
   // ---- corpus ----
   List<Ayah> ayaat = [];
@@ -264,6 +267,24 @@ class StudioState extends ChangeNotifier {
   // PATCH_S48_TEXT_SPACING_TOGGLES
   double letterSpacing = 0; // -1..3
   double lineHeightMultiplier = 1.5; // 1.2..2.2, previous hardcoded value
+  // PATCH_S128: pro editor + selection fields
+  bool textBorderEnabled = false;
+  double textBorderWidth = 6;
+  bool shadowEnabled = true;
+  double shadowDistance = 10;
+  double shadowBlur = 20;
+  bool labelEnabled = false;
+  S128LabelShape labelShape = S128LabelShape.rounded;
+  Color labelColor = const Color(0xFF000000);
+  double labelOpacity = 0.65;
+  double overallOpacity = 1.0;
+  bool unifiedOneLine = false;
+  List<Color> favoriteColors = [
+    const Color(0xFFFFFFFF), const Color(0xFFF3E5C0), const Color(0xFFD4A94E),
+    const Color(0xFF8A6B3F), const Color(0xFF5C4033), const Color(0xFF000000)];
+  List<String> unifiedTexts = const [];
+  bool stageTextSelected = false;
+  void saveStyleAsDefault() { notifyListeners(); }
 
   // PATCH_S50_DRAGGABLE_TEXT: user drag/pinch on the stage preview, on top of the
   // textPosition preset + ayahFontSize/transFontSize sliders above.

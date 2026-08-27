@@ -58,7 +58,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with WidgetsBindingObserver { // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE
+    with WidgetsBindingObserver {
+  // PATCH_S128: rebuild when language changes
+  // (AppSettings notifies; home already rebuilds via setState from settings return) // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE
   final StudioState state = StudioState();
 
   VideoPlayerController? _video;
@@ -209,6 +211,10 @@ class _HomeScreenState extends State<HomeScreen>
     // app actually "closes" on a phone almost every time. Without this
     // observer nothing saves at that moment at all.
     WidgetsBinding.instance.addObserver(this);
+    // PATCH_S128: one-time 3-step tour
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) FirstRunTour.maybeShow(context);
+    });
   }
 
   // PATCH_S37_PERSISTENT_SETTINGS
@@ -268,8 +274,9 @@ class _HomeScreenState extends State<HomeScreen>
       state.update(() {
         state.ayaat = ayaat;
         state.matcher = AyahMatcher(ayaat);
+        // PATCH_S128: prefer i18n when available
         state.corpusStatus =
-            'تم تحميل القرآن الكريم كاملاً (${ayaat.length} آية) ✓';
+            AppStrings(AppSettings.instance.lang).t('studio.loaded') + ' ✓'; // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
       });
     } catch (e) {
       state.update(() => state.corpusStatus = 'تعذّر تحميل القرآن الكامل: $e');
@@ -1157,7 +1164,7 @@ class _HomeScreenState extends State<HomeScreen>
                   _timelineEditorCard(), // PATCH_S36_TIMELINE_EDITOR
                 ],
                 const SizedBox(height: 18),
-                _tabChips(),
+                _simpleTopTabs(), // PATCH_S128: 5 grouped tabs (آيات/نص/شكل/وسائط/مزيد)
                 const SizedBox(height: 12),
                 _panelCard(),
                 const SizedBox(height: 18),
@@ -1286,7 +1293,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             for (final entry in kAspectRatios)
               ChoiceChip(
-                label: Text(entry.$2),
+                label: Text(AppStrings(AppSettings.instance.lang).t('aspect.${entry.$1.name}')), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
                 selected: state.aspectRatio == entry.$1,
                 onSelected: (_) =>
                     state.update(() => state.aspectRatio = entry.$1),
@@ -1549,16 +1556,15 @@ class _HomeScreenState extends State<HomeScreen>
           icon: const Icon(Icons.auto_awesome, size: 18),
           // PATCH_S83_SYNC_QOL: make it clear a re-run replaces the current scan
           label: Text(state.timelineActive
-              ? 'إعادة المزامنة التلقائية (تستبدل الرصد الحالي)'
-              : 'مزامنة تلقائية: اكتب كل آية أثناء التلاوة'),
+              ? AppStrings(AppSettings.instance.lang).t('autosync.btnRescan')
+              : AppStrings(AppSettings.instance.lang).t('autosync.btn')), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
         ),
         // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: set expectations before they tap it --
         // it does the job well on roughly half the video; the rest may
         // need a manual touch-up from the review card above.
         const SizedBox(height: 6),
         Text(
-          'تعمل جيدًا في نحو نصف الفيديو غالبًا؛ راجعي/عدّلي الباقي من '
-          'بطاقة \'مراجعة الآيات المرصودة\' بعد التشغيل.',
+          AppStrings(AppSettings.instance.lang).t('autosync.hint'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
           style: Theme.of(context)
               .textTheme
               .bodyMedium
@@ -1688,6 +1694,9 @@ class _HomeScreenState extends State<HomeScreen>
                 Padding(
                   padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
                   child: TimelineRibbon(state: state, controller: c),
+                  // PATCH_S128: AyahBlocksEditor can replace the ribbon:
+                  // AyahBlocksEditor(segs: _segVMs(), durationSec: _clipDur(),
+                  //     onChanged: () => state.pushHistory()),
                 ),
               Row(
                 children: [
@@ -2420,7 +2429,7 @@ class _HomeScreenState extends State<HomeScreen>
           Row(
             children: [
               Expanded(
-                child: Text('قص المقطع (من — إلى)',
+                child: Text(AppStrings(AppSettings.instance.lang).t('trim.label'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
                     style: Theme.of(context).textTheme.labelLarge),
               ),
               Text('${_fmtSec(start)} — ${_fmtSec(end)}',
@@ -3330,6 +3339,14 @@ class _HomeScreenState extends State<HomeScreen>
                 ?.copyWith(color: AyatColors.goldDim)),
       );
 
+  // PATCH_S128: tabbed pro text editor
+  Widget _textEditorProPanel() => TextEditorPro(
+        state: state,
+        segmentTexts: state.unifiedTexts,
+        canvasWidth: 1080,
+        onPickCustomFont: _pickCustomFont,
+      );
+
   // PATCH_S120_ADVANCED_OPTIONS_CLEANUP: shared header for every optional
   // section below the ayah picker (partial-ayah, red words, manual
   // timing, caption, multi-ayah range, intro/outro cards). badgeNum
@@ -3817,7 +3834,7 @@ class _HomeScreenState extends State<HomeScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _sectionHeader(
-              'نطاق آيات متعدد',
+              AppStrings(AppSettings.instance.lang).t('multi.range'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
               'لتلاوة تمر بعدة آيات، أضيفي كل آية بتوقيتها الخاص. ستظهر '
               'بطاقة \'مراجعة الآيات المرصودة\' أعلى الشاشة بعد أول آية '
               'لإكمال الباقي أو تعديل التوقيت -- يمكنك إضافة آية كاملة من '
@@ -4302,7 +4319,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (state.useCustomBg) ...[
           const SizedBox(height: 10),
           Text(
-            'تذكير: هذه الخلفية ستظهر خلف آيات القرآن — يُستحسن اختيار صور تليق بالمحتوى القرآني (زخارف، خطوط، تدرّجات، مناظر طبيعية مجرّدة)، وتجنّب صور الأشخاص أو أي مشهد لا يناسب تلاوة الآيات.',
+            AppStrings(AppSettings.instance.lang).t('bg.customNote'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
@@ -4348,7 +4365,7 @@ class _HomeScreenState extends State<HomeScreen>
         _panelTitle('الكروم (خلفية خضراء)',
             'فعّل هذا الخيار إذا كان الفيديو المرفوع مصوّرًا أمام خلفية بلون موحّد (أخضر أو أزرق أو غيره)، ليتم استبدالها بالخلفية المختارة عند التصدير.'),
         ToggleRow(
-          label: 'تفعيل إزالة الخلفية',
+          label: AppStrings(AppSettings.instance.lang).t('chroma.enable'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
           value: state.chromaEnabled,
           onChanged: (v) => state.update(() => state.chromaEnabled = v),
         ),

@@ -11,6 +11,7 @@ import '../services/app_settings.dart';
 import '../services/tafsir_service.dart';
 import '../theme/ayat_theme.dart';
 import '../widgets/motion.dart';
+import '../widgets/user_guide_sheet.dart'; // PATCH_S128
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -219,6 +220,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ]),
+          // PATCH_S128: touch-controls guide
+          const SizedBox(height: 14),
+          _Section(title: s.t('settings.guide'), children: [
+            OutlinedButton.icon(
+              onPressed: () => showUserGuide(context, s),
+              icon: const Icon(Icons.menu_book_outlined, size: 18),
+              label: Text(s.t('settings.guideOpen')),
+            ),
+            const SizedBox(height: 6),
+            _Hint(s.t('settings.guideHint')),
           ]),
           const SizedBox(height: 14),
           _Section(title: s.t('settings.about'), children: [

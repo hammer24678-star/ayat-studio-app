@@ -388,7 +388,7 @@ class _StagePreviewState extends State<StagePreview>
                         child: Padding(
                           padding: const EdgeInsets.all(24),
                           child: Text(
-                            'اختر آية، أو ارفع فيديو واستخدم التعرّف أو المزامنة التلقائية',
+                            AppStrings(AppSettings.instance.lang).t('stage.hint'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 fontSize: 12 * scale.clamp(0.8, 1.6),
