@@ -15,8 +15,9 @@ class TextEditorPro extends StatefulWidget {
   final StudioState state;
   final List<String> segmentTexts; // for unified one-line sizing
   final double canvasWidth;
+  final VoidCallback? onPickCustomFont;
   const TextEditorPro({super.key, required this.state,
-    this.segmentTexts = const [], this.canvasWidth = 1080});
+    this.segmentTexts = const [], this.canvasWidth = 1080, this.onPickCustomFont});
   @override
   State<TextEditorPro> createState() => _TextEditorProState();
 }
@@ -47,7 +48,7 @@ class _TextEditorProState extends State<TextEditorPro> {
               border: Border.all(color: _tab == t ? AyatColors.gold : Colors.transparent)),
             child: Text(t.name.toUpperCase(), style: TextStyle(
               fontSize: 12, letterSpacing: 1,
-              color: _tab == t ? AyatColors.goldBright : AyatColors.goldDim)))]));
+              color: _tab == t ? AyatColors.goldBright : AyatColors.goldDim))))]));
 
   Widget _body() => switch (_tab) {
     TextEditorTab.text => _text(), TextEditorTab.border => _border(),
