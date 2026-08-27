@@ -284,6 +284,9 @@ class StudioState extends ChangeNotifier {
     const Color(0xFF8A6B3F), const Color(0xFF5C4033), const Color(0xFF000000)];
   List<String> unifiedTexts = const [];
   bool stageTextSelected = false;
+  // PATCH_S128_FIX1_BUILD_ERRORS: fields the S128 glow tab/settings persistence needed
+  double glowSize = 20;      // 0..60, see text_editor_pro.dart GLOW tab
+  double glowSharpness = 50; // 0..100
   void saveStyleAsDefault() { notifyListeners(); }
 
   // PATCH_S50_DRAGGABLE_TEXT: user drag/pinch on the stage preview, on top of the

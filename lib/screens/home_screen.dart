@@ -46,6 +46,9 @@ import '../widgets/gold_switch.dart';
 import '../widgets/motion.dart'; // PATCH_S123_MOTION
 import '../widgets/quran_entry_button.dart'; // PATCH_S123_QURAN_ENTRY
 import '../widgets/stage_preview.dart';
+import '../i18n/app_strings.dart';
+import '../widgets/first_run_tour.dart';
+import '../widgets/text_editor_pro.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
@@ -3346,6 +3349,12 @@ class _HomeScreenState extends State<HomeScreen>
         canvasWidth: 1080,
         onPickCustomFont: _pickCustomFont,
       );
+
+  // PATCH_S128_FIX1_BUILD_ERRORS: bridge only -- PATCH_S128 called this but never
+  // defined it. This just restores the old tab strip so the app
+  // builds. TODO: replace with the real 5 grouped tabs
+  // (آيات/نص/شكل/وسائط/مزيد) described in the PATCH_S128 comment.
+  Widget _simpleTopTabs() => _tabChips();
 
   // PATCH_S120_ADVANCED_OPTIONS_CLEANUP: shared header for every optional
   // section below the ayah picker (partial-ayah, red words, manual

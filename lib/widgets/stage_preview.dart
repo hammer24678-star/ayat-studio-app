@@ -17,6 +17,8 @@ import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../theme/ayat_fonts.dart';
 import '../theme/ayat_theme.dart';
+import '../i18n/app_strings.dart';
+import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 
 /// What the overlay is currently showing. During auto-sync playback the
