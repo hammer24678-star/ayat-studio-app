@@ -35,3 +35,7 @@ bool isIstiatha(String text) {
 
 /// Either opening formula.
 bool isQuranicFormula(String text) => isBasmala(text) || isIstiatha(text);
+// PATCH_S129C_ADD_ISNONAYAHFORMULA: the caption-parity test (and the chapters pipeline) speak
+// 'non-ayah formula' -- same rule, canonical name.
+bool isNonAyahFormula(String text) => isBasmala(text) || isIstiatha(text);
+
