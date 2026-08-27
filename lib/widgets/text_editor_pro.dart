@@ -9,9 +9,8 @@ import '../models/studio_state.dart';
 import 'color_picker_dialog.dart' show showAyatColorPicker;
 
 enum TextEditorTab { text, border, shadow, glow, label, opacity }
-// LabelShape mirrors S128LabelShape on StudioState
-enum LabelShape { rounded, circle, pill, scallop, hexagon }
-
+// S128LabelShape mirrors S128LabelShape on StudioState
+// PATCH_S128_FIX2_TEXT_EDITOR_PRO: enum: removed, using S128LabelShape
 class TextEditorPro extends StatefulWidget {
   final StudioState state;
   final List<String> segmentTexts; // for unified one-line sizing
@@ -71,7 +70,7 @@ class _TextEditorProState extends State<TextEditorPro> {
     SwitchListTile(
       title: const Text('سطر واحد موحّد لكل الآيات', style: TextStyle(fontSize: 13)),
       subtitle: Text(_unifiedHint(), style: const TextStyle(fontSize: 11)),
-      value: s.unifiedOneLine, activeThumbColor: AyatColors.gold,
+      value: s.unifiedOneLine, activeColor: AyatColors.gold,
       onChanged: (v) => s.update(() => s.unifiedOneLine = v)),
     _colorArea(),
     Row(children: [
@@ -161,15 +160,15 @@ class _TextEditorProState extends State<TextEditorPro> {
     _slider('الحدة', s.glowSharpness, 0, 100, 0, (v) => s.update(() => s.glowSharpness = v))]);
   Widget _label() => _card('الخلفية (Label)', Icons.label_outline, s.labelEnabled,
     (v) => s.update(() => s.labelEnabled = v), [
-    Row(children: [for (final sh in LabelShape.values)
+    Row(children: [for (final sh in S128LabelShape.values)
       GestureDetector(onTap: () => s.update(() => s.labelShape = sh),
         child: Container(width: 40, height: 30, margin: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: s.labelShape == sh ? AyatColors.gold.withValues(alpha: .25) : Colors.transparent,
             border: Border.all(color: s.labelShape == sh ? AyatColors.gold : AyatColors.goldDim),
-            borderRadius: sh == LabelShape.rounded ? BorderRadius.circular(8)
-              : sh == LabelShape.circle ? BorderRadius.circular(15)
-              : sh == LabelShape.pill ? BorderRadius.circular(15) : BorderRadius.circular(4)),
+            borderRadius: sh == S128LabelShape.rounded ? BorderRadius.circular(8)
+              : sh == S128LabelShape.circle ? BorderRadius.circular(15)
+              : sh == S128LabelShape.pill ? BorderRadius.circular(15) : BorderRadius.circular(4)),
           alignment: Alignment.center,
           child: Text(sh.name[0], style: const TextStyle(fontSize: 10))))]),
     _slider('الشفافية', s.labelOpacity, 0, 100, 0,
@@ -185,14 +184,14 @@ class _TextEditorProState extends State<TextEditorPro> {
       child: Column(children: [
         SwitchListTile(title: Row(children: [Icon(ic, size: 18, color: AyatColors.gold),
           const SizedBox(width: 8), Text(t, style: const TextStyle(fontSize: 14))]),
-          value: on, activeThumbColor: AyatColors.gold, onChanged: set),
+          value: on, activeColor: AyatColors.gold, onChanged: set),
         if (on) ...body]));
 
   Widget _slider(String t, double v, double mn, double mx, int dp,
           ValueChanged<double> set) =>
     Row(children: [SizedBox(width: 76, child: Text(t,
         style: TextStyle(fontSize: 12, color: AyatColors.goldDim))),
-      Expanded(child: Slider(activeThumbColor: AyatColors.gold, value: v,
+      Expanded(child: Slider(activeColor: AyatColors.gold, value: v,
         min: mn, max: mx, onChanged: set)),
       SizedBox(width: 40, child: Text(dp == 0 ? v.toInt().toString() : v.toStringAsFixed(dp),
         style: const TextStyle(fontSize: 12)))]);
@@ -208,12 +207,12 @@ void paintLabel(Canvas canvas, Rect r, StudioState s) {
   final p = Paint()..color = s.labelColor.withValues(alpha: s.labelOpacity);
   final rr = r.inflate(14);
   switch (s.labelShape) {
-    case LabelShape.rounded: canvas.drawRRect(
+    case S128LabelShape.rounded: canvas.drawRRect(
         RRect.fromRectAndRadius(rr, const Radius.circular(10)), p); break;
-    case LabelShape.circle: canvas.drawOval(rr, p); break;
-    case LabelShape.pill: canvas.drawRRect(
+    case S128LabelShape.circle: canvas.drawOval(rr, p); break;
+    case S128LabelShape.pill: canvas.drawRRect(
         RRect.fromRectAndRadius(rr, Radius.circular(rr.height / 2)), p); break;
-    case LabelShape.scallop: case LabelShape.hexagon:
+    case S128LabelShape.scallop: case S128LabelShape.hexagon:
       canvas.drawRRect(RRect.fromRectAndRadius(rr, const Radius.circular(6)), p); break;
   }
 }
