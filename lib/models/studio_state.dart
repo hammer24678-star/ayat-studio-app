@@ -58,6 +58,18 @@ class StudioState extends ChangeNotifier {
   String matchConfidenceText = '';
   bool get hasAyah => ayahText.isNotEmpty;
 
+  // PATCH_S129_QURAN_CAPTION_PARITY: project identity (dashboard + chapters header)
+  String projectName = '';
+  String reciterName = '';
+
+  // PATCH_S129_QURAN_CAPTION_PARITY: independent translation-layer styling.
+  // Defaults preserve the previous look; the live preview and the exporter
+  // both read these so they can never disagree.
+  double translationFontSize = 22;
+  Color translationColor = const Color(0xFFE8E0D0);
+  double translationOpacity = 0.92;
+  double translationOffsetY = 12; // positive = below the ayah block
+
   // ---- uploaded media ----
   String? videoPath;
   bool get hasVideo => videoPath != null;

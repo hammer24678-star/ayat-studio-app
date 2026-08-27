@@ -62,8 +62,10 @@ class _TextEditorProState extends State<TextEditorPro> {
           () => s.update(() => s.fontKey = f.$1)),
       _chip('خط قرآني', s.fontKey == 'amiri_quran',
           () => s.update(() => s.fontKey = 'amiri_quran')),
+      // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
-        label: const Text('إضافة خط'), onPressed: null /* wire via TextEditorPro.onPickCustomFont */)]),
+        label: const Text('إضافة خط'), onPressed: widget.onPickCustomFont)]),
+
     _slider('الحجم', s.ayahFontSize, 14, 30, 0,
         (v) => s.update(() => s.ayahFontSize = v)),
     _slider('تباعد الأحرف', s.letterSpacing, 0, 12, 0,

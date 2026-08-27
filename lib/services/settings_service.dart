@@ -236,6 +236,17 @@ class SettingsService {
           (read<int>('customAspectH') ?? state.customAspectH).clamp(240, 3840);
       state.exportSubtitles =
           read<bool>('exportSubtitles') ?? state.exportSubtitles;
+      // PATCH_S129_QURAN_CAPTION_PARITY
+      state.projectName = read<String>('projectName') ?? state.projectName;
+      state.reciterName = read<String>('reciterName') ?? state.reciterName;
+      state.translationFontSize =
+          read<double>('translationFontSize') ?? state.translationFontSize;
+      state.translationOpacity =
+          read<double>('translationOpacity') ?? state.translationOpacity;
+      state.translationOffsetY =
+          read<double>('translationOffsetY') ?? state.translationOffsetY;
+      final tc = read<int>('translationColor');
+      if (tc != null) state.translationColor = Color(tc);
       // PATCH_S126_TEXT_TRANSITIONS
       final tIn = read<int>('textInTransition');
       if (tIn != null && tIn >= 0 && tIn < TextTransition.values.length) {
@@ -415,6 +426,13 @@ class SettingsService {
       p.setInt('${_prefix}customAspectW', state.customAspectW),
       p.setInt('${_prefix}customAspectH', state.customAspectH),
       p.setBool('${_prefix}exportSubtitles', state.exportSubtitles),
+      // PATCH_S129_QURAN_CAPTION_PARITY
+      p.setString('${_prefix}projectName', state.projectName),
+      p.setString('${_prefix}reciterName', state.reciterName),
+      p.setDouble('${_prefix}translationFontSize', state.translationFontSize),
+      p.setDouble('${_prefix}translationOpacity', state.translationOpacity),
+      p.setDouble('${_prefix}translationOffsetY', state.translationOffsetY),
+      p.setInt('${_prefix}translationColor', state.translationColor.toARGB32()),
       p.setDouble('${_prefix}playbackSpeed', state.playbackSpeed), // PATCH_S125_SPEED
       // PATCH_S126_TEXT_TRANSITIONS
       p.setInt('${_prefix}textInTransition', state.textInTransition.index),

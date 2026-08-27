@@ -161,4 +161,61 @@ class SubtitleService {
     }
     return n;
   }
+
+  // PATCH_S129_QURAN_CAPTION_PARITY: YouTube (and most players) accept a plain chapters
+  // file — one "MM:SS  Title" line per cue. This is the same timeline the
+  // SRT/VTT path already walks, so the chapters never disagree with the
+  // burned-in or sidecar subtitles.
+  //
+  // Format is the one YouTube documents:
+  //   0:00  Introduction
+  //   0:42  الفاتحة 1
+  //   …
+  // Hours are omitted when the video is under 60 minutes (YouTube's own
+  // examples do this); we keep the same rule so a short clip does not look
+  // over-engineered.
+  static String chapters(
+    List<TimelineSegment> segments, {
+    double clipStart = 0,
+    double clipDuration = double.infinity,
+    double leadInSec = 0,
+    double speed = 1.0,
+    String? projectName,
+    String? reciterName,
+  }) {
+    final rate = speed.clamp(0.25, 4.0);
+    final buf = StringBuffer();
+    if (projectName != null && projectName.trim().isNotEmpty) {
+      buf.writeln('# ${projectName.trim()}');
+    }
+    if (reciterName != null && reciterName.trim().isNotEmpty) {
+      buf.writeln('# ${reciterName.trim()}');
+    }
+    // Always start at 0:00 so the first chapter is reachable from the scrubber.
+    if (leadInSec > 0.05) {
+      buf.writeln('${_chapterTs(0)}  مقدمة');
+    }
+    for (final seg in segments) {
+      final start = seg.start - clipStart;
+      final end = seg.end - clipStart;
+      if (end <= 0 || start >= clipDuration) continue;
+      final from = max(0.0, start) / rate + leadInSec;
+      final to = min(clipDuration, end) / rate + leadInSec;
+      if (to - from < 0.05) continue;
+      final title = '${seg.ayah.surah} ${seg.ayah.num}';
+      buf.writeln('${_chapterTs(from)}  $title');
+    }
+    return buf.toString();
+  }
+
+  static String _chapterTs(double seconds) {
+    final total = max(0, seconds.round());
+    final s = total % 60;
+    final m = (total ~/ 60) % 60;
+    final h = total ~/ 3600;
+    if (h > 0) {
+      return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
 }

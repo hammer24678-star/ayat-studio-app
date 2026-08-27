@@ -134,15 +134,14 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S123_I18N: the tab strip is the app's main navigation, so it is
   // localized even though the deeper panel copy is still Arabic-only.
   // A getter, not a const list, because the language can change at runtime.
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: five clear groups instead of an 8-tab 4×2 grid.
+  // Content (which words) stays in الآيات; look (fonts/border/…) in النص.
   List<(IconData, String)> get _tabs => [
-        (Icons.menu_book_outlined, _t('studio.tab.ayah')),
-        (Icons.dark_mode_outlined, _t('studio.tab.backgrounds')),
-        (Icons.water_drop_outlined, _t('studio.tab.effects')), // PATCH_S34_STAGE_EFFECTS
-        (Icons.filter_hdr_outlined, _t('studio.tab.chroma')),
-        (Icons.graphic_eq, _t('studio.tab.reciters')),
-        (Icons.grid_view_outlined, _t('studio.tab.templates')),
-        (Icons.text_fields, _t('studio.tab.text')),
-        (Icons.video_settings_outlined, _t('studio.tab.export')), // PATCH_S54_PRO_EXPORT_CONTROLS
+        (Icons.menu_book_outlined, 'الآيات'),
+        (Icons.text_fields, 'النص'),
+        (Icons.auto_awesome_outlined, 'الشكل'),
+        (Icons.perm_media_outlined, 'الوسائط'),
+        (Icons.more_horiz, 'المزيد'),
       ];
 
   /// Shorthand for a localized string in this screen's chrome.
@@ -2697,34 +2696,40 @@ class _HomeScreenState extends State<HomeScreen>
 
   // PATCH_S59_TAB_GRID: fixed 4-column grid so 8 tabs always lay out as a
   // clean 4+4, instead of Wrap's width-driven 3/4/1 orphan row.
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: one horizontal row of 5 equal chips — easy to scan.
   Widget _tabChips() {
-    return GridView.count(
-      crossAxisCount: 4,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 8,
-      crossAxisSpacing: 8,
-      childAspectRatio: 1.55,
+    return Row(
       children: [
-        for (var i = 0; i < _tabs.length; i++) _tabButton(i),
+        for (var i = 0; i < _tabs.length; i++)
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: i == 0 ? 0 : 4,
+                right: i == _tabs.length - 1 ? 0 : 4,
+              ),
+              child: _tabButton(i),
+            ),
+          ),
       ],
     );
   }
 
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: compact chip — icon + short label, works in a 5-wide row.
   Widget _tabButton(int i) {
     final selected = _selectedTab == i;
     return Material(
       color: selected ? AyatColors.goldBright : AyatColors.surface2,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         onTap: () {
-          HapticFeedback.selectionClick(); // PATCH_S83_SYNC_QOL
+          HapticFeedback.selectionClick();
           setState(() => _selectedTab = i);
         },
         child: Container(
+          height: 52,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: selected ? AyatColors.goldBright : AyatColors.hairline,
             ),
@@ -2737,11 +2742,13 @@ class _HomeScreenState extends State<HomeScreen>
               Icon(_tabs[i].$1,
                   size: 18,
                   color: selected ? AyatColors.ink : AyatColors.parchmentDim),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(_tabs[i].$2,
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: selected ? AyatColors.ink : AyatColors.parchment,
                   )),
@@ -2752,18 +2759,43 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: case map matches the 5-group bar.
+  // النص (1) finally mounts TextEditorPro instead of the old plain panel.
   Widget _panelCard() {
     return _card(
       child: switch (_selectedTab) {
         0 => _ayahPanel(),
-        1 => _bgPanel(),
-        2 => _effectsPanel(), // PATCH_S34_STAGE_EFFECTS
-        3 => _chromaPanel(),
-        4 => _recitersPanel(),
-        5 => _templatesPanel(),
-        6 => _textPanel(),
-        _ => _exportPanel(), // PATCH_S54_PRO_EXPORT_CONTROLS
+        1 => _textEditorProPanel(),
+        2 => _shapePanel(),   // effects + templates
+        3 => _mediaPanel(),   // backgrounds + chroma + reciters
+        _ => _exportPanel(),
       },
+    );
+  }
+
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: "الشكل" — visual look (particles + ready templates).
+  Widget _shapePanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _effectsPanel(),
+        const Divider(height: 28, color: AyatColors.hairline),
+        _templatesPanel(),
+      ],
+    );
+  }
+
+  // PATCH_S129_WIRE_AND_SIMPLIFY_UI: "الوسائط" — backgrounds, chroma, reciter audio.
+  Widget _mediaPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _bgPanel(),
+        const Divider(height: 28, color: AyatColors.hairline),
+        _chromaPanel(),
+        const Divider(height: 28, color: AyatColors.hairline),
+        _recitersPanel(),
+      ],
     );
   }
 
@@ -3812,12 +3844,17 @@ class _HomeScreenState extends State<HomeScreen>
         if (state.hasAyah) _redWordsSection(),
         _manualTimingSection(),
         _captionSection(),
-        _fieldLabel('أو اكتب الآية (يتم التعرّف عليها من القرآن كاملاً)'),
+        // PATCH_S129_WIRE_AND_SIMPLIFY_UI: free-type path — same as before, clearer title so it
+        // is not buried under the dropdowns.
+        _fieldLabel('أو اكتب نصًا بنفسك'),
         TextField(
           controller: _customArCtrl,
-          maxLines: 2,
-          decoration:
-              const InputDecoration(hintText: 'اكتب ولو جزءًا من الآية بالعربية…'),
+          maxLines: 3,
+          textAlign: TextAlign.right,
+          decoration: const InputDecoration(
+            hintText: 'اكتب الآية أو أي نص عربي… (يُطابق من المصحف إن وُجد)',
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: 8),
         TextField(
