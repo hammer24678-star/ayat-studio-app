@@ -179,23 +179,74 @@ class _StagePreviewState extends State<StagePreview>
     final state = widget.state;
     final s = AppStrings(AppSettings.instance.lang);
     final ctrl = TextEditingController(text: currentText);
+    // PATCH_S134_AUTOSEG_WIZARD: word-level selection, real and safe --
+    // a tappable word row that toggles the same state.redWordIndices
+    // the الآية tab's chip section already writes to (and both the
+    // live stage and the exporter already read from), just reachable
+    // right from the stage's own edit flow instead of only from a
+    // separate tab.
+    final words = currentText
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
     final result = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
         backgroundColor: AyatColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
           side: const BorderSide(color: AyatColors.hairline),
         ),
         title: Text(s.t('stage.editText')),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLines: 4,
-          textAlign: TextAlign.right,
-          textDirection: TextDirection.rtl,
-          style: const TextStyle(color: AyatColors.parchment),
-          decoration: const InputDecoration(border: OutlineInputBorder()),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLines: 4,
+                textAlign: TextAlign.right,
+                textDirection: TextDirection.rtl,
+                style: const TextStyle(color: AyatColors.parchment),
+                decoration: const InputDecoration(border: OutlineInputBorder()),
+              ),
+              if (words.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(s.t('stage.toggleWords'),
+                    style: const TextStyle(
+                        color: AyatColors.goldDim, fontSize: 12)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var i = 0; i < words.length; i++)
+                      FilterChip(
+                        label: Text(words[i],
+                            style: ayahTextStyle(state.fontKey,
+                                fontSize: 13)),
+                        selected: state.redWordIndices.contains(i),
+                        selectedColor: const Color(0xFFE53935)
+                            .withValues(alpha: 0.35),
+                        onSelected: (sel) {
+                          state.update(() {
+                            if (sel) {
+                              state.redWordIndices.add(i);
+                            } else {
+                              state.redWordIndices.remove(i);
+                            }
+                          });
+                          setDialogState(() {});
+                        },
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -207,6 +258,7 @@ class _StagePreviewState extends State<StagePreview>
             child: Text(s.t('stage.editSave')),
           ),
         ],
+        ),
       ),
     );
     ctrl.dispose();

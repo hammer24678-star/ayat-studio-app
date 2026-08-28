@@ -52,6 +52,7 @@ import '../widgets/text_editor_pro.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
+import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
 import 'settings_screen.dart'; // PATCH_S123_SETTINGS_SCREEN
 
 class HomeScreen extends StatefulWidget {
@@ -1600,6 +1601,58 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ],
     );
+  }
+
+  // PATCH_S134_AUTOSEG_WIZARD: guided multi-step entry point (the
+  // reference "Auto-Segmentation Wizard"). The wizard lives in its
+  // own file; everything it changes flows through existing
+  // StudioState APIs (addManualSegment / whisperModelSize), same as
+  // every other dialog in this file.
+  Widget _autoSegWizardCard() {
+    return _sectionCard(Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          const Icon(Icons.auto_awesome_outlined,
+              color: AyatColors.gold, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text(_t('wizard.title'),
+                  style: Theme.of(context).textTheme.titleSmall)),
+        ]),
+        const SizedBox(height: 4),
+        Text(_t('wizard.subtitle'),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: AyatColors.goldDim)),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: _openAutoSegWizard,
+          icon: const Icon(Icons.auto_fix_high, size: 18),
+          label: Text(_t('wizard.launch')),
+        ),
+      ],
+    ));
+  }
+
+  // PATCH_S134_AUTOSEG_WIZARD: opens the wizard and surfaces its result
+  // through the existing toast/timeline-card plumbing.
+  Future<void> _openAutoSegWizard() async {
+    final res = await showAutoSegWizard(
+      context: context,
+      state: state,
+      audioPath: _video?.dataSource,
+    );
+    if (res == null) return;
+    if (res.importedSegments > 0) {
+      _revealTimelineCard();
+      _toast('${_t('wizard.imported')}: ${res.importedSegments} \u2713');
+    } else if (res.tierApplied) {
+      _toast(_t('wizard.localNote'));
+    } else if (res.cloudChosen) {
+      _toast(_t('wizard.cloudNote'));
+    }
   }
 
   Widget _trimCard() {
@@ -3538,7 +3591,7 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _sectionHeader(
-          'استخدام جزء من الآية فقط',
+          _t('partial.use'), // PATCH_S134_AUTOSEG_WIZARD
           'اختاري من أي كلمة إلى أي كلمة من الآية المحددة أعلاه -- مفيد لعرض '
           'نصفها فقط مثلاً بدل الآية كاملة، أو لإضافتها كمقطع مستقل في الخط '
           'الزمني أدناه. مثال: لو اخترتِ من الكلمة الأولى إلى الثالثة فقط '
@@ -3551,7 +3604,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Expanded(
               child: DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'من كلمة'),
+                decoration: InputDecoration(labelText: _t('partial.fromWord')), // PATCH_S134_AUTOSEG_WIZARD
                 initialValue: from,
                 items: [
                   for (var i = 0; i < words.length; i++)
@@ -3575,7 +3628,7 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(width: 10),
             Expanded(
               child: DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'إلى كلمة'),
+                decoration: InputDecoration(labelText: _t('partial.toWord')), // PATCH_S134_AUTOSEG_WIZARD
                 initialValue: to,
                 items: [
                   for (var i = 0; i < words.length; i++)
@@ -3629,9 +3682,9 @@ class _HomeScreenState extends State<HomeScreen>
                     surahNum: a.surahNum,
                     ayahNum: a.num,
                   );
-                  _toast('تم استخدام جزء من الآية');
+                  _toast(_t('partial.usedToast')); // PATCH_S134_AUTOSEG_WIZARD
                 },
-          child: Text(isFull ? 'الآية كاملة محددة بالفعل' : 'استخدام هذا الجزء فقط'),
+          child: Text(_t(isFull ? 'partial.full' : 'partial.useThis')), // PATCH_S134_AUTOSEG_WIZARD
         ),
         const SizedBox(height: 8),
         // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: the missing link between
@@ -3654,10 +3707,10 @@ class _HomeScreenState extends State<HomeScreen>
             final end = start + 4;
             state.addManualSegment(a, start, end, textOverride: partialText);
             _revealTimelineCard();
-            _toast('أُضيف هذا الجزء إلى الخط الزمني ✓');
+            _toast(_t('partial.addedToast')); // PATCH_S134_AUTOSEG_WIZARD
           },
           icon: const Icon(Icons.playlist_add, size: 18),
-          label: const Text('إضافة هذا الجزء إلى الخط الزمني'),
+          label: Text(_t('partial.addToTimeline')), // PATCH_S134_AUTOSEG_WIZARD
         ),
       ],
     )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
@@ -4037,6 +4090,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (state.hasAyah) _redWordsSection(),
         _manualTimingSection(),
         _captionSection(),
+        _autoSegWizardCard(), // PATCH_S134_AUTOSEG_WIZARD
         // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the dropdown above sets ONE static ayah. For a
         // recitation that moves through several ayat, build a manual
         // timeline instead -- this opens the same add-a-segment dialog
