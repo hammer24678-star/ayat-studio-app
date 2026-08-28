@@ -20,6 +20,7 @@ import '../theme/ayat_theme.dart';
 import '../i18n/app_strings.dart';
 import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
+import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
 
 /// What the overlay is currently showing. During auto-sync playback the
 /// karaoke ticker feeds the current ayah part through here; otherwise it
@@ -121,6 +122,15 @@ class _StagePreviewState extends State<StagePreview>
   // PATCH_S34_PLAYER_CONTROLS_TRIM: tap anywhere on the stage to pause/resume
   // the uploaded video, with a short feedback icon flash.
   void _togglePlayback() {
+    // PATCH_S133_STAGE_TEXT_SELECT_EDIT: the ayah text's own GestureDetector
+    // sits above this full-stage one and normally wins any tap that lands
+    // on the text itself -- but a tap that lands just outside it (still
+    // within this translucent layer) should close the selection box
+    // instead of also pausing/resuming the video underneath it.
+    if (widget.state.stageTextSelected) {
+      widget.state.clearStageSelection();
+      return;
+    }
     final c = widget.videoController;
     if (c == null || !c.value.isInitialized) return;
     final nowPlaying = !c.value.isPlaying;
@@ -146,6 +156,63 @@ class _StagePreviewState extends State<StagePreview>
     if (target > dur) target = dur;
     c.seekTo(target);
     _flash(forward ? Icons.forward_5 : Icons.replay_5);
+  }
+
+  // PATCH_S133_STAGE_TEXT_SELECT_EDIT: the TimelineSegment currently on
+  // screen during auto-sync playback (same lookup home_screen._tickAutoSync
+  // uses), or null when just the statically-picked ayah is showing -- no
+  // active timeline, or playback is between two detected segments.
+  TimelineSegment? _liveSegment() {
+    final c = widget.videoController;
+    if (c == null || !c.value.isInitialized || !widget.state.timelineActive) {
+      return null;
+    }
+    return widget.state.segmentAt(c.value.position.inMilliseconds / 1000.0);
+  }
+
+  // PATCH_S133_STAGE_TEXT_SELECT_EDIT: opens once the stage text is
+  // selected (single tap) and then double-tapped. Styled like
+  // _pickAyahCandidate's AlertDialog in home_screen.dart so it reads as
+  // part of the same app rather than a bolted-on sheet.
+  Future<void> _openStageTextEditor(
+      BuildContext context, String currentText) async {
+    final state = widget.state;
+    final s = AppStrings(AppSettings.instance.lang);
+    final ctrl = TextEditingController(text: currentText);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AyatColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: const BorderSide(color: AyatColors.hairline),
+        ),
+        title: Text(s.t('stage.editText')),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 4,
+          textAlign: TextAlign.right,
+          textDirection: TextDirection.rtl,
+          style: const TextStyle(color: AyatColors.parchment),
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(s.t('common.cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ctrl.text),
+            child: Text(s.t('stage.editSave')),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null) return;
+    state.applyStageTextEdit(result);
+    state.clearStageSelection();
   }
 
   @override
@@ -841,7 +908,20 @@ class _StagePreviewState extends State<StagePreview>
     // so each gesture needs its own starting snapshot, and a fresh
     // closure over a local is enough since _overlay reruns every build.
     double gestureStartUserScale = state.textUserScale;
+    // PATCH_S133_STAGE_TEXT_SELECT_EDIT: the segment (if any) this specific
+    // build of the overlay is showing -- captured once here so onTap and
+    // onDoubleTap below both act on the exact text currently on screen,
+    // not a re-lookup that could have moved on by the time the user's
+    // second tap lands.
+    final liveSegment = _liveSegment();
     return GestureDetector(
+      onTap: () {
+        if (state.stageTextSelected) {
+          state.clearStageSelection();
+        } else {
+          state.selectStageText(liveSegment);
+        }
+      },
       onScaleStart: (_) => gestureStartUserScale = state.textUserScale,
       onScaleUpdate: (details) {
         state.update(() {
@@ -850,40 +930,62 @@ class _StagePreviewState extends State<StagePreview>
               (gestureStartUserScale * details.scale).clamp(0.6, 1.8);
         });
       },
-      onDoubleTap: () => state.update(() {
-        state.textOffset = Offset.zero;
-        state.textUserScale = 1.0;
-      }),
+      // PATCH_S133_STAGE_TEXT_SELECT_EDIT: double-tap now opens the text
+      // editor once the box is up (single-tap-to-select, then
+      // double-tap-to-edit) -- the old "double-tap resets drag position"
+      // shortcut still fires the rest of the time, so nothing already
+      // relying on it breaks.
+      onDoubleTap: () {
+        if (state.stageTextSelected) {
+          _openStageTextEditor(context, text);
+        } else {
+          state.update(() {
+            state.textOffset = Offset.zero;
+            state.textUserScale = 1.0;
+          });
+        }
+      },
       child: Transform.translate(
         offset: Offset(
             state.textOffset.dx * scale, state.textOffset.dy * scale),
         child: Align(
           alignment: Alignment(0, alignY),
-          child: Container(
-            margin: EdgeInsets.symmetric(horizontal: 0.07 * 270 * scale / 2),
-            padding: deco != null
-                ? EdgeInsets.symmetric(
-                    horizontal: 14 * scale, vertical: 10 * scale)
-                : EdgeInsets.zero,
-            decoration: deco,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ayahWidget,
-                if (state.showTranslation && trans.isNotEmpty) ...[
-                  SizedBox(height: 4 * scale),
-                  Text(
-                    trans,
-                    textAlign: TextAlign.center,
-                    style: translationTextStyle(
-                      fontSize:
-                          state.transFontSize * scale * state.textUserScale,
-                      color: state.textColor.withValues(alpha: 0.88),
-                      shadows: shadows,
+          // PATCH_S133_STAGE_TEXT_SELECT_EDIT: dashed gold selection box +
+          // corner handles, reusing SelectionBoxPainter as-is (already
+          // themed with AyatColors) -- CustomPaint's foregroundPainter
+          // sizes itself to match its child automatically, so this never
+          // has to compute the text's on-screen Rect by hand.
+          child: CustomPaint(
+            foregroundPainter: SelectionBoxPainter(
+              box: Rect.zero,
+              active: state.stageTextSelected,
+            ),
+            child: Container(
+              margin: EdgeInsets.symmetric(horizontal: 0.07 * 270 * scale / 2),
+              padding: deco != null
+                  ? EdgeInsets.symmetric(
+                      horizontal: 14 * scale, vertical: 10 * scale)
+                  : EdgeInsets.zero,
+              decoration: deco,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ayahWidget,
+                  if (state.showTranslation && trans.isNotEmpty) ...[
+                    SizedBox(height: 4 * scale),
+                    Text(
+                      trans,
+                      textAlign: TextAlign.center,
+                      style: translationTextStyle(
+                        fontSize:
+                            state.transFontSize * scale * state.textUserScale,
+                        color: state.textColor.withValues(alpha: 0.88),
+                        shadows: shadows,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

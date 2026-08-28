@@ -204,6 +204,9 @@ const Map<String, List<String>> _table = {
 // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N: studio surfaces.
 'studio.loaded': ['تم تحميل القرآن الكريم كاملاً (6236 آية)', 'The full Quran is loaded (6,236 ayat)', 'Le Coran complet est chargé (6 236 versets)', 'Al-Quran lengkap dimuat (6.236 ayat)', 'مکمل قرآن کریم لوڈ ہو گیا (6236 آیات)'],
 'stage.hint': ['اختر آية، أو ارفع فيديو واستخدم التعرّف أو المزامنة التلقائية', 'Pick an ayah, or upload a video and use detection or auto-sync', 'Choisissez un verset, ou importez une vidéo avec détection ou synchro auto', 'Pilih ayat, atau unggah video dan gunakan deteksi atau sinkron otomatis', 'آیت منتخب کریں، یا ویڈیو اپ لوڈ کر کے شناخت یا آٹو سنک استعمال کریں'],
+// PATCH_S133_STAGE_TEXT_SELECT_EDIT: tap-to-select + double-tap-to-edit dialog.
+'stage.editText': ['تعديل النص الظاهر', 'Edit displayed text', 'Modifier le texte affiché', 'Edit teks yang ditampilkan', 'ظاہر ہونے والا متن ترمیم کریں'],
+'stage.editSave': ['حفظ', 'Save', 'Enregistrer', 'Simpan', 'محفوظ کریں'],
 'aspect.story916': ['قصة 9:16', 'Story 9:16', 'Story 9:16', 'Story 9:16', 'اسٹوری 9:16'],
 'aspect.square11': ['مربع 1:1', 'Square 1:1', 'Carré 1:1', 'Persegi 1:1', 'مربع 1:1'],
 'aspect.landscape169': ['عريض 16:9', 'Wide 16:9', 'Large 16:9', 'Lebar 16:9', 'وائیڈ 16:9'],

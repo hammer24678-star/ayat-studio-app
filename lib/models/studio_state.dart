@@ -26,7 +26,9 @@ class TimelineSegment {
   // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: when this segment is a sliced
   // word range from "استخدام جزء من الآية فقط" rather than the whole
   // ayah, the sliced text lives here -- null means "use ayah.ar as-is".
-  final String? textOverride;
+  // PATCH_S133_STAGE_TEXT_SELECT_EDIT: no longer final -- the stage-text
+  // edit dialog corrects it in place instead of rebuilding the segment.
+  String? textOverride;
   TimelineSegment({
     required this.start,
     required this.end,
@@ -296,6 +298,46 @@ class StudioState extends ChangeNotifier {
     const Color(0xFF8A6B3F), const Color(0xFF5C4033), const Color(0xFF000000)];
   List<String> unifiedTexts = const [];
   bool stageTextSelected = false;
+  // PATCH_S133_STAGE_TEXT_SELECT_EDIT: which TimelineSegment the selection
+  // box on the stage is currently around -- null while stageTextSelected
+  // is showing the statically-picked ayah (no auto-sync timeline playing,
+  // or playback is between segments) rather than a live timeline part.
+  TimelineSegment? selectedSegment;
+
+  void selectStageText([TimelineSegment? segment]) {
+    stageTextSelected = true;
+    selectedSegment = segment;
+    notifyListeners();
+  }
+
+  void clearStageSelection() {
+    if (!stageTextSelected && selectedSegment == null) return;
+    stageTextSelected = false;
+    selectedSegment = null;
+    notifyListeners();
+  }
+
+  /// Writes a correction back to whichever text is currently selected on
+  /// the stage: the segment's textOverride during auto-sync playback --
+  /// buildKaraokeChunks() already reads textOverride ahead of ayah.ar, so
+  /// the live karaoke preview and the exporter both pick this up with no
+  /// further wiring -- or ayahText when nothing from the timeline is
+  /// selected (the statically-picked ayah).
+  void applyStageTextEdit(String newText) {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+    pushHistory();
+    if (selectedSegment != null) {
+      selectedSegment!.textOverride = trimmed;
+    } else {
+      ayahText = trimmed;
+      // PATCH_S133_STAGE_TEXT_SELECT_EDIT: a hand correction can change the
+      // word count/order -- a previous red-word selection almost never
+      // still lines up (same reasoning as setAyah()).
+      redWordIndices = {};
+    }
+    notifyListeners();
+  }
   // PATCH_S128_FIX1_BUILD_ERRORS: fields the S128 glow tab/settings persistence needed
   double glowSize = 20;      // 0..60, see text_editor_pro.dart GLOW tab
   double glowSharpness = 50; // 0..100
@@ -880,7 +922,13 @@ class StudioState extends ChangeNotifier {
                 end: s.end,
                 ayah: s.ayah,
                 confidence: s.confidence,
-                wordStarts: List.of(s.wordStarts)),
+                wordStarts: List.of(s.wordStarts),
+                // PATCH_S133_STAGE_TEXT_SELECT_EDIT: undo/redo rebuilds the
+                // timeline from this snapshot -- without carrying these
+                // over, a stage-text correction (or an inferred-gap flag)
+                // would silently vanish on the next unrelated undo/redo.
+                inferred: s.inferred,
+                textOverride: s.textOverride),
         ],
         'timelineActive': timelineActive,
         'trimFromIndex': trimFromIndex,
@@ -1022,6 +1070,12 @@ class StudioState extends ChangeNotifier {
     _redoStack.add(_capture());
     _restoring = true;
     _apply(_undoStack.removeLast());
+    // PATCH_S133_STAGE_TEXT_SELECT_EDIT: _apply() rebuilds `timeline` with
+    // fresh TimelineSegment objects, so any selection pointing at the old
+    // ones is now dangling -- drop it rather than risk editing a segment
+    // that is no longer part of the timeline.
+    selectedSegment = null;
+    stageTextSelected = false;
     _restoring = false;
     _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
     notifyListeners();
@@ -1032,6 +1086,9 @@ class StudioState extends ChangeNotifier {
     _undoStack.add(_capture());
     _restoring = true;
     _apply(_redoStack.removeLast());
+    // PATCH_S133_STAGE_TEXT_SELECT_EDIT: same as undoStep() above.
+    selectedSegment = null;
+    stageTextSelected = false;
     _restoring = false;
     _lastPush = DateTime.fromMillisecondsSinceEpoch(0);
     notifyListeners();

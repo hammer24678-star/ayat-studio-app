@@ -10,8 +10,13 @@ class SelectionBoxPainter extends CustomPainter {
   const SelectionBoxPainter({required this.box, required this.active});
   @override
   void paint(Canvas c, Size size) {
-    if (!active || box.isEmpty) return;
-    final r = box.inflate(10);
+    if (!active) return;
+    // PATCH_S133_STAGE_TEXT_SELECT_EDIT: an empty box now means "draw
+    // around whatever this CustomPaint was sized to" -- the stage wiring
+    // sizes the painter to exactly the selected text's own Container via
+    // CustomPaint's foregroundPainter auto-sizing, so it never has to
+    // compute the text's on-screen Rect by hand.
+    final r = (box.isEmpty ? Offset.zero & size : box).inflate(10);
     final line = Paint()..color = AyatColors.gold..strokeWidth = 1.6
       ..style = PaintingStyle.stroke;
     _dash(c, r, line);
