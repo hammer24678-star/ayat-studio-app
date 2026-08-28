@@ -9,6 +9,19 @@ import '../models/studio_state.dart';
 import 'color_picker_dialog.dart' show showAyatColorPicker;
 
 enum TextEditorTab { text, border, shadow, glow, label, opacity }
+
+// PATCH_S132_GAUNTLET_LOOP: the tab strip read t.name.toUpperCase() --
+// the raw Dart enum identifier, English by construction, with no
+// translation possible via a literal string replace (there was no
+// literal string to replace). Real Arabic labels instead.
+const Map<TextEditorTab, String> _kTabLabelsAr = {
+  TextEditorTab.text: 'النص',
+  TextEditorTab.border: 'الإطار',
+  TextEditorTab.shadow: 'الظل',
+  TextEditorTab.glow: 'التوهج',
+  TextEditorTab.label: 'اللافتة',
+  TextEditorTab.opacity: 'الشفافية',
+};
 // S128LabelShape mirrors S128LabelShape on StudioState
 // PATCH_S128_FIX2_TEXT_EDITOR_PRO: enum: removed, using S128LabelShape
 class TextEditorPro extends StatefulWidget {
@@ -36,9 +49,12 @@ class _TextEditorProState extends State<TextEditorPro> {
   Widget build(BuildContext c) => ListenableBuilder(listenable: s,
     builder: (c, _) => Column(children: [_tabRow(), _body()]));
 
+  // PATCH_S132_GAUNTLET_LOOP: Wrap instead of a fixed-width Row (was
+  // clipping the rightmost tab on narrow screens -- shot-2/shot-3 bug),
+  // Arabic labels instead of the raw English enum identifier.
   Widget _tabRow() => Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround,
+    child: Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6,
       children: [for (final t in TextEditorTab.values)
         GestureDetector(onTap: () => setState(() => _tab = t),
           child: Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -46,7 +62,7 @@ class _TextEditorProState extends State<TextEditorPro> {
               color: _tab == t ? AyatColors.gold.withValues(alpha: .18) : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: _tab == t ? AyatColors.gold : Colors.transparent)),
-            child: Text(t.name.toUpperCase(), style: TextStyle(
+            child: Text(_kTabLabelsAr[t]!, style: TextStyle(
               fontSize: 12, letterSpacing: 1,
               color: _tab == t ? AyatColors.goldBright : AyatColors.goldDim))))]));
 

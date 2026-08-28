@@ -207,11 +207,34 @@ class _MushafScreenState extends State<MushafScreen>
     }
     _pageCtrl = PageController(initialPage: _page - 1);
     _settings.addListener(_onSettings);
+    // PATCH_S132_GAUNTLET_LOOP: PageController.initialPage can settle a
+    // frame later than _page once the PageView's real viewport size is
+    // known (this sits 3 layouts deep inside a TabBarView) -- the footer
+    // is built straight from _page with no layout dependency, so it can
+    // briefly disagree with what's actually painted. Re-assert once real
+    // layout lands, and keep _page authoritative on the controller after.
+    _pageCtrl.addListener(_syncPageFromController);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _syncPageFromController());
+  }
+
+  void _syncPageFromController() {
+    if (!mounted || !_pageCtrl.hasClients) return;
+    final raw = _pageCtrl.page;
+    if (raw == null) return;
+    final resolved = raw.round() + 1;
+    if (resolved != _page) {
+      setState(() {
+        _page = resolved;
+        _surah = _surahOfId(ayahRangeOfPage(_page).$1);
+      });
+    }
   }
 
   @override
   void dispose() {
     _settings.removeListener(_onSettings);
+    _pageCtrl.removeListener(_syncPageFromController);
     _tabs.dispose();
     _pageCtrl.dispose();
     _surahScrollCtrl.dispose();

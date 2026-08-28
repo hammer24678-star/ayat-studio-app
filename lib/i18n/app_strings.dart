@@ -504,6 +504,20 @@ const Map<String, List<String>> _table = {
     'Matikan untuk antarmuka tanpa gerakan — lebih ringan di ponsel lama.',
     'پرانے فونز کے لیے اینیمیشن بند کریں — تیز اور پرسکون۔',
   ],
+  'settings.classicTabs': [
+    'شريط التبويبات القديم (8 تبويبات)',
+    'Classic tab layout (8 tabs)',
+    'Disposition classique (8 onglets)',
+    'Tata letak tab klasik (8 tab)',
+    'کلاسک ٹیب لے آؤٹ (8 ٹیبز)',
+  ],
+  'settings.classicTabsHint': [
+    'يستبدل التبويبات الخمس المجمّعة بشبكة الثماني تبويبات الأصلية.',
+    'Swaps the 5 grouped tabs for the original 8-tab grid.',
+    'Remplace les 5 onglets groupés par la grille originale de 8 onglets.',
+    'Mengganti 5 tab yang dikelompokkan dengan grid 8 tab asli.',
+    '5 گروپ شدہ ٹیبز کو اصل 8 ٹیب گرڈ سے بدل دیتا ہے۔',
+  ],
   'settings.quran': [
     'المصحف',
     'Quran reader',
@@ -537,6 +551,10 @@ const Map<String, List<String>> _table = {
   'studio.tab.templates': ['قوالب', 'Templates', 'Modèles', 'Template', 'ٹیمپلیٹ'],
   'studio.tab.text': ['النص', 'Text', 'Texte', 'Teks', 'متن'],
   'studio.tab.export': ['تصدير', 'Export', 'Export', 'Ekspor', 'ایکسپورٹ'],
+  'studio.group.ayat': ['الآيات', 'Ayat', 'Versets', 'Ayat', 'آیات'],
+  'studio.group.shape': ['الشكل', 'Style', 'Style', 'Gaya', 'انداز'],
+  'studio.group.media': ['الوسائط', 'Media', 'Média', 'Media', 'میڈیا'],
+  'studio.group.more': ['المزيد', 'More', 'Plus', 'Lainnya', 'مزید'],
   'studio.undo': ['تراجع', 'Undo', 'Annuler', 'Urungkan', 'واپس'],
   'studio.redo': ['إعادة', 'Redo', 'Rétablir', 'Ulangi', 'دوبارہ'],
   'studio.info': [

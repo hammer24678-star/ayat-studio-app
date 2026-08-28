@@ -89,6 +89,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _settingsRestored = false;
 
   int _selectedTab = 0;
+  // PATCH_S132_GAUNTLET_LOOP: classic<->grouped have different tab
+  // counts (8 vs 5) -- clamp so a stale index can't be out of range.
+  int get _safeSelectedTab => _selectedTab.clamp(0, _tabs.length - 1);
   int _selectedSurah = 1;
   // PATCH_S113_AYAH_DROPDOWN_SELECTION_STATE: the "الآية" dropdown's value
   // was hardcoded to null, so it never reflected the chosen ayah and reset
@@ -136,12 +139,31 @@ class _HomeScreenState extends State<HomeScreen>
   // A getter, not a const list, because the language can change at runtime.
   // PATCH_S129_WIRE_AND_SIMPLIFY_UI: five clear groups instead of an 8-tab 4×2 grid.
   // Content (which words) stays in الآيات; look (fonts/border/…) in النص.
-  List<(IconData, String)> get _tabs => [
-        (Icons.menu_book_outlined, 'الآيات'),
-        (Icons.text_fields, 'النص'),
-        (Icons.auto_awesome_outlined, 'الشكل'),
-        (Icons.perm_media_outlined, 'الوسائط'),
-        (Icons.more_horiz, 'المزيد'),
+  List<(IconData, String)> get _tabs =>
+      AppSettings.instance.classicTabs ? _classicTabs : _groupedTabs;
+
+  // PATCH_S132_GAUNTLET_LOOP: was hardcoded Arabic -- the old 8-tab strip
+  // was localized via _t(), this one silently wasn't. Fixed.
+  List<(IconData, String)> get _groupedTabs => [
+        (Icons.menu_book_outlined, _t('studio.group.ayat')),
+        (Icons.text_fields, _t('studio.tab.text')),
+        (Icons.auto_awesome_outlined, _t('studio.group.shape')),
+        (Icons.perm_media_outlined, _t('studio.group.media')),
+        (Icons.more_horiz, _t('studio.group.more')),
+      ];
+
+  // PATCH_S132_GAUNTLET_LOOP: pre-S129 8-tab grid, recovered verbatim from
+  // repo history (commit 62eca15) behind a settings toggle instead of the
+  // 5 grouped tabs -- for people who want the old layout back.
+  List<(IconData, String)> get _classicTabs => [
+        (Icons.menu_book_outlined, _t('studio.tab.ayah')),
+        (Icons.dark_mode_outlined, _t('studio.tab.backgrounds')),
+        (Icons.water_drop_outlined, _t('studio.tab.effects')),
+        (Icons.filter_hdr_outlined, _t('studio.tab.chroma')),
+        (Icons.graphic_eq, _t('studio.tab.reciters')),
+        (Icons.grid_view_outlined, _t('studio.tab.templates')),
+        (Icons.text_fields, _t('studio.tab.text')),
+        (Icons.video_settings_outlined, _t('studio.tab.export')),
       ];
 
   /// Shorthand for a localized string in this screen's chrome.
@@ -215,7 +237,11 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     // PATCH_S128: one-time 3-step tour
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) FirstRunTour.maybeShow(context);
+      // PATCH_S132_GAUNTLET_LOOP: WelcomeScreen (shown before this screen)
+      // already introduces the app's features -- this second, in-app tour
+      // was redundant. Left first_run_tour.dart in place (harmless if
+      // re-enabled later) but stopped calling it.
+      // if (mounted) FirstRunTour.maybeShow(context);
     });
   }
 
@@ -2698,6 +2724,22 @@ class _HomeScreenState extends State<HomeScreen>
   // clean 4+4, instead of Wrap's width-driven 3/4/1 orphan row.
   // PATCH_S129_WIRE_AND_SIMPLIFY_UI: one horizontal row of 5 equal chips — easy to scan.
   Widget _tabChips() {
+    // PATCH_S132_GAUNTLET_LOOP: classic mode uses the original fixed
+    // 4-column grid (8 tabs never fit a single Row); grouped mode keeps
+    // the current 5-wide Row unchanged.
+    if (AppSettings.instance.classicTabs) {
+      return GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 1.55,
+        children: [
+          for (var i = 0; i < _tabs.length; i++) _tabButton(i),
+        ],
+      );
+    }
     return Row(
       children: [
         for (var i = 0; i < _tabs.length; i++)
@@ -2763,13 +2805,24 @@ class _HomeScreenState extends State<HomeScreen>
   // النص (1) finally mounts TextEditorPro instead of the old plain panel.
   Widget _panelCard() {
     return _card(
-      child: switch (_selectedTab) {
-        0 => _ayahPanel(),
-        1 => _textEditorProPanel(),
-        2 => _shapePanel(),   // effects + templates
-        3 => _mediaPanel(),   // backgrounds + chroma + reciters
-        _ => _exportPanel(),
-      },
+      child: AppSettings.instance.classicTabs
+          ? switch (_selectedTab) {
+              0 => _ayahPanel(),
+              1 => _bgPanel(),
+              2 => _effectsPanel(),
+              3 => _chromaPanel(),
+              4 => _recitersPanel(),
+              5 => _templatesPanel(),
+              6 => _textEditorProPanel(),
+              _ => _exportPanel(),
+            }
+          : switch (_selectedTab) {
+              0 => _ayahPanel(),
+              1 => _textEditorProPanel(),
+              2 => _shapePanel(),   // effects + templates
+              3 => _mediaPanel(),   // backgrounds + chroma + reciters
+              _ => _exportPanel(),
+            },
     );
   }
 
@@ -3375,11 +3428,23 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
   // PATCH_S128: tabbed pro text editor
-  Widget _textEditorProPanel() => TextEditorPro(
-        state: state,
-        segmentTexts: state.unifiedTexts,
-        canvasWidth: 1080,
-        onPickCustomFont: _pickCustomFont,
+  // PATCH_S132_GAUNTLET_LOOP: the 30-style transitions section
+  // (_textTransitionSection, PATCH_S126) never got ported into
+  // TextEditorPro when S128 replaced the old _textPanel() -- it still
+  // works exactly as before, it was just orphaned. Mounted alongside
+  // the tabbed editor instead of duplicating 30 already-correct entries.
+  Widget _textEditorProPanel() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextEditorPro(
+            state: state,
+            segmentTexts: state.unifiedTexts,
+            canvasWidth: 1080,
+            onPickCustomFont: _pickCustomFont,
+          ),
+          const Divider(height: 32, color: AyatColors.hairline),
+          _textTransitionSection(),
+        ],
       );
 
   // PATCH_S128_FIX1_BUILD_ERRORS: bridge only -- PATCH_S128 called this but never
@@ -3740,6 +3805,95 @@ class _HomeScreenState extends State<HomeScreen>
     )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
+  Future<void> _saveTypedTextToTimeline() async {
+    final ar = _customArCtrl.text.trim();
+    if (ar.isEmpty) {
+      _toast('اكتب النص أولًا');
+      return;
+    }
+    final en = _customEnCtrl.text.trim();
+    final m = state.matcher?.match(ar);
+    final ayah = m?.ayah ??
+        Ayah(surahNum: 0, surah: 'نص مخصص', num: 0, ar: ar, en: en);
+    final range = await _pickTextTimeRange();
+    if (range == null) return;
+    state.addManualSegment(ayah, range.$1, range.$2, textOverride: ar);
+    _revealTimelineCard();
+    _toast('حُفظ النص في الخط الزمني ✓ — سيظهر من ${_fmtSec(range.$1)} '
+        'إلى ${_fmtSec(range.$2)}');
+  }
+
+  Future<(double, double)?> _pickTextTimeRange() {
+    final sCtrl = TextEditingController(text: '0');
+    final eCtrl = TextEditingController(text: '5');
+    return showDialog<(double, double)>(
+      context: context,
+      builder: (context) => StatefulBuilder(builder: (context, setS) {
+        void chip(double a, double b) => setS(() {
+          sCtrl.text = a.toStringAsFixed(0);
+          eCtrl.text = b.toStringAsFixed(0);
+        });
+        final dur = state.videoDurationSec;
+        return AlertDialog(
+          backgroundColor: AyatColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: const BorderSide(color: AyatColors.hairline)),
+          title: const Text('متى يظهر هذا النص؟'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final r in const [
+                  (0.0, 5.0), (5.0, 10.0), (10.0, 15.0), (15.0, 20.0)
+                ])
+                  ActionChip(
+                    label: Text('${r.$1.toInt()}–${r.$2.toInt()} ث'),
+                    onPressed: () => chip(r.$1, r.$2)),
+              ]),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: TextField(
+                  controller: sCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'من (ث)'))),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(
+                  controller: eCtrl,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'إلى (ث)'))),
+              ]),
+              if (dur > 0) ...[
+                const SizedBox(height: 6),
+                Text('مدة الفيديو: ${_fmtSec(dur)}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.parchmentDim)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء')),
+            FilledButton(onPressed: () {
+              final s = double.tryParse(sCtrl.text) ?? 0;
+              var e = double.tryParse(eCtrl.text) ?? (s + 5);
+              if (dur > 0) e = e.clamp(0, dur);
+              if (e <= s) {
+                _toast('النهاية يجب أن تكون بعد البداية');
+                return;
+              }
+              Navigator.pop(context, (s.clamp(0, 9999), e));
+            }, child: const Text('حفظ')),
+          ],
+        );
+      }),
+    );
+  }
+
   Widget _ayahPanel() {
     final surahs = <(int, String)>[];
     var last = 0;
@@ -3758,6 +3912,45 @@ class _HomeScreenState extends State<HomeScreen>
       children: [
         _panelTitle('اختيار الآية',
             'اختر السورة ثم الآية، أو استخدم أزرار التعرّف بالذكاء الاصطناعي، أو اكتب نصًا مخصصًا.'),
+        // PATCH_S132_GAUNTLET_LOOP: typed text now leads the tab. Apply it as
+        // the single static ayah (as before), or save it straight into the
+        // timeline with a chosen time range -- same type -> time range ->
+        // timeline flow reference caption tools use.
+        _sectionCard(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeader('اكتب نص الآية',
+              'اكتب الآية أو أي نص عربي — طبّقيه كنص ثابت، أو احفظيه في الخط '
+              'الزمني بمدة زمنية تختارينها فيظهر أثناء المعاينة والتصدير.'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _customArCtrl,
+              maxLines: 3,
+              textAlign: TextAlign.right,
+              decoration: const InputDecoration(
+                hintText: 'اكتب الآية أو أي نص عربي… (يُطابق من المصحف إن وُجد)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _customEnCtrl,
+              decoration:
+                  const InputDecoration(hintText: 'ترجمة المعاني (اختياري)'),
+            ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: ElevatedButton(
+                  onPressed: _applyCustomText,
+                  child: const Text('تطبيق كنص ثابت'))),
+              const SizedBox(width: 8),
+              Expanded(child: OutlinedButton.icon(
+                  onPressed: _saveTypedTextToTimeline,
+                  icon: const Icon(Icons.timeline, size: 18),
+                  label: const Text('حفظ في الخط الزمني'))),
+            ]),
+          ],
+        )),
         // PATCH_S62_MUSHAF_READER: standalone full-mushaf browser, separate from
         // the single-ayah picker below it -- reuses state.ayaat, no extra load.
         // PATCH_S123_QURAN_ENTRY: was a bare OutlinedButton -- the plainest
@@ -3844,28 +4037,6 @@ class _HomeScreenState extends State<HomeScreen>
         if (state.hasAyah) _redWordsSection(),
         _manualTimingSection(),
         _captionSection(),
-        // PATCH_S129_WIRE_AND_SIMPLIFY_UI: free-type path — same as before, clearer title so it
-        // is not buried under the dropdowns.
-        _fieldLabel('أو اكتب نصًا بنفسك'),
-        TextField(
-          controller: _customArCtrl,
-          maxLines: 3,
-          textAlign: TextAlign.right,
-          decoration: const InputDecoration(
-            hintText: 'اكتب الآية أو أي نص عربي… (يُطابق من المصحف إن وُجد)',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _customEnCtrl,
-          decoration:
-              const InputDecoration(hintText: 'ترجمة المعاني (اختياري)'),
-        ),
-        const SizedBox(height: 10),
-        ElevatedButton(
-            onPressed: _applyCustomText,
-            child: const Text('تطبيق النص المخصص')),
         // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the dropdown above sets ONE static ayah. For a
         // recitation that moves through several ayat, build a manual
         // timeline instead -- this opens the same add-a-segment dialog

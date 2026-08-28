@@ -85,6 +85,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       height: 1.5)),
               onChanged: (v) => setState(() => _settings.setAnimations(v)),
             ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _settings.classicTabs,
+              activeThumbColor: AyatColors.gold,
+              title: Text(s.t('settings.classicTabs'),
+                  style: GoogleFonts.tajawal(
+                      color: AyatColors.parchment, fontSize: 13.5)),
+              subtitle: Text(s.t('settings.classicTabsHint'),
+                  style: GoogleFonts.tajawal(
+                      color: AyatColors.parchmentDim,
+                      fontSize: 11.5,
+                      height: 1.5)),
+              onChanged: (v) => setState(() => _settings.setClassicTabs(v)),
+            ),
           ]),
           const SizedBox(height: 14),
           _Section(title: s.t('settings.quran'), children: [

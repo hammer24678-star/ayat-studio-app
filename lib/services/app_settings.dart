@@ -69,6 +69,13 @@ class AppSettings extends ChangeNotifier {
   bool _readerTranslation = false;
   bool get readerTranslation => _readerTranslation;
 
+  // ---- studio ----
+  /// PATCH_S132_GAUNTLET_LOOP: the original 8-tab 4x2 grid, recovered
+  /// behind a toggle instead of forcing everyone onto S129's 5 grouped
+  /// tabs. False = the current 5-group layout (default, unchanged).
+  bool _classicTabs = false;
+  bool get classicTabs => _classicTabs;
+
   bool _loaded = false;
   bool get loaded => _loaded;
 
@@ -103,6 +110,7 @@ class AppSettings extends ChangeNotifier {
     _tafsirEdition = p.getString('${_prefix}tafsirEdition') ?? _tafsirEdition;
     _readerTranslation =
         p.getBool('${_prefix}readerTranslation') ?? _readerTranslation;
+    _classicTabs = p.getBool('${_prefix}classicTabs') ?? _classicTabs;
     notifyListeners();
   }
 
@@ -172,5 +180,11 @@ class AppSettings extends ChangeNotifier {
     if (v == _readerTranslation) return;
     _readerTranslation = v;
     _write((p) => p.setBool('${_prefix}readerTranslation', v));
+  }
+
+  void setClassicTabs(bool v) {
+    if (v == _classicTabs) return;
+    _classicTabs = v;
+    _write((p) => p.setBool('${_prefix}classicTabs', v));
   }
 }
