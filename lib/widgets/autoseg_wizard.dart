@@ -133,29 +133,29 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
       var st = st0.toDouble();
       var en = en0.toDouble();
       var surah = 0;
-      var num = 0;
+      var ayahNum = 0;
       final ref = r['ref'] ?? r['reference'] ?? r['key'];
       if (ref is String) {
         final m = RegExp(r'(\d+)\s*[:\-]\s*(\d+)').firstMatch(ref);
         if (m != null) {
           surah = int.parse(m.group(1)!);
-          num = int.parse(m.group(2)!);
+          ayahNum = int.parse(m.group(2)!);
         }
       }
       if (surah == 0 && r['surah'] is num) surah = (r['surah'] as num).toInt();
-      if (num == 0 && r['ayah'] is num) num = (r['ayah'] as num).toInt();
-      if (surah == 0 || num == 0 || en <= st) continue;
+      if (ayahNum == 0 && r['ayah'] is num) ayahNum = (r['ayah'] as num).toInt();
+      if (surah == 0 || ayahNum == 0 || en <= st) continue;
       en += pad;
       if (en - st < minSpeech) continue;
       if (parsed.isNotEmpty) {
         final prev = parsed.last;
-        if (prev[2] == surah && prev[3] == num && st - prev[1] <= minSil) {
+        if (prev[2] == surah && prev[3] == ayahNum && st - prev[1] <= minSil) {
           if (en > prev[1]) prev[1] = en; // same ayah, close piece -> merge
           continue;
         }
         if (st < prev[1]) st = prev[1]; // clamp overlap with previous segment
       }
-      parsed.add([st, en, surah.toDouble(), num.toDouble()]);
+      parsed.add([st, en, surah.toDouble(), ayahNum.toDouble()]);
     }
     if (parsed.isEmpty) return 0;
     final corpus = widget.state.ayaat;
