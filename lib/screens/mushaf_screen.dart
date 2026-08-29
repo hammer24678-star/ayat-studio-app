@@ -212,8 +212,13 @@ class _MushafScreenState extends State<MushafScreen>
     // known (this sits 3 layouts deep inside a TabBarView) -- the footer
     // is built straight from _page with no layout dependency, so it can
     // briefly disagree with what's actually painted. Re-assert once real
-    // layout lands, and keep _page authoritative on the controller after.
-    _pageCtrl.addListener(_syncPageFromController);
+    // layout lands.
+    // PATCH_S136_SURAH_TAP_HEADER_FOOTER_DESYNC: one-shot only -- do NOT
+    // keep listening. An ongoing listener here fought _goToAyah's
+    // animated jump, repeatedly overwriting _page/_surah mid-flight with
+    // the controller's transient, not-yet-settled position. That's how
+    // tapping a surah could leave the header on the previous surah while
+    // the footer already showed the target page.
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _syncPageFromController());
   }
@@ -234,7 +239,6 @@ class _MushafScreenState extends State<MushafScreen>
   @override
   void dispose() {
     _settings.removeListener(_onSettings);
-    _pageCtrl.removeListener(_syncPageFromController);
     _tabs.dispose();
     _pageCtrl.dispose();
     _surahScrollCtrl.dispose();
@@ -274,22 +278,44 @@ class _MushafScreenState extends State<MushafScreen>
 
   void _goToAyah(int globalId, {bool select = true}) {
     if (globalId < 1 || globalId > kTotalAyat) return;
-    setState(() {
-      if (select) _selectedAyahId = globalId;
-      _page = pageOfAyahId(globalId);
-      _surah = _surahOfId(globalId);
-    });
+    final targetPage = pageOfAyahId(globalId);
+    // PATCH_S136_SURAH_TAP_HEADER_FOOTER_DESYNC: in paged mode, don't set
+    // _page/_surah here -- the header is painted straight from the
+    // PageView's own index, so setting them ahead of the actual jump is
+    // what let the footer race ahead of what was on screen. Let
+    // onPageChanged own both once the view genuinely gets there, exactly
+    // like _stepPage already does (that path never showed this bug).
+    // Whole-surah mode has no PageView to fire onPageChanged, so it still
+    // needs to be set directly.
+    if (_settings.mushafView == MushafViewMode.surah) {
+      setState(() {
+        if (select) _selectedAyahId = globalId;
+        _page = targetPage;
+        _surah = _surahOfId(globalId);
+      });
+    } else if (select) {
+      setState(() => _selectedAyahId = globalId);
+    }
     _settings.setLastReadAyahId(globalId);
     _tabs.animateTo(1);
-    // The PageView may not be attached yet on the very first frame after a
-    // tab switch — jump once it is.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_settings.mushafView == MushafViewMode.surah) return;
+    void jump() {
       if (!mounted || !_pageCtrl.hasClients) return;
       if (AppMotion.on) {
-        _pageCtrl.animateToPage(_page - 1,
+        _pageCtrl.animateToPage(targetPage - 1,
             duration: AppMotion.medium, curve: Curves.easeOutCubic);
       } else {
-        _pageCtrl.jumpToPage(_page - 1);
+        _pageCtrl.jumpToPage(targetPage - 1);
+      }
+    }
+    // The PageView may not be attached yet on the very first frame after a
+    // tab switch -- retry once more on the following frame if so.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_pageCtrl.hasClients) {
+        jump();
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) => jump());
       }
     });
   }

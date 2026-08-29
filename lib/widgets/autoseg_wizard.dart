@@ -416,62 +416,105 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
           ),
           const Divider(height: 1, color: AyatColors.hairline),
           Expanded(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              SizedBox(
-                width: 220,
-                child: ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                          border: Border.all(color: AyatColors.hairline),
-                          borderRadius: BorderRadius.circular(10)),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                                widget.audioPath != null
-                                    ? Icons.check_circle
-                                    : Icons.warning_amber_rounded,
-                                color: widget.audioPath != null
-                                    ? const Color(0xFF43A047)
-                                    : AyatColors.goldDim,
-                                size: 18),
-                            const SizedBox(height: 6),
-                            Text(
-                                widget.audioPath != null
-                                    ? '${_s.t('wizard.audio')}: $_audioName'
-                                    : _s.t('wizard.noAudio'),
-                                style: const TextStyle(fontSize: 11)),
-                          ]),
+            // PATCH_S136_WIZARD_NARROW_WIDTH: the fixed width: 220 rail
+            // below was sized for this dialog's ConstrainedBox(maxWidth:
+            // 860) desktop-ish frame. On an actual phone the dialog is
+            // nowhere near that wide, so 220 ate almost the whole width
+            // and squeezed the step body into a sliver so narrow that
+            // English words like "Legacy V1" wrapped one glyph per line.
+            // Below 560 logical px, stack instead of splitting side by
+            // side; above it, keep the original layout unchanged.
+            child: LayoutBuilder(builder: (context, constraints) {
+              final stepLabels = <_Step, String>{
+                _Step.version: _s.t('wizard.version'),
+                _Step.runtime: _s.t('wizard.runtime'),
+                _Step.models: _s.t('wizard.models'),
+                _Step.segmentation: _s.t('wizard.segmentation'),
+                _Step.run: _s.t('wizard.run'),
+              };
+              final audioStatus = Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    border: Border.all(color: AyatColors.hairline),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Row(children: [
+                  Icon(
+                      widget.audioPath != null
+                          ? Icons.check_circle
+                          : Icons.warning_amber_rounded,
+                      color: widget.audioPath != null
+                          ? const Color(0xFF43A047)
+                          : AyatColors.goldDim,
+                      size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(
+                          widget.audioPath != null
+                              ? '${_s.t('wizard.audio')}: $_audioName'
+                              : _s.t('wizard.noAudio'),
+                          style: const TextStyle(fontSize: 11))),
+                ]),
+              );
+              final stepChips = <Widget>[
+                for (final st in steps)
+                  _card(
+                      selected: _step == st,
+                      onTap: () => setState(() => _step = st),
+                      child: Text(stepLabels[st]!,
+                          style: const TextStyle(fontSize: 13))),
+              ];
+              if (constraints.maxWidth < 560) {
+                return Column(children: [
+                  Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      child: audioStatus),
+                  SizedBox(
+                    height: 52,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.all(12),
+                      children: [
+                        for (final chip in stepChips)
+                          Padding(
+                              padding:
+                                  const EdgeInsetsDirectional.only(end: 8),
+                              child: chip),
+                      ],
                     ),
-                    const SizedBox(height: 10),
-                    for (final st in steps)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _card(
-                            selected: _step == st,
-                            onTap: () => setState(() => _step = st),
-                            child: Text(
-                                {
-                                  _Step.version: _s.t('wizard.version'),
-                                  _Step.runtime: _s.t('wizard.runtime'),
-                                  _Step.models: _s.t('wizard.models'),
-                                  _Step.segmentation: _s.t('wizard.segmentation'),
-                                  _Step.run: _s.t('wizard.run'),
-                                }[st]!,
-                                style: const TextStyle(fontSize: 13))),
+                  ),
+                  const Divider(height: 1, color: AyatColors.hairline),
+                  Expanded(
+                      child: ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: [_stepBody()])),
+                ]);
+              }
+              return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 220,
+                      child: ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          audioStatus,
+                          const SizedBox(height: 10),
+                          for (final chip in stepChips)
+                            Padding(
+                                padding:
+                                    const EdgeInsets.only(bottom: 8),
+                                child: chip),
+                        ],
                       ),
-                  ],
-                ),
-              ),
-              const VerticalDivider(width: 1, color: AyatColors.hairline),
-              Expanded(
-                  child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [_stepBody()])),
-            ]),
+                    ),
+                    const VerticalDivider(
+                        width: 1, color: AyatColors.hairline),
+                    Expanded(
+                        child: ListView(
+                            padding: const EdgeInsets.all(16),
+                            children: [_stepBody()])),
+                  ]);
+            }),
           ),
           const Divider(height: 1, color: AyatColors.hairline),
           Padding(
