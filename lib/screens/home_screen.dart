@@ -119,6 +119,11 @@ class _HomeScreenState extends State<HomeScreen>
   final _scrollCtrl = ScrollController();
   final _customArCtrl = TextEditingController();
   final _customEnCtrl = TextEditingController();
+  // PATCH_S143_TEXT_LAYERS: separate from the ayah-matching controllers
+  // above -- this box never tries to match the Quran, it just adds a
+  // new stacked text layer verbatim.
+  final _newLayerCtrl = TextEditingController();
+  AyahTextPosition _newLayerPosition = AyahTextPosition.top;
   // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
   final _captionCtrl = TextEditingController();
   final _textStartCtrl = TextEditingController();
@@ -285,6 +290,7 @@ class _HomeScreenState extends State<HomeScreen>
     _scrollCtrl.dispose(); // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
     _customArCtrl.dispose();
     _customEnCtrl.dispose();
+    _newLayerCtrl.dispose(); // PATCH_S143_TEXT_LAYERS
     // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
     _captionCtrl.dispose();
     _textStartCtrl.dispose();
@@ -4002,6 +4008,101 @@ class _HomeScreenState extends State<HomeScreen>
                   icon: const Icon(Icons.timeline, size: 18),
                   label: const Text('حفظ في الخط الزمني'))),
             ]),
+          ],
+        )),
+        // PATCH_S143_TEXT_LAYERS: a completely separate, no-matching
+        // stack of fixed text boxes. Distinct from the card above --
+        // nothing here is ever auto-detected against the Quran or
+        // silently overwritten. Every tap on "إضافة طبقة نص" adds one
+        // more independent layer; the list below shows every layer
+        // currently on screen with its own delete button.
+        _sectionCard(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionHeader(
+              'طبقات نص ثابتة',
+              'نص عربي بسيط تكتبينه بنفسك -- بلا أي تعرّف أو تخمين، وما '
+              'تكتبينه هو ما يظهر دائمًا. كل ضغطة على "إضافة طبقة نص" '
+              'تضيف مربعًا جديدًا مستقلاً بجانب ما أضفتِه سابقًا -- لا شيء '
+              'يُستبدل. تظهر كل الطبقات معًا فوق الفيديو وفوق نص الآية.',
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _newLayerCtrl,
+              maxLines: 2,
+              textAlign: TextAlign.right,
+              decoration: const InputDecoration(
+                hintText: 'اكتب أي نص… (اسم القناة، تعليق، عنوان، ...)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Text('الموضع:'),
+              const SizedBox(width: 10),
+              DropdownButton<AyahTextPosition>(
+                value: _newLayerPosition,
+                items: const [
+                  DropdownMenuItem(
+                      value: AyahTextPosition.top,
+                      child: Text('أعلى الشاشة')),
+                  DropdownMenuItem(
+                      value: AyahTextPosition.center,
+                      child: Text('منتصف الشاشة')),
+                  DropdownMenuItem(
+                      value: AyahTextPosition.bottom,
+                      child: Text('أسفل الشاشة')),
+                ],
+                onChanged: (v) => setState(
+                    () => _newLayerPosition = v ?? AyahTextPosition.top),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () {
+                final txt = _newLayerCtrl.text.trim();
+                if (txt.isEmpty) {
+                  _toast('اكتبي نصًا أولًا');
+                  return;
+                }
+                state.addTextLayer(
+                    TextLayer(text: txt, position: _newLayerPosition));
+                _newLayerCtrl.clear();
+                setState(() {});
+              },
+              icon: const Icon(Icons.add_box_outlined, size: 18),
+              label: const Text('إضافة طبقة نص'),
+            ),
+            if (state.textLayers.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              for (var i = 0; i < state.textLayers.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AyatColors.hairline),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(children: [
+                      Expanded(
+                        child: Text(
+                          state.textLayers[i].text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textDirection: TextDirection.rtl,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'حذف الطبقة',
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        onPressed: () => state.removeTextLayerAt(i),
+                      ),
+                    ]),
+                  ),
+                ),
+            ],
           ],
         )),
         // PATCH_S62_MUSHAF_READER: standalone full-mushaf browser, separate from

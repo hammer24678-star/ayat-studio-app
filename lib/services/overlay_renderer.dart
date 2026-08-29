@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../data/studio_presets.dart';
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
+import '../models/studio_state.dart'; // PATCH_S143_TEXT_LAYERS: TextLayer
 import '../theme/ayat_fonts.dart';
 
 class OverlayStyle {
@@ -33,6 +34,9 @@ class OverlayStyle {
   final Set<int> redWordIndices;
   final String captionText;
   final CaptionPosition captionPosition;
+  // PATCH_S143_TEXT_LAYERS: independent stacked fixed-text boxes,
+  // drawn on top of the ayah and the caption, never replacing either.
+  final List<TextLayer> textLayers;
   // PATCH_S126_TEXT_TRANSITIONS: where the text is in its entrance/exit.
   // Identity on every frame that is simply "showing text", so the whole
   // transform path is skipped for the vast majority of frames.
@@ -55,6 +59,7 @@ class OverlayStyle {
     this.captionText = '',
     this.captionPosition = CaptionPosition.bottom,
     this.motion = TextMotion.identity,
+    this.textLayers = const [], // PATCH_S143_TEXT_LAYERS
   });
 
   /// PATCH_S126_TEXT_TRANSITIONS: the same style at a different point in its
@@ -79,6 +84,7 @@ class OverlayStyle {
         captionText: captionText,
         captionPosition: captionPosition,
         motion: m,
+        textLayers: textLayers, // PATCH_S143_TEXT_LAYERS
       );
 }
 
@@ -631,6 +637,70 @@ class OverlayRenderer {
           ? h * 0.05
           : h * 0.93 - capPainter.height;
       capPainter.paint(canvas, Offset((w - capPainter.width) / 2, capY));
+    }
+
+    // PATCH_S143_TEXT_LAYERS: independent stacked fixed-text boxes.
+    // Grouped by band (top/center/bottom) so several layers in the
+    // same band stack instead of overlapping -- matches the live
+    // preview in stage_preview.dart exactly (same rule as every
+    // other overlay this renderer draws: preview == export).
+    if (style.textLayers.isNotEmpty) {
+      final layerScale = w / 270.0;
+      TextPainter layerPainter(TextLayer layer) => TextPainter(
+            text: TextSpan(
+              text: layer.text,
+              style: ayahTextStyle(
+                style.fontKey,
+                fontSize: layer.fontSize * layerScale,
+                color: layer.color.withValues(alpha: opacity),
+                shadows: [
+                  Shadow(
+                      color: Color.fromRGBO(0, 0, 0, 0.7 * opacity),
+                      blurRadius: 6 * layerScale),
+                ],
+              ),
+            ),
+            textAlign: TextAlign.center,
+            textDirection: TextDirection.rtl,
+          )..layout(maxWidth: w * 0.86);
+
+      final top = style.textLayers
+          .where((l) => l.position == AyahTextPosition.top)
+          .toList();
+      final center = style.textLayers
+          .where((l) => l.position == AyahTextPosition.center)
+          .toList();
+      final bottom = style.textLayers
+          .where((l) => l.position == AyahTextPosition.bottom)
+          .toList();
+
+      var y = h * 0.06;
+      for (final layer in top) {
+        final p = layerPainter(layer);
+        p.paint(canvas, Offset((w - p.width) / 2, y));
+        y += p.height + 6 * layerScale;
+      }
+
+      var totalCenterH = 0.0;
+      final centerPainters = <TextPainter>[];
+      for (final layer in center) {
+        final p = layerPainter(layer);
+        centerPainters.add(p);
+        totalCenterH += p.height + 6 * layerScale;
+      }
+      var centerY = h * 0.5 - totalCenterH / 2;
+      for (final p in centerPainters) {
+        p.paint(canvas, Offset((w - p.width) / 2, centerY));
+        centerY += p.height + 6 * layerScale;
+      }
+
+      var bottomY = h * 0.94;
+      for (final layer in bottom.reversed) {
+        final p = layerPainter(layer);
+        bottomY -= p.height;
+        p.paint(canvas, Offset((w - p.width) / 2, bottomY));
+        bottomY -= 6 * layerScale;
+      }
     }
 
     return _picToPng(rec.endRecording(), w, h);

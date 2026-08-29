@@ -229,6 +229,7 @@ class ExportService {
         redWordIndices: state.redWordIndices,
         captionText: state.captionText,
         captionPosition: state.captionPosition,
+        textLayers: state.textLayers, // PATCH_S143_TEXT_LAYERS
       );
       String? overlaySeqPattern;
       String? overlayPng;

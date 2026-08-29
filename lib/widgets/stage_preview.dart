@@ -629,6 +629,12 @@ class _StagePreviewState extends State<StagePreview>
                       ),
                     ),
                   ),
+                // PATCH_S143_TEXT_LAYERS: mirrors PATCH_S116's fix for
+                // captionText -- these were drawn by the export renderer
+                // from day one, so show them live too instead of the
+                // preview lying about what the export will look like.
+                if (state.textLayers.isNotEmpty)
+                  ..._buildTextLayerWidgets(state.textLayers, scale),
                 // PATCH_S123_WATERMARK: shown live, in the same corner and at
                 // the same relative size/opacity the export will burn in, so
                 // "will it cover the ayah?" is answerable before exporting
@@ -760,6 +766,84 @@ class _StagePreviewState extends State<StagePreview>
   // and text sizing is 20% of that width. Preview and export therefore agree
   // by construction rather than by two hand-tuned numbers happening to look
   // similar.
+    // PATCH_S143_TEXT_LAYERS: groups layers by band (top/center/bottom)
+  // and stacks each band top-to-bottom via a Column -- Flutter does the
+  // stacking math for free here, unlike the manual TextPainter y-walk
+  // the export renderer needs (see overlay_renderer.dart).
+  List<Widget> _buildTextLayerWidgets(
+      List<TextLayer> layers, double scale) {
+    Widget layerText(TextLayer layer) => Padding(
+          padding: EdgeInsets.symmetric(vertical: 3 * scale.clamp(0.8, 1.6)),
+          child: Text(
+            layer.text,
+            textAlign: TextAlign.center,
+            textDirection: TextDirection.rtl,
+            style: TextStyle(
+              fontSize: layer.fontSize * scale.clamp(0.8, 1.6),
+              color: layer.color,
+              shadows: const [
+                Shadow(color: Color(0xB3000000), blurRadius: 6),
+              ],
+            ),
+          ),
+        );
+
+    final top = layers
+        .where((l) => l.position == AyahTextPosition.top)
+        .toList();
+    final center = layers
+        .where((l) => l.position == AyahTextPosition.center)
+        .toList();
+    final bottom = layers
+        .where((l) => l.position == AyahTextPosition.bottom)
+        .toList();
+
+    final widgets = <Widget>[];
+    if (top.isNotEmpty) {
+      widgets.add(PositionedDirectional(
+        top: 46,
+        start: 12,
+        end: 12,
+        child: IgnorePointer(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [for (final l in top) layerText(l)],
+          ),
+        ),
+      ));
+    }
+    if (center.isNotEmpty) {
+      widgets.add(PositionedDirectional(
+        top: 0,
+        bottom: 0,
+        start: 12,
+        end: 12,
+        child: IgnorePointer(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [for (final l in center) layerText(l)],
+            ),
+          ),
+        ),
+      ));
+    }
+    if (bottom.isNotEmpty) {
+      widgets.add(PositionedDirectional(
+        bottom: 46,
+        start: 12,
+        end: 12,
+        child: IgnorePointer(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [for (final l in bottom) layerText(l)],
+          ),
+        ),
+      ));
+    }
+    return widgets;
+  }
+
   Widget _watermarkPreview(StudioState state, double scale) {
     final frameW = 270.0 * scale;
     final margin = frameW * 0.04;

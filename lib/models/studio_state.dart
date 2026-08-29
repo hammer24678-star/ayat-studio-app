@@ -47,6 +47,23 @@ class TimelineSegment {
 // PATCH_S128: label shapes for the text background chip
 enum S128LabelShape { rounded, circle, pill, scallop, hexagon }
 
+// PATCH_S143_TEXT_LAYERS: a single independent "fixed text" box, stacked
+// freely on top of the ayah and the caption. Unlike ayahText/captionText
+// (one slot each, silently overwritten), these live in a real list -- add
+// as many as you like, remove any one without touching the others.
+class TextLayer {
+  String text;
+  AyahTextPosition position;
+  double fontSize; // preview-scale px, same convention as ayahFontSize
+  Color color;
+  TextLayer({
+    required this.text,
+    this.position = AyahTextPosition.top,
+    this.fontSize = 20,
+    this.color = const Color(0xFFECC875),
+  });
+}
+
 class StudioState extends ChangeNotifier {
   // ---- corpus ----
   List<Ayah> ayaat = [];
@@ -59,6 +76,29 @@ class StudioState extends ChangeNotifier {
   String detectedLabel = '';
   String matchConfidenceText = '';
   bool get hasAyah => ayahText.isNotEmpty;
+
+  // ---- PATCH_S143_TEXT_LAYERS: stackable fixed-text boxes ----------------
+  List<TextLayer> textLayers = [];
+
+  void addTextLayer(TextLayer layer) {
+    textLayers = [...textLayers, layer];
+    notifyListeners();
+  }
+
+  void updateTextLayerAt(int index, TextLayer layer) {
+    if (index < 0 || index >= textLayers.length) return;
+    final next = [...textLayers];
+    next[index] = layer;
+    textLayers = next;
+    notifyListeners();
+  }
+
+  void removeTextLayerAt(int index) {
+    if (index < 0 || index >= textLayers.length) return;
+    final next = [...textLayers]..removeAt(index);
+    textLayers = next;
+    notifyListeners();
+  }
 
   // PATCH_S129_QURAN_CAPTION_PARITY: project identity (dashboard + chapters header)
   String projectName = '';
