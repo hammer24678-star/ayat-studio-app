@@ -1618,6 +1618,22 @@ const Map<String, List<String>> _table = {
     'Warna cepat',
     'فوری رنگ',
   ],
+  // PATCH_S141_HOME_SEQUENCE_ABOUT_I18N: two keys translations.py
+  // (from S139) was missing -- found while wiring call sites.
+  'home.surahDropdownLabel': [
+    'سورة {}',
+    'Surah {}',
+    'Sourate {}',
+    'Surah {}',
+    'سورہ {}',
+  ],
+  'home.stageOverlaySurahNum': [
+    'سورة {} — {}',
+    'Surah {} — {}',
+    'Sourate {} — {}',
+    'Surah {} — {}',
+    'سورہ {} — {}',
+  ],
 };
 
 /// Exposed for the i18n test — every row must have one entry per [AppLang].
