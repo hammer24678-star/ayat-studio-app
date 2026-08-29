@@ -55,6 +55,13 @@ import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
 import 'settings_screen.dart'; // PATCH_S123_SETTINGS_SCREEN
 
+// PATCH_S144_UNIFIED_TEXT_CARD: the three kinds of text a project can
+// carry -- the single Quran-matched ayah slot, the single caption
+// slot, and the (now unbounded) list of free layers from S143. One
+// enum so the add/edit sheet, the row list, and the sheet's own kind
+// chips all agree on what "kind" means.
+enum _TextKind { ayah, caption, layer }
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -124,6 +131,14 @@ class _HomeScreenState extends State<HomeScreen>
   // new stacked text layer verbatim.
   final _newLayerCtrl = TextEditingController();
   AyahTextPosition _newLayerPosition = AyahTextPosition.top;
+  // PATCH_S144_UNIFIED_TEXT_CARD: which kind the add/edit sheet is
+  // currently showing, whether that sheet is editing an existing
+  // element (locks the kind chips) or adding a fresh one, and -- only
+  // for the layer kind, which is a list rather than a single slot --
+  // which index is being edited.
+  _TextKind _sheetKind = _TextKind.layer;
+  bool _sheetIsEdit = false;
+  int? _editingLayerIndex;
   // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
   final _captionCtrl = TextEditingController();
   final _textStartCtrl = TextEditingController();
@@ -3864,6 +3879,451 @@ class _HomeScreenState extends State<HomeScreen>
     )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
 
+  // -------------------------------------------------------------------
+  // PATCH_S144_UNIFIED_TEXT_CARD
+  //
+  // Before this patch, "text on the video" was three separate cards in
+  // the الآية tab: "اكتب نص الآية" (Quran-matched ayah text), "طبقات نص
+  // ثابتة" (S143's stacked free layers), and a third card further down
+  // the same tab for a small caption (reciter name / ayah range). Three
+  // boxes for one job, each with its own explanation and its own
+  // Add/Apply button, and no single place showing everything that's
+  // actually on the video right now.
+  //
+  // This replaces all three with ONE card: a list of every text
+  // element currently on the video (ayah, then caption, then every
+  // layer, in that order) with one edit (pencil) and one delete (X)
+  // action per row -- the same two-icon pattern InShot and every other
+  // mainstream video editor uses for an on-canvas text element -- plus
+  // a single "+ إضافة نص" button that opens one add/edit sheet shared
+  // by all three kinds.
+  //
+  // Nothing about WHAT each kind does changes underneath: ayah text
+  // still runs through the same Quran matcher (_applyCustomText),
+  // captions still write state.captionText/captionPosition, layers
+  // still go through state.addTextLayer/updateTextLayerAt/
+  // removeTextLayerAt exactly as PATCH_S143 left them. This patch only
+  // changes how you reach those three actions -- one door instead of
+  // three.
+  // -------------------------------------------------------------------
+
+  Widget _unifiedTextCard() {
+    return _sectionCard(Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionHeader(
+          'النص على الفيديو',
+          'مكان واحد لكل نص يظهر على الفيديو — نص الآية، تسمية توضيحية '
+          '(مثل اسم القارئ)، وأي عدد تريدينه من طبقات النص الحرة. لكل '
+          'عنصر أدناه زر تعديل (✎) وزر حذف (✕)، وتظهر كل العناصر معًا '
+          'فوق الفيديو دون أن يستبدل أحدها الآخر.',
+        ),
+        const SizedBox(height: 10),
+        _textElementsList(),
+        const SizedBox(height: 10),
+        ElevatedButton.icon(
+          onPressed: () => _openTextSheet(),
+          icon: const Icon(Icons.add, size: 20),
+          label: const Text('إضافة نص'),
+        ),
+      ],
+    ));
+  }
+
+  // One row per element currently on the video, in a fixed order
+  // (ayah, then caption, then layers) so the list doesn't reshuffle
+  // as you edit things. Empty state explains what the button below
+  // does instead of just showing a blank card.
+  Widget _textElementsList() {
+    final rows = <Widget>[];
+    if (state.hasAyah) {
+      rows.add(_textElementRow(
+        icon: Icons.menu_book_outlined,
+        kindLabel: 'آية',
+        preview: state.ayahText,
+        onEdit: () => _openTextSheet(kind: _TextKind.ayah),
+        onDelete: () => state.setAyah('', '', ''),
+      ));
+    }
+    if (state.captionText.isNotEmpty) {
+      rows.add(_textElementRow(
+        icon: Icons.label_outline,
+        kindLabel: 'تسمية',
+        preview: state.captionText,
+        onEdit: () => _openTextSheet(kind: _TextKind.caption),
+        onDelete: () {
+          state.update(() => state.captionText = '');
+          _captionCtrl.clear();
+        },
+      ));
+    }
+    for (var i = 0; i < state.textLayers.length; i++) {
+      final layer = state.textLayers[i];
+      rows.add(_textElementRow(
+        icon: Icons.layers_outlined,
+        kindLabel: 'طبقة',
+        preview: layer.text,
+        onEdit: () => _openTextSheet(kind: _TextKind.layer, layerIndex: i),
+        onDelete: () => state.removeTextLayerAt(i),
+      ));
+    }
+    if (rows.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          border: Border.all(color: AyatColors.hairline),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(children: [
+          const Icon(Icons.text_fields,
+              size: 24, color: AyatColors.parchmentDim),
+          const SizedBox(height: 6),
+          Text('لا يوجد أي نص على الفيديو بعد',
+              style: Theme.of(context).textTheme.bodyMedium),
+        ]),
+      );
+    }
+    return Column(children: [
+      for (final r in rows)
+        Padding(padding: const EdgeInsets.only(bottom: 6), child: r),
+    ]);
+  }
+
+  // Same bordered-row look S143 introduced for layers, now shared by
+  // all three kinds, with a small gold kind badge (آية/تسمية/طبقة) so
+  // the mixed list still reads clearly at a glance -- plus the
+  // edit-pencil that S143's layer rows never had.
+  Widget _textElementRow({
+    required IconData icon,
+    required String kindLabel,
+    required String preview,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: AyatColors.hairline),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 17, color: AyatColors.goldDim),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: AyatColors.surface,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(kindLabel,
+              style:
+                  const TextStyle(fontSize: 10, color: AyatColors.goldDim)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            preview,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textDirection: TextDirection.rtl,
+          ),
+        ),
+        IconButton(
+          tooltip: 'تعديل',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+          icon: const Icon(Icons.edit_outlined, size: 18),
+          onPressed: onEdit,
+        ),
+        IconButton(
+          tooltip: 'حذف',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+          icon: const Icon(Icons.cancel, size: 18, color: Colors.redAccent),
+          onPressed: onDelete,
+        ),
+      ]),
+    );
+  }
+
+  String _textKindTitle(_TextKind k, bool isEdit) => switch (k) {
+        _TextKind.ayah => isEdit ? 'تعديل نص الآية' : 'كتابة نص الآية',
+        _TextKind.caption =>
+          isEdit ? 'تعديل التسمية التوضيحية' : 'تسمية توضيحية جديدة',
+        _TextKind.layer => isEdit ? 'تعديل طبقة النص' : 'طبقة نص جديدة',
+      };
+
+  // The single entry point for every "add" or "edit" of text on the
+  // video. Called with no args from the "+ إضافة نص" button (fresh add,
+  // starts on the "نص حر" kind); called with a kind (+ layerIndex for
+  // layers) from a row's own edit pencil, which also locks the kind
+  // chips so an in-progress edit can't accidentally turn into adding a
+  // different kind of element.
+  void _openTextSheet({_TextKind? kind, int? layerIndex}) {
+    _sheetIsEdit = kind != null;
+    _editingLayerIndex = layerIndex;
+    if (kind == _TextKind.ayah) {
+      _customArCtrl.text = state.ayahText;
+      _customEnCtrl.text = state.translationText;
+      _sheetKind = _TextKind.ayah;
+    } else if (kind == _TextKind.caption) {
+      _captionCtrl.text = state.captionText;
+      _sheetKind = _TextKind.caption;
+    } else if (kind == _TextKind.layer && layerIndex != null) {
+      final l = state.textLayers[layerIndex];
+      _newLayerCtrl.text = l.text;
+      _newLayerPosition = l.position;
+      _sheetKind = _TextKind.layer;
+    } else {
+      _newLayerCtrl.clear();
+      _newLayerPosition = AyahTextPosition.top;
+      _sheetKind = _TextKind.layer;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AyatColors.surface2,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 18,
+            right: 18,
+            top: 14,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+          ),
+          child: _textSheetBody(context, setSheetState),
+        ),
+      ),
+    );
+  }
+
+  Widget _textSheetBody(BuildContext context, StateSetter setSheetState) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          Expanded(
+            child: Text(_textKindTitle(_sheetKind, _sheetIsEdit),
+                style: Theme.of(context).textTheme.headlineMedium),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ]),
+        // Kind chips only show when adding fresh -- editing an existing
+        // element keeps its kind fixed, same as you can't turn a
+        // caption into a layer by fiddling with it after the fact.
+        if (!_sheetIsEdit) ...[
+          const SizedBox(height: 4),
+          Wrap(spacing: 8, children: [
+            for (final k in _TextKind.values)
+              ChoiceChip(
+                label: Text(switch (k) {
+                  _TextKind.ayah => 'آية قرآنية',
+                  _TextKind.caption => 'تسمية توضيحية',
+                  _TextKind.layer => 'نص حر',
+                }),
+                selected: _sheetKind == k,
+                onSelected: (_) => setSheetState(() {
+                  _sheetKind = k;
+                  // ayah/caption are single slots -- switching to them
+                  // from the fresh-add flow should show what's already
+                  // there (if anything) instead of a misleadingly
+                  // blank field.
+                  if (k == _TextKind.ayah) {
+                    _customArCtrl.text = state.ayahText;
+                    _customEnCtrl.text = state.translationText;
+                  } else if (k == _TextKind.caption) {
+                    _captionCtrl.text = state.captionText;
+                  } else {
+                    _newLayerCtrl.clear();
+                    _newLayerPosition = AyahTextPosition.top;
+                  }
+                }),
+              ),
+          ]),
+        ],
+        const SizedBox(height: 12),
+        switch (_sheetKind) {
+          _TextKind.ayah => _ayahSheetFields(context),
+          _TextKind.caption => _captionSheetFields(context, setSheetState),
+          _TextKind.layer => _layerSheetFields(context, setSheetState),
+        },
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  // Same matcher flow _applyCustomText() always ran -- only the field
+  // now lives in the sheet instead of its own card. Both actions close
+  // the sheet first, then run the (possibly async, possibly
+  // dialog-showing) existing method on the main screen underneath.
+  Widget _ayahSheetFields(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'اكتبي الآية أو أي نص عربي — سيُطابَق تلقائيًا مع القرآن إن '
+          'أمكن، وإلا يُستخدم كما كتبتِه.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _customArCtrl,
+          maxLines: 3,
+          textAlign: TextAlign.right,
+          decoration: const InputDecoration(
+            hintText: 'اكتب الآية أو أي نص عربي…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _customEnCtrl,
+          decoration:
+              const InputDecoration(hintText: 'ترجمة المعاني (اختياري)'),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _applyCustomText();
+              },
+              child: const Text('تطبيق على الفيديو'))),
+          const SizedBox(width: 8),
+          Expanded(child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _saveTypedTextToTimeline();
+              },
+              icon: const Icon(Icons.timeline, size: 18),
+              label: const Text('حفظ في الخط الزمني'))),
+        ]),
+      ],
+    );
+  }
+
+  Widget _captionSheetFields(
+      BuildContext context, StateSetter setSheetState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _captionCtrl,
+          decoration: const InputDecoration(
+              hintText: 'مثال: الشيخ عبد الباسط عبد الصمد'),
+          onChanged: (v) => state.update(() => state.captionText = v),
+        ),
+        const SizedBox(height: 4),
+        RadioGroup<CaptionPosition>(
+          groupValue: state.captionPosition,
+          onChanged: (v) => setSheetState(() => state.update(
+              () => state.captionPosition = v ?? CaptionPosition.bottom)),
+          child: Row(
+            children: [
+              for (final pos in CaptionPosition.values)
+                Expanded(
+                  child: RadioListTile<CaptionPosition>(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title:
+                        Text(pos == CaptionPosition.top ? 'أعلى' : 'أسفل'),
+                    value: pos,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('تم'),
+        ),
+      ],
+    );
+  }
+
+  Widget _layerSheetFields(BuildContext context, StateSetter setSheetState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _newLayerCtrl,
+          maxLines: 2,
+          textAlign: TextAlign.right,
+          decoration: const InputDecoration(
+            hintText: 'اكتب أي نص… (اسم القناة، تعليق، عنوان، ...)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Text('الموضع:'),
+          const SizedBox(width: 10),
+          DropdownButton<AyahTextPosition>(
+            value: _newLayerPosition,
+            items: const [
+              DropdownMenuItem(
+                  value: AyahTextPosition.top, child: Text('أعلى الشاشة')),
+              DropdownMenuItem(
+                  value: AyahTextPosition.center,
+                  child: Text('منتصف الشاشة')),
+              DropdownMenuItem(
+                  value: AyahTextPosition.bottom,
+                  child: Text('أسفل الشاشة')),
+            ],
+            onChanged: (v) => setSheetState(
+                () => _newLayerPosition = v ?? AyahTextPosition.top),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        ElevatedButton.icon(
+          onPressed: () {
+            final txt = _newLayerCtrl.text.trim();
+            if (txt.isEmpty) {
+              _toast('اكتبي نصًا أولًا');
+              return;
+            }
+            if (_editingLayerIndex != null) {
+              // Preserve whatever fontSize/color the layer already had
+              // -- there's no per-layer style control yet (S144 doesn't
+              // add one), so this only ever carries S143's own
+              // defaults today, but won't silently reset a real custom
+              // value if a future patch adds that control.
+              final orig = state.textLayers[_editingLayerIndex!];
+              state.updateTextLayerAt(
+                  _editingLayerIndex!,
+                  TextLayer(
+                      text: txt,
+                      position: _newLayerPosition,
+                      fontSize: orig.fontSize,
+                      color: orig.color));
+            } else {
+              state.addTextLayer(
+                  TextLayer(text: txt, position: _newLayerPosition));
+            }
+            _newLayerCtrl.clear();
+            Navigator.pop(context);
+          },
+          icon: Icon(
+              _editingLayerIndex != null
+                  ? Icons.check
+                  : Icons.add_box_outlined,
+              size: 18),
+          label: Text(
+              _editingLayerIndex != null ? 'حفظ التعديل' : 'إضافة الطبقة'),
+        ),
+      ],
+    );
+  }
+
   Future<void> _saveTypedTextToTimeline() async {
     final ar = _customArCtrl.text.trim();
     if (ar.isEmpty) {
@@ -3971,140 +4431,16 @@ class _HomeScreenState extends State<HomeScreen>
       children: [
         _panelTitle('اختيار الآية',
             'اختر السورة ثم الآية، أو استخدم أزرار التعرّف بالذكاء الاصطناعي، أو اكتب نصًا مخصصًا.'),
-        // PATCH_S132_GAUNTLET_LOOP: typed text now leads the tab. Apply it as
-        // the single static ayah (as before), or save it straight into the
-        // timeline with a chosen time range -- same type -> time range ->
-        // timeline flow reference caption tools use.
-        _sectionCard(Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionHeader('اكتب نص الآية',
-              'اكتب الآية أو أي نص عربي — طبّقيه كنص ثابت، أو احفظيه في الخط '
-              'الزمني بمدة زمنية تختارينها فيظهر أثناء المعاينة والتصدير.'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _customArCtrl,
-              maxLines: 3,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                hintText: 'اكتب الآية أو أي نص عربي… (يُطابق من المصحف إن وُجد)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _customEnCtrl,
-              decoration:
-                  const InputDecoration(hintText: 'ترجمة المعاني (اختياري)'),
-            ),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: ElevatedButton(
-                  onPressed: _applyCustomText,
-                  child: const Text('تطبيق كنص ثابت'))),
-              const SizedBox(width: 8),
-              Expanded(child: OutlinedButton.icon(
-                  onPressed: _saveTypedTextToTimeline,
-                  icon: const Icon(Icons.timeline, size: 18),
-                  label: const Text('حفظ في الخط الزمني'))),
-            ]),
-          ],
-        )),
-        // PATCH_S143_TEXT_LAYERS: a completely separate, no-matching
-        // stack of fixed text boxes. Distinct from the card above --
-        // nothing here is ever auto-detected against the Quran or
-        // silently overwritten. Every tap on "إضافة طبقة نص" adds one
-        // more independent layer; the list below shows every layer
-        // currently on screen with its own delete button.
-        _sectionCard(Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionHeader(
-              'طبقات نص ثابتة',
-              'نص عربي بسيط تكتبينه بنفسك -- بلا أي تعرّف أو تخمين، وما '
-              'تكتبينه هو ما يظهر دائمًا. كل ضغطة على "إضافة طبقة نص" '
-              'تضيف مربعًا جديدًا مستقلاً بجانب ما أضفتِه سابقًا -- لا شيء '
-              'يُستبدل. تظهر كل الطبقات معًا فوق الفيديو وفوق نص الآية.',
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _newLayerCtrl,
-              maxLines: 2,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                hintText: 'اكتب أي نص… (اسم القناة، تعليق، عنوان، ...)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(children: [
-              const Text('الموضع:'),
-              const SizedBox(width: 10),
-              DropdownButton<AyahTextPosition>(
-                value: _newLayerPosition,
-                items: const [
-                  DropdownMenuItem(
-                      value: AyahTextPosition.top,
-                      child: Text('أعلى الشاشة')),
-                  DropdownMenuItem(
-                      value: AyahTextPosition.center,
-                      child: Text('منتصف الشاشة')),
-                  DropdownMenuItem(
-                      value: AyahTextPosition.bottom,
-                      child: Text('أسفل الشاشة')),
-                ],
-                onChanged: (v) => setState(
-                    () => _newLayerPosition = v ?? AyahTextPosition.top),
-              ),
-            ]),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () {
-                final txt = _newLayerCtrl.text.trim();
-                if (txt.isEmpty) {
-                  _toast('اكتبي نصًا أولًا');
-                  return;
-                }
-                state.addTextLayer(
-                    TextLayer(text: txt, position: _newLayerPosition));
-                _newLayerCtrl.clear();
-                setState(() {});
-              },
-              icon: const Icon(Icons.add_box_outlined, size: 18),
-              label: const Text('إضافة طبقة نص'),
-            ),
-            if (state.textLayers.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              for (var i = 0; i < state.textLayers.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AyatColors.hairline),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(children: [
-                      Expanded(
-                        child: Text(
-                          state.textLayers[i].text,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textDirection: TextDirection.rtl,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'حذف الطبقة',
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: () => state.removeTextLayerAt(i),
-                      ),
-                    ]),
-                  ),
-                ),
-            ],
-          ],
-        )),
+        // PATCH_S144_UNIFIED_TEXT_CARD: the ayah-matching card, S143's
+        // "طبقات نص ثابتة" layers card, and the caption card further
+        // down this tab used to be three separate boxes for one job
+        // (text on the video). They're now one list + one add/edit
+        // sheet -- see _unifiedTextCard() and its supporting methods
+        // below. _captionSection() is left defined but uncalled --
+        // nothing else references it, kept only so a future patch
+        // can resurrect the standalone caption box without redoing it
+        // from scratch.
+        _unifiedTextCard(),
         // PATCH_S62_MUSHAF_READER: standalone full-mushaf browser, separate from
         // the single-ayah picker below it -- reuses state.ayaat, no extra load.
         // PATCH_S123_QURAN_ENTRY: was a bare OutlinedButton -- the plainest
@@ -4190,7 +4526,8 @@ class _HomeScreenState extends State<HomeScreen>
         // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
         if (state.hasAyah) _redWordsSection(),
         _manualTimingSection(),
-        _captionSection(),
+        // PATCH_S144_UNIFIED_TEXT_CARD: caption is now one of the rows
+        // in _unifiedTextCard() above, not its own card down here.
         _autoSegWizardCard(), // PATCH_S134_AUTOSEG_WIZARD
         // PATCH_S57_MANUAL_MULTI_AYAH_ENTRY: the dropdown above sets ONE static ayah. For a
         // recitation that moves through several ayat, build a manual
