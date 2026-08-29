@@ -386,114 +386,124 @@ class _MushafScreenState extends State<MushafScreen>
     HapticFeedback.selectionClick(); // same tactile language as the studio
     setState(() => _selectedAyahId = id);
     _settings.setLastReadAyahId(id);
+    // PATCH_S140_HEADER: isScrollControlled + the ConstrainedBox/
+    // SingleChildScrollView below replace a plain half-screen-capped,
+    // non-scrolling Column -- on a short screen the ayah text plus all
+    // five actions used to just clip at that cap with nothing to scroll,
+    // leaving Copy and Use in Studio unreachable.
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: _p.surface,
       showDragHandle: true,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (sheetCtx) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    ayahRosetteOrnament(ayah.num, _p, size: 30),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'سورة ${ayah.surah} — ${_s.t('mushaf.page')} ${pageOfAyahId(id)}'
-                        ' · ${_s.t('mushaf.juz')} ${juzOfAyahId(id)}',
-                        style: GoogleFonts.tajawal(
-                            color: _p.textDim, fontSize: 12.5),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.85),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      ayahRosetteOrnament(ayah.num, _p, size: 30),
+                      const SizedBox(width: 10), // PATCH_S140_BODY
+                      Expanded(
+                        child: Text(
+                          'سورة ${ayah.surah} — ${_s.t('mushaf.page')} ${pageOfAyahId(id)}'
+                          ' · ${_s.t('mushaf.juz')} ${juzOfAyahId(id)}',
+                          style: GoogleFonts.tajawal(
+                              color: _p.textDim, fontSize: 12.5),
+                        ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    ayah.ar,
+                    textAlign: TextAlign.center,
+                    style: ayahTextStyle(widget.fontKey,
+                        fontSize: 20, height: 1.9, color: _p.text),
+                  ),
+                  if (ayah.en.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      ayah.en,
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.ltr,
+                      style: GoogleFonts.tajawal(
+                          color: _p.textDim, fontSize: 12.5, height: 1.6),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  ayah.ar,
-                  textAlign: TextAlign.center,
-                  style: ayahTextStyle(widget.fontKey,
-                      fontSize: 20, height: 1.9, color: _p.text),
-                ),
-                if (ayah.en.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    ayah.en,
-                    textAlign: TextAlign.center,
-                    textDirection: TextDirection.ltr,
-                    style: GoogleFonts.tajawal(
-                        color: _p.textDim, fontSize: 12.5, height: 1.6),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                _SheetAction(
-                  palette: _p,
-                  icon: Icons.menu_book_outlined,
-                  label: _s.t('mushaf.tafsir'),
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    _tabs.animateTo(2);
-                  },
-                ),
-                // PATCH_S138_LISTEN_ACTION: hear a reciter or cache one for
-                // offline reading, without leaving المصحف.
-                _SheetAction(
-                  palette: _p,
-                  icon: Icons.graphic_eq,
-                  label: 'استماع',
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    _openReciterSheet(ayah);
-                  },
-                ),
-                _SheetAction(
-                  palette: _p,
-                  icon: Icons.ios_share_outlined,
-                  label: _s.t('common.share'),
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    // The reference travels with the text -- an ayah pasted
-                    // into a chat without one is a quote nobody can check.
-                    SharePlus.instance.share(ShareParams(
-                      text: '${ayah.ar}\n\n[سورة ${ayah.surah}: ${ayah.num}]',
-                    ));
-                  },
-                ),
-                _SheetAction(
-                  palette: _p,
-                  icon: Icons.copy_all_outlined,
-                  label: _s.t('common.copy'),
-                  onTap: () async {
-                    await Clipboard.setData(ClipboardData(
-                        text: '${ayah.ar}\n[${ayah.surah}: ${ayah.num}]'));
-                    if (!sheetCtx.mounted || !mounted) return;
-                    Navigator.pop(sheetCtx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(_s.t('common.copied'))),
-                    );
-                  },
-                ),
-                if (widget.onUseAyah != null)
+                  const SizedBox(height: 16),
                   _SheetAction(
                     palette: _p,
-                    icon: Icons.movie_creation_outlined,
-                    label: _s.t('mushaf.useInStudio'),
-                    highlighted: true,
+                    icon: Icons.menu_book_outlined,
+                    label: _s.t('mushaf.tafsir'),
                     onTap: () {
                       Navigator.pop(sheetCtx);
-                      widget.onUseAyah!(ayah);
-                      Navigator.of(context).maybePop();
+                      _tabs.animateTo(2);
                     },
                   ),
-              ],
+                  // PATCH_S138_LISTEN_ACTION: hear a reciter or cache one for
+                  // offline reading, without leaving المصحف.
+                  _SheetAction(
+                    palette: _p,
+                    icon: Icons.graphic_eq,
+                    label: 'استماع',
+                    onTap: () {
+                      Navigator.pop(sheetCtx);
+                      _openReciterSheet(ayah);
+                    },
+                  ),
+                  _SheetAction(
+                    palette: _p,
+                    icon: Icons.ios_share_outlined,
+                    label: _s.t('common.share'),
+                    onTap: () {
+                      Navigator.pop(sheetCtx);
+                      // The reference travels with the text -- an ayah pasted
+                      // into a chat without one is a quote nobody can check.
+                      SharePlus.instance.share(ShareParams(
+                        text: '${ayah.ar}\n\n[سورة ${ayah.surah}: ${ayah.num}]',
+                      ));
+                    },
+                  ),
+                  _SheetAction(
+                    palette: _p,
+                    icon: Icons.copy_all_outlined,
+                    label: _s.t('common.copy'),
+                    onTap: () async {
+                      await Clipboard.setData(ClipboardData(
+                          text: '${ayah.ar}\n[${ayah.surah}: ${ayah.num}]'));
+                      if (!sheetCtx.mounted || !mounted) return;
+                      Navigator.pop(sheetCtx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(_s.t('common.copied'))),
+                      );
+                    },
+                  ),
+                  if (widget.onUseAyah != null)
+                    _SheetAction(
+                      palette: _p,
+                      icon: Icons.movie_creation_outlined,
+                      label: _s.t('mushaf.useInStudio'),
+                      highlighted: true,
+                      onTap: () {
+                        Navigator.pop(sheetCtx);
+                        widget.onUseAyah!(ayah);
+                        Navigator.of(context).maybePop();
+                      },
+                    ),
+                ],
+              ),
             ),
           ),
         ),
