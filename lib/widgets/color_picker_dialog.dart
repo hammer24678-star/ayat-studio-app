@@ -2,6 +2,8 @@
 // hex readout) — the native stand-in for the HTML's hidden <input
 // type="color"> behind the swatch trigger.
 import 'package:flutter/material.dart';
+import '../i18n/app_strings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+import '../services/app_settings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
 import '../theme/ayat_theme.dart';
 
 Future<Color?> showAyatColorPicker(BuildContext context, Color initial) {
@@ -51,13 +53,14 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
   @override
   Widget build(BuildContext context) {
     final hex = '#${(color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+    final s = AppStrings(AppSettings.instance.lang);
     return AlertDialog(
       backgroundColor: AyatColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
         side: const BorderSide(color: AyatColors.hairline),
       ),
-      title: const Text('اختر اللون بدقة'),
+      title: Text(s.t('colorPicker.title')),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -83,10 +86,10 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+            onPressed: () => Navigator.pop(context), child: Text(s.t('common.cancel'))),
         FilledButton(
             onPressed: () => Navigator.pop(context, color),
-            child: const Text('اعتماد اللون')),
+            child: Text(s.t('colorPicker.confirmColor'))),
       ],
     );
   }

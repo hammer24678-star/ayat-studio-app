@@ -63,7 +63,8 @@ class _MushafLoaderScreenState extends State<MushafLoaderScreen> {
       appBar: AppBar(
         backgroundColor: AyatColors.ink,
         iconTheme: const IconThemeData(color: AyatColors.gold),
-        title: Text(settings.strings.t('mushaf.title')),
+        // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+        title: Text(settings.mushafStrings.t('mushaf.title')),
       ),
       body: Center(
         child: Padding(
@@ -76,14 +77,14 @@ class _MushafLoaderScreenState extends State<MushafLoaderScreen> {
                         color: AyatColors.goldBright, strokeWidth: 2.4),
                     const SizedBox(height: 18),
                     Text(
-                      settings.strings.t('common.loading'),
+                      settings.mushafStrings.t('common.loading'),
                       style: GoogleFonts.tajawal(
                           color: AyatColors.parchmentDim, fontSize: 13),
                     ),
                   ],
                 )
               : Text(
-                  '${settings.strings.t('mushaf.loadFailed')}\n$_error',
+                  '${settings.mushafStrings.t('mushaf.loadFailed')}\n$_error',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.tajawal(
                       color: AyatColors.parchmentDim, fontSize: 13),

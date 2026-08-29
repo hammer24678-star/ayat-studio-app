@@ -6,6 +6,8 @@
 import 'package:flutter/material.dart';
 import '../theme/ayat_theme.dart';
 import '../models/studio_state.dart';
+import '../i18n/app_strings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+import '../services/app_settings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
 import 'color_picker_dialog.dart' show showAyatColorPicker;
 
 enum TextEditorTab { text, border, shadow, glow, label, opacity }
@@ -80,14 +82,16 @@ class _TextEditorProState extends State<TextEditorPro> {
           () => s.update(() => s.fontKey = 'amiri_quran')),
       // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
-        label: const Text('إضافة خط'), onPressed: widget.onPickCustomFont)]),
+        label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.addFont')),
+        onPressed: widget.onPickCustomFont)]),
 
     _slider('الحجم', s.ayahFontSize, 14, 30, 0,
         (v) => s.update(() => s.ayahFontSize = v)),
     _slider('تباعد الأحرف', s.letterSpacing, 0, 12, 0,
         (v) => s.update(() => s.letterSpacing = v)),
     SwitchListTile(
-      title: const Text('سطر واحد موحّد لكل الآيات', style: TextStyle(fontSize: 13)),
+      title: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.unifiedLineForAllAyat'),
+          style: const TextStyle(fontSize: 13)),
       subtitle: Text(_unifiedHint(), style: const TextStyle(fontSize: 11)),
       value: s.unifiedOneLine, activeColor: AyatColors.gold,
       onChanged: (v) => s.update(() => s.unifiedOneLine = v)),
@@ -96,9 +100,10 @@ class _TextEditorProState extends State<TextEditorPro> {
       Expanded(child: OutlinedButton.icon(
         onPressed: s.saveStyleAsDefault,
         icon: const Icon(Icons.save_outlined, size: 16),
-        label: const Text('حفظ كشكل افتراضي'))),
+        label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.saveAsDefaultShape')))),
       const SizedBox(width: 8),
-      Expanded(child: Text('الشكل الحالي يُطبَّق على كل الآيات تلقائيًا',
+      Expanded(child: Text(
+        AppStrings(AppSettings.instance.lang).t('textEditorPro.currentShapeAppliesNote'),
         style: TextStyle(fontSize: 10, color: AyatColors.goldDim)))]),
   ]));
 
@@ -143,7 +148,8 @@ class _TextEditorProState extends State<TextEditorPro> {
               border: Border.all(color: AyatColors.goldDim)),
             child: const Icon(Icons.add, size: 14)))]))]),
     const SizedBox(height: 8),
-    Text('ألوان سريعة', style: TextStyle(fontSize: 11, color: AyatColors.goldDim)),
+    Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.quickColors'),
+        style: TextStyle(fontSize: 11, color: AyatColors.goldDim)),
     Wrap(spacing: 8, runSpacing: 6,
       children: [for (final q in _quick)
         GestureDetector(onTap: () => s.update(() => s.textColor = q),

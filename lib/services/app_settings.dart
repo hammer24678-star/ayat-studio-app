@@ -31,6 +31,11 @@ class AppSettings extends ChangeNotifier {
   AppLang _lang = AppLang.ar;
   AppLang get lang => _lang;
   AppStrings get strings => AppStrings(_lang);
+  // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS: المصحف only ships Arabic and English --
+  // fr/id/ur fall back to English rather than showing a reader
+  // that's only partly translated.
+  AppStrings get mushafStrings =>
+      AppStrings(_lang == AppLang.ar ? AppLang.ar : AppLang.en);
   TextDirection get textDirection =>
       isRtlLang(_lang) ? TextDirection.rtl : TextDirection.ltr;
 

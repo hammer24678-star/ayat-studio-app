@@ -3,6 +3,8 @@
 // the user ever sees the advanced panels.
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../i18n/app_strings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+import '../services/app_settings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
 import '../theme/ayat_theme.dart';
 
 class FirstRunTour {
@@ -30,10 +32,12 @@ class _TourState extends State<_Tour> {
     ('٣', 'صدّر', 'اضبط الشكل من تبويب النص ثم صدّر بجودة تصل إلى مصدر الفيديو'),
   ];
   @override
-  Widget build(BuildContext c) => AlertDialog(
+  Widget build(BuildContext c) {
+    final s = AppStrings(AppSettings.instance.lang); // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+    return AlertDialog(
     backgroundColor: AyatColors.surface,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-    title: Text('أهلًا بك — ثلاث خطوات فقط',
+    title: Text(s.t('firstRunTour.title'),
       style: TextStyle(color: AyatColors.gold, fontSize: 16)),
     content: SizedBox(width: 300, height: 150, child: Column(children: [
       Text(steps[i].$1, style: TextStyle(fontSize: 40, color: AyatColors.goldBright)),
@@ -44,9 +48,10 @@ class _TourState extends State<_Tour> {
     ])),
     actions: [
       TextButton(onPressed: () => Navigator.pop(context),
-        child: const Text('تخطي')),
+        child: Text(s.t('firstRunTour.skip'))),
       ElevatedButton(onPressed: () =>
         i == 2 ? Navigator.pop(context) : setState(() => i++),
         child: Text(i == 2 ? 'ابدأ' : 'التالي')),
     ]);
+  }
 }

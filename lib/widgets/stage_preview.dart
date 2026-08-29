@@ -491,8 +491,9 @@ class _StagePreviewState extends State<StagePreview>
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(color: AyatColors.hairline),
                       ),
-                      child: const Text(
-                        'إزالة الخلفية (الكروم) ستُطبَّق فعليًا في الفيديو المُصدَّر',
+                      child: Text( // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+                        AppStrings(AppSettings.instance.lang)
+                            .t('stagePreview.chromaExportNote'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             fontSize: 10, color: AyatColors.goldBright),
@@ -673,7 +674,8 @@ class _StagePreviewState extends State<StagePreview>
                                 size: 13, color: AyatColors.goldBright),
                             const SizedBox(width: 4),
                             Text(
-                              'إيقاف تأثير ${state.effect.label}',
+                              AppStrings(AppSettings.instance.lang).f(
+                                  'stagePreview.stopEffect', [state.effect.label]),
                               style: const TextStyle(
                                   fontSize: 10, color: AyatColors.goldBright),
                             ),

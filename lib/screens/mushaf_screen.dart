@@ -275,7 +275,8 @@ class _MushafScreenState extends State<MushafScreen>
     return 1;
   }
 
-  AppStrings get _s => _settings.strings;
+  // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
+  AppStrings get _s => _settings.mushafStrings;
   MushafPalette get _p => MushafPalette.of(_settings.mushafLight);
 
   // ---- navigation -------------------------------------------------------
