@@ -12,6 +12,7 @@
 //
 // The whole screen is written against [MushafPalette] rather than
 // AyatColors, which is what lets light mode be a real mode and not a hack.
+import 'dart:io'; // PATCH_S138_IMPORTS: File for the downloaded/cached mp3
 import 'dart:math';
 
 import 'package:flutter/gestures.dart';
@@ -19,12 +20,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:video_player/video_player.dart'; // PATCH_S138_IMPORTS
 
 import '../data/mushaf_meta.dart';
+import '../data/studio_presets.dart'; // PATCH_S138_IMPORTS: kReciters
 import '../i18n/app_strings.dart';
 import '../services/app_settings.dart';
 import '../services/ayah_matcher.dart';
 import '../services/quran_search.dart';
+import '../services/reciter_audio_service.dart'; // PATCH_S138_IMPORTS
 import '../services/tafsir_service.dart';
 import '../theme/ayat_fonts.dart';
 import '../theme/mushaf_theme.dart';
@@ -438,6 +442,17 @@ class _MushafScreenState extends State<MushafScreen>
                     _tabs.animateTo(2);
                   },
                 ),
+                // PATCH_S138_LISTEN_ACTION: hear a reciter or cache one for
+                // offline reading, without leaving المصحف.
+                _SheetAction(
+                  palette: _p,
+                  icon: Icons.graphic_eq,
+                  label: 'استماع',
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    _openReciterSheet(ayah);
+                  },
+                ),
                 _SheetAction(
                   palette: _p,
                   icon: Icons.ios_share_outlined,
@@ -480,6 +495,29 @@ class _MushafScreenState extends State<MushafScreen>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // PATCH_S138_OPEN_SHEET: reciter list for one ayah's surah -- streaming and
+  // offline-download live in the sheet widget itself (below), so this
+  // screen's state doesn't grow a second set of download/playback fields.
+  void _openReciterSheet(Ayah ayah) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _p.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: _ReciterListenSheet(
+          palette: _p,
+          surahNum: ayah.surahNum,
+          surahName: ayah.surah,
         ),
       ),
     );
@@ -2283,6 +2321,286 @@ class _SheetAction extends StatelessWidget {
                       fontWeight: FontWeight.w700)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// PATCH_S138_RECITER_SHEET: reciter list for a single surah, opened from the ayah
+// actions sheet. Self-contained -- owns its own search text, per-reciter
+// download progress, and the one active player -- so nothing needs
+// adding to _MushafScreenState, and the sheet's state simply goes away
+// when it's closed (its dispose() stops playback and frees the player).
+//
+// Downloads are tracked in a Map<int, double?> keyed by reciter index
+// rather than a single `int? downloading` -- unlike the studio's own
+// reciter panel (S104), that means starting reciter B's download does
+// not have to wait for reciter A's to finish; each entry in the map
+// updates independently as ReciterAudioService reports progress.
+// ReciterAudioService itself already caches to disk permanently, so a
+// completed download here IS the offline copy -- nothing extra to do
+// to make the surah available without a connection afterwards.
+class _ReciterListenSheet extends StatefulWidget {
+  final MushafPalette palette;
+  final int surahNum;
+  final String surahName;
+
+  const _ReciterListenSheet({
+    required this.palette,
+    required this.surahNum,
+    required this.surahName,
+  });
+
+  @override
+  State<_ReciterListenSheet> createState() => _ReciterListenSheetState();
+}
+
+class _ReciterListenSheetState extends State<_ReciterListenSheet> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  // One entry per reciter currently downloading; absent = idle. Several
+  // reciters can be present at once -- see the class comment above.
+  final Map<int, double?> _progress = {};
+  final Set<int> _cached = {};
+  int? _playingIndex;
+  VideoPlayerController? _player;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _stopPlayer() async {
+    final old = _player;
+    _player = null;
+    if (old != null) {
+      await old.pause();
+      await old.dispose();
+    }
+  }
+
+  Future<void> _togglePlay(int i) async {
+    if (_playingIndex == i) {
+      await _stopPlayer();
+      if (mounted) setState(() => _playingIndex = null);
+      return;
+    }
+    await _stopPlayer();
+    if (!mounted) return;
+    setState(() {
+      _playingIndex = i;
+      if (!_cached.contains(i)) _progress[i] = null;
+    });
+    try {
+      final path = await ReciterAudioService.downloadSurah(
+        displayName: kReciters[i],
+        surahNum: widget.surahNum,
+        onProgress: (p) {
+          if (mounted) setState(() => _progress[i] = p);
+        },
+      );
+      if (!mounted) return;
+      final c = VideoPlayerController.file(File(path));
+      await c.initialize();
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
+      c.addListener(() {
+        if (!mounted || _player != c) return;
+        final v = c.value;
+        if (!v.isPlaying &&
+            v.duration > Duration.zero &&
+            v.position >= v.duration) {
+          setState(() => _playingIndex = null);
+        }
+      });
+      await c.play();
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
+      setState(() {
+        _player = c;
+        _cached.add(i);
+        _progress.remove(i);
+      });
+    } on ReciterAudioException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _progress.remove(i);
+        if (_playingIndex == i) _playingIndex = null;
+      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _progress.remove(i);
+        if (_playingIndex == i) _playingIndex = null;
+      });
+    }
+  }
+
+  Future<void> _downloadOnly(int i) async {
+    if (_progress.containsKey(i) || _cached.contains(i)) return;
+    setState(() => _progress[i] = null);
+    try {
+      await ReciterAudioService.downloadSurah(
+        displayName: kReciters[i],
+        surahNum: widget.surahNum,
+        onProgress: (p) {
+          if (mounted) setState(() => _progress[i] = p);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _progress.remove(i);
+        _cached.add(i);
+      });
+    } on ReciterAudioException catch (e) {
+      if (!mounted) return;
+      setState(() => _progress.remove(i));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _progress.remove(i));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.palette;
+    final names = kReciters;
+    final q = _query.trim();
+    final shown = [
+      for (var i = 0; i < names.length; i++)
+        if (q.isEmpty || names[i].contains(q)) i,
+    ];
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('سورة ${widget.surahName} — استماع وتنزيل',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.tajawal(
+                    color: p.text,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text('التشغيل والتنزيل لكامل السورة',
+                textAlign: TextAlign.center,
+                style:
+                    GoogleFonts.tajawal(color: p.textDim, fontSize: 11.5)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _searchCtrl,
+              onChanged: (v) => setState(() => _query = v),
+              style: GoogleFonts.tajawal(color: p.text, fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'ابحث عن قارئ',
+                hintStyle:
+                    GoogleFonts.tajawal(color: p.textDim, fontSize: 13),
+                prefixIcon: Icon(Icons.search, color: p.textDim, size: 19),
+                isDense: true,
+                filled: true,
+                fillColor: p.surfaceRaised,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: p.hairline)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 340,
+              child: shown.isEmpty
+                  ? Center(
+                      child: Text('لا يوجد قارئ بهذا الاسم',
+                          style: GoogleFonts.tajawal(
+                              color: p.textDim, fontSize: 12.5)))
+                  : ListView.separated(
+                      itemCount: shown.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 6),
+                      itemBuilder: (c, idx) {
+                        final i = shown[idx];
+                        final downloading = _progress.containsKey(i);
+                        final progress = _progress[i];
+                        final playing = _playingIndex == i;
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: playing
+                                ? p.gold.withValues(alpha: 0.12)
+                                : p.surfaceRaised,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: playing
+                                    ? p.gold.withValues(alpha: 0.6)
+                                    : p.hairline),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(names[i],
+                                    style: GoogleFonts.tajawal(
+                                        color: p.text,
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                              if (downloading)
+                                SizedBox(
+                                  width: 34,
+                                  height: 34,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.2,
+                                        value: progress,
+                                        color: p.goldBright),
+                                  ),
+                                )
+                              else ...[
+                                IconButton(
+                                  tooltip: 'تنزيل للقراءة بلا إنترنت',
+                                  icon: Icon(
+                                      _cached.contains(i)
+                                          ? Icons.check_circle
+                                          : Icons.download_outlined,
+                                      color: _cached.contains(i)
+                                          ? const Color(0xFF43A047)
+                                          : p.gold,
+                                      size: 20),
+                                  onPressed: _cached.contains(i)
+                                      ? null
+                                      : () => _downloadOnly(i),
+                                ),
+                                IconButton(
+                                  tooltip: playing ? 'إيقاف' : 'تشغيل',
+                                  icon: Icon(
+                                      playing
+                                          ? Icons.pause_circle_outline
+                                          : Icons.play_circle_outline,
+                                      color: p.goldBright,
+                                      size: 24),
+                                  onPressed: () => _togglePlay(i),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
