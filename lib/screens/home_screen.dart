@@ -4161,7 +4161,13 @@ class _HomeScreenState extends State<HomeScreen>
             top: 14,
             bottom: MediaQuery.of(context).viewInsets.bottom + 18,
           ),
-          child: _textSheetBody(context, setSheetState),
+          // PATCH_S147_TEXT_SHEET_SCROLL_FIX: the sheet's content
+          // (title + kind chips + fields + buttons) doesn't fit above
+          // the keyboard once it opens -- scroll instead of clipping
+          // the bottom (which used to cut off the Apply/Save buttons).
+          child: SingleChildScrollView(
+            child: _textSheetBody(context, setSheetState),
+          ),
         ),
       ),
     );
