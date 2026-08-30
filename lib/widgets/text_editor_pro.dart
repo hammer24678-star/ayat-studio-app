@@ -97,6 +97,14 @@ class _TextEditorProState extends State<TextEditorPro> {
       // Amiri Quran Google Font under a different key.
       for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
           () => s.update(() => s.fontKey = f.$1)),
+      // PATCH_S151_CUSTOM_FONTS_IN_CHIP_ROW: uploaded fonts applied
+      // correctly the moment you picked them but had no chip here
+      // afterward -- this loop was missing entirely. Same _chip() as
+      // everything else, so an uploaded font previews in its own
+      // typeface and shows selected exactly like a built-in one.
+      for (final f in s.customFonts)
+        _chip(f.label, f.key, s.fontKey == f.key,
+            () => s.update(() => s.fontKey = f.key)),
       // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
         label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.addFont')),

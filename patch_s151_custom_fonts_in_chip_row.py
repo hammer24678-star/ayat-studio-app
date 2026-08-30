@@ -18,6 +18,11 @@ THE PROBLEM (found while checking whether font upload works):
     mounted since PATCH_S128 replaced it with TextEditorPro -- so it wasn't
     actually reachable.)
 
+    (v2 of this patch -- the first version anchored on the 'خط قرآني'/
+    amiri_quran chip, which PATCH_S149 had already removed by the time this
+    ran, so it found 0 matches and made no changes. This version anchors on
+    the _fonts loop itself, which is still there post-S149.)
+
 THE FIX:
     One more `for` loop in the same Wrap, right after the built-in chips
     and before the "+ إضافة خط" button, over state.customFonts -- using the
@@ -68,13 +73,13 @@ TEXT_EDITOR_PRO = "lib/widgets/text_editor_pro.dart"
 
 
 def patch_add_custom_fonts_to_chip_row() -> None:
-    old = """      _chip('خط قرآني', 'amiri_quran', s.fontKey == 'amiri_quran',
-          () => s.update(() => s.fontKey = 'amiri_quran')),
+    old = """      for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
+          () => s.update(() => s.fontKey = f.$1)),
       // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
 """
-    new = """      _chip('خط قرآني', 'amiri_quran', s.fontKey == 'amiri_quran',
-          () => s.update(() => s.fontKey = 'amiri_quran')),
+    new = """      for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
+          () => s.update(() => s.fontKey = f.$1)),
       // PATCH_S151_CUSTOM_FONTS_IN_CHIP_ROW: uploaded fonts applied
       // correctly the moment you picked them but had no chip here
       // afterward -- this loop was missing entirely. Same _chip() as
