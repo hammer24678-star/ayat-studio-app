@@ -3748,59 +3748,116 @@ class _HomeScreenState extends State<HomeScreen>
 
   // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: tap a word of the currently
   // displayed ayah to color just that word red in the exported video.
-  Widget _redWordsSection() {
+  // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S146_FINISH_WORDCOLORS:
+  // "تلوين كلمات بالأحمر" and "توقيت ظهور النص يدويًا" used to be two
+  // separate boxes stacked back-to-back, even though both are the same
+  // job -- extra control over how the on-screen ayah text stands out --
+  // and coloring a word used to only ever mean red, applied instantly
+  // with no other option. Now one card: pick a color (red by default,
+  // same as before, or any color via the picker), tap words to
+  // paint/unpaint them with it, and set when the whole ayah text
+  // (colored words included) appears/disappears -- one place instead
+  // of two.
+  Widget _manualTimingSection() {
     final words = state.ayahText
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
-    if (words.isEmpty) return const SizedBox.shrink();
     return _sectionCard(Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _sectionHeader(
-          'تلوين كلمات بالأحمر (اختياري)',
-          'اضغطي على أي كلمة لتلوينها بالأحمر في الفيديو المُصدَّر -- مفيدة '
-          'لتمييز اسم الجلالة أو كلمة محورية من الآية. يمكنك تلوين أكثر '
-          'من كلمة، واضغطي عليها مجددًا لإزالة اللون.',
+          'تلوين الكلمات وتوقيت ظهورها (اختياري)',
+          'اختاري لونًا ثم اضغطي على أي كلمة لتلوينها به في الفيديو '
+          'المُصدَّر -- مفيدة لتمييز اسم الجلالة أو كلمة محورية. اضغطي '
+          'الكلمة مجددًا لإزالة لونها. حدّدي أيضًا بالثواني متى يظهر نص '
+          'الآية ومتى يختفي؛ اتركي الحقلين فارغين ليظهر طوال المقطع '
+          'كالمعتاد.',
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (var i = 0; i < words.length; i++)
-              FilterChip(
-                label: Text(words[i],
-                    style: ayahTextStyle(state.fontKey, fontSize: 14)),
-                selected: state.redWordIndices.contains(i),
-                selectedColor: const Color(0xFFE53935).withValues(alpha: 0.35),
-                onSelected: (sel) => state.update(() {
-                  if (sel) {
-                    state.redWordIndices.add(i);
-                  } else {
-                    state.redWordIndices.remove(i);
+        if (words.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          // PATCH_S145/S146: the color the next tap applies -- defaults to
+          // red so tapping a word behaves exactly like before unless a
+          // different color is chosen first.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final c in const [
+                Color(0xFFE53935), // red -- the old, only option
+                Color(0xFFECC875), // gold
+                Color(0xFFFFFFFF), // white
+                Color(0xFF4CAF50), // green
+                Color(0xFF2A6FDB), // blue
+              ])
+                GestureDetector(
+                  onTap: () => state.update(() => state.activeWordColor = c),
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: c,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: state.activeWordColor.toARGB32() ==
+                                  c.toARGB32()
+                              ? AyatColors.goldBright
+                              : Colors.black26,
+                          width: state.activeWordColor.toARGB32() ==
+                                  c.toARGB32()
+                              ? 2.5
+                              : 1),
+                    ),
+                  ),
+                ),
+              GestureDetector(
+                onTap: () async {
+                  final c = await showAyatColorPicker(
+                      context, state.activeWordColor);
+                  if (c != null) {
+                    state.update(() => state.activeWordColor = c);
                   }
-                }),
+                },
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: state.activeWordColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AyatColors.goldBright),
+                  ),
+                  child: const Icon(Icons.colorize,
+                      size: 14, color: Colors.black54),
+                ),
               ),
-          ],
-        ),
-      ],
-    )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
-  }
-
-  // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: optional manual override for
-  // when the ayah text appears/disappears in the exported clip.
-  Widget _manualTimingSection() {
-    return _sectionCard(Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _sectionHeader(
-          'توقيت ظهور النص يدويًا (اختياري)',
-          'حدّدي بالثواني متى يظهر نص الآية ومتى يختفي من الفيديو المُصدَّر -- '
-          'مفيد لو أردتِ أن يظهر النص متأخرًا عن بداية المقطع أو يختفي قبل '
-          'نهايته. اتركي الحقلين فارغين ليظهر النص طوال المقطع كالمعتاد.',
-        ),
-        const SizedBox(height: 8),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < words.length; i++)
+                FilterChip(
+                  label: Text(words[i],
+                      style: ayahTextStyle(state.fontKey, fontSize: 14)),
+                  selected: state.wordColors.containsKey(i),
+                  selectedColor:
+                      (state.wordColors[i] ?? state.activeWordColor)
+                          .withValues(alpha: 0.35),
+                  onSelected: (sel) => state.update(() {
+                    if (sel) {
+                      state.wordColors[i] = state.activeWordColor;
+                    } else {
+                      state.wordColors.remove(i);
+                    }
+                  }),
+                ),
+            ],
+          ),
+        ],
+        const Divider(height: 28, color: AyatColors.hairline),
         Row(
           children: [
             Expanded(
@@ -4532,8 +4589,7 @@ class _HomeScreenState extends State<HomeScreen>
           },
         ),
         if (_partialSourceAyah != null) _partialAyahSection(),
-        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
-        if (state.hasAyah) _redWordsSection(),
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S146_FINISH_WORDCOLORS
         _manualTimingSection(),
         // PATCH_S144_UNIFIED_TEXT_CARD: caption is now one of the rows
         // in _unifiedTextCard() above, not its own card down here.

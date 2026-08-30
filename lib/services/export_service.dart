@@ -225,8 +225,8 @@ class ExportService {
         lineHeightMultiplier: state.lineHeightMultiplier,
         offset: state.textOffset, // PATCH_S50_DRAGGABLE_TEXT
         userScale: state.textUserScale,
-        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION
-        redWordIndices: state.redWordIndices,
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S146_FINISH_WORDCOLORS
+        wordColors: state.wordColors,
         captionText: state.captionText,
         captionPosition: state.captionPosition,
         textLayers: state.textLayers, // PATCH_S143_TEXT_LAYERS
