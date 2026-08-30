@@ -1688,23 +1688,6 @@ const Map<String, List<String>> _table = {
   'textEditorPro.unifiedHintOff': ['اجعل كل الآيات سطرًا واحدًا بنفس الحجم المشترك', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size'],
   'textEditorPro.unifiedHintNoAyat': ['أضف آيات أولًا ليُحسب الحجم المشترك', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed'],
   'textEditorPro.unifiedHintComputed': ['الحجم المشترك المحسوب: {}', 'Computed shared size: {}', 'Computed shared size: {}', 'Computed shared size: {}', 'Computed shared size: {}'],
-
-  // ---- PATCH_S145_LANGUAGES_PATCH_A bonus fix: these 9 keys were
-  // referenced by settings_screen.dart / user_guide_sheet.dart but never
-  // added to the table at all -- not a translation gap, there was no
-  // Arabic text anywhere to translate from. Written fresh here; please
-  // sanity-check the wording since it wasn't yours to begin with.
-  // French/Indonesian/Urdu fall back to English, same as the rest of
-  // this patch. ----
-  'settings.guide': ['دليل التحكم باللمس', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide'],
-  'settings.guideOpen': ['فتح الدليل', 'Open the guide', 'Open the guide', 'Open the guide', 'Open the guide'],
-  'settings.guideHint': ['شرح سريع لكل إيماءات اللمس في الاستوديو.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.'],
-  'guide.title': ['دليل التحكم باللمس', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide'],
-  'guide.box': ['اسحبي الإطار حول النص لتحريكه، واسحبي أطرافه لتغيير حجمه', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it'],
-  'guide.drag': ['اسحبي النص مباشرة لتحريكه في أي اتجاه', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction'],
-  'guide.pinch': ['اقرصي بإصبعين لتكبير النص أو تصغيره', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller'],
-  'guide.wordTap': ['اضغطي على أي كلمة لتلوينها بالأحمر', 'Tap any word to color it red', 'Tap any word to color it red', 'Tap any word to color it red', 'Tap any word to color it red'],
-  'guide.timeline': ['اسحبي على الخط الزمني لتحديد وقت ظهور كل آية يدويًا', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears'],
 };
 
 /// Exposed for the i18n test — every row must have one entry per [AppLang].
