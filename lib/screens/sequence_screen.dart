@@ -39,6 +39,11 @@ class _SequenceScreenState extends State<SequenceScreen> {
   bool _busy = false;
   String _status = '';
 
+  // PATCH_S141_HOME_SEQUENCE_ABOUT_I18N: same shorthand home_screen.dart uses for its chrome.
+  String _t(String key) => AppSettings.instance.strings.t(key);
+  String _tf(String key, List<Object> args) =>
+      AppSettings.instance.strings.f(key, args);
+
   @override
   void initState() {
     super.initState();
@@ -74,7 +79,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
     if (_clips.length < 2) return;
     setState(() {
       _busy = true;
-      _status = 'جارٍ تركيب المقاطع… قد يستغرق هذا وقتًا حسب الطول والعدد.';
+      _status = _t('sequence.busyRendering');
     });
     try {
       final out = await MediaService.renderSequence(
@@ -98,7 +103,9 @@ class _SequenceScreenState extends State<SequenceScreen> {
   String _fmt(double sec) {
     final m = sec ~/ 60;
     final s = (sec % 60).toStringAsFixed(1);
-    return m > 0 ? '${m}د ${s}ث' : '${s}ث';
+    return m > 0
+        ? _tf('sequence.durationMinSec', [m, s])
+        : _tf('sequence.durationSecOnly', [s]);
   }
 
   @override
@@ -111,7 +118,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
     return Scaffold(
       backgroundColor: AyatColors.ink,
       appBar: AppBar(
-        title: const Text('تركيب عدة مقاطع'),
+        title: Text(_t('sequence.title')),
         iconTheme: const IconThemeData(color: AyatColors.gold),
       ),
       body: SafeArea(
@@ -120,10 +127,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Text(
-                'أضيفي مقاطع بالترتيب الذي تريدينه، وقصّي كل واحد على حدة، '
-                'واختاري طريقة الانتقال بينها. النتيجة ملف واحد يصبح هو مقطع '
-                'الاستوديو — فتعمل عليه المزامنة التلقائية والتأثيرات والتصدير '
-                'كالمعتاد.',
+                _t('sequence.subtitle'),
                 style: GoogleFonts.tajawal(
                     color: AyatColors.parchmentDim, fontSize: 12, height: 1.7),
               ),
@@ -131,7 +135,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
             Expanded(
               child: _clips.isEmpty
                   ? Center(
-                      child: Text('لم تتم إضافة أي مقطع بعد',
+                      child: Text(_t('sequence.noClipsYet'),
                           style: GoogleFonts.tajawal(
                               color: AyatColors.parchmentDim)),
                     )
@@ -197,7 +201,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'إزالة',
+                  tooltip: _t('common.remove'),
                   icon: const Icon(Icons.delete_outline,
                       color: AyatColors.parchmentDim, size: 20),
                   onPressed: () => setState(() => _clips.removeAt(i)),
@@ -206,14 +210,16 @@ class _SequenceScreenState extends State<SequenceScreen> {
               ],
             ),
             const SizedBox(height: 6),
-            Text('يبدأ عند ${_fmt(c.start)} · المدة ${_fmt(c.duration)}',
+            Text(
+                _tf('sequence.clipStartDuration',
+                    [_fmt(c.start), _fmt(c.duration)]),
                 style: GoogleFonts.tajawal(
                     color: AyatColors.parchmentDim, fontSize: 11)),
             Row(
               children: [
                 Expanded(
                   child: _trimField(
-                    label: 'بداية (ث)',
+                    label: _t('sequence.trimStartSec'),
                     value: c.start,
                     onChanged: (v) => setState(
                         () => _clips[i] = c.copyWith(start: v.clamp(0, 36000))),
@@ -222,7 +228,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: _trimField(
-                    label: 'مدة (ث)',
+                    label: _t('sequence.trimDurationSec'),
                     value: c.duration,
                     onChanged: (v) => setState(() =>
                         _clips[i] = c.copyWith(duration: v.clamp(0.3, 3600))),
@@ -264,7 +270,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_clips.length >= 2) ...[
-            Text('الانتقال بين المقاطع',
+            Text(_t('sequence.transitionBetweenClips'),
                 style: GoogleFonts.tajawal(
                     color: AyatColors.gold,
                     fontSize: 12,
@@ -284,7 +290,9 @@ class _SequenceScreenState extends State<SequenceScreen> {
             ),
             if (_transition != SequenceTransition.cut) ...[
               const SizedBox(height: 4),
-              Text('مدة الانتقال: ${_transitionSec.toStringAsFixed(1)}ث',
+              Text(
+                  _tf('sequence.transitionDuration',
+                      [_transitionSec.toStringAsFixed(1)]),
                   style: GoogleFonts.tajawal(
                       color: AyatColors.parchmentDim, fontSize: 11.5)),
               Slider(
@@ -297,8 +305,10 @@ class _SequenceScreenState extends State<SequenceScreen> {
             ],
             const SizedBox(height: 6),
             Text(
-              'الطول النهائي التقريبي: ${_fmt(total)}'
-              '${_transition != SequenceTransition.cut ? ' (كل انتقال يقصّر الناتج بمقدار مدته)' : ''}',
+              _tf('sequence.approxFinalLength', [_fmt(total)]) +
+                  (_transition != SequenceTransition.cut
+                      ? _t('sequence.transitionShortensNote')
+                      : ''),
               style: GoogleFonts.tajawal(
                   color: AyatColors.parchmentDim, fontSize: 11.5),
             ),
@@ -316,7 +326,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _busy ? null : _pick,
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('إضافة مقاطع'),
+                  label: Text(_t('sequence.addClips')),
                 ),
               ),
               const SizedBox(width: 10),
@@ -346,7 +356,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
                                 strokeWidth: 2, color: AyatColors.goldBright),
                           )
                         : Text(
-                            'تركيب المقاطع',
+                            _t('sequence.assembleClips'),
                             style: GoogleFonts.tajawal(
                               color: _clips.length < 2
                                   ? AyatColors.parchmentDim
@@ -363,7 +373,7 @@ class _SequenceScreenState extends State<SequenceScreen> {
           if (_clips.length < 2)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text('أضيفي مقطعين على الأقل للتركيب.',
+              child: Text(_t('sequence.addTwoClipsMin'),
                   style: GoogleFonts.tajawal(
                       color: AyatColors.parchmentDim, fontSize: 11.5)),
             ),

@@ -26,10 +26,19 @@ class _Tour extends StatefulWidget {
 
 class _TourState extends State<_Tour> {
   int i = 0;
-  static const steps = [
-    ('١', 'ارفع تلاوة', 'فيديو أو ملف صوتي — ولو صوت فقط ضع خلفية صورة أو فيديو'),
-    ('٢', 'اختر الآيات', 'بالكشف التلقائي أو يدويًا من السورة والآية — النص يأتي من المصحف دائمًا'),
-    ('٣', 'صدّر', 'اضبط الشكل من تبويب النص ثم صدّر بجودة تصل إلى مصدر الفيديو'),
+  // PATCH_S145_LANGUAGES_PATCH_A: the numeral is decorative and stays as
+  // an Arabic-Indic digit in every language; title/desc now come from the
+  // table (keyed per step, since a `static const` list can't call `t()`).
+  static const _numerals = ['١', '٢', '٣'];
+  static const _titleKeys = [
+    'firstRunTour.step1Title',
+    'firstRunTour.step2Title',
+    'firstRunTour.step3Title',
+  ];
+  static const _descKeys = [
+    'firstRunTour.step1Desc',
+    'firstRunTour.step2Desc',
+    'firstRunTour.step3Desc',
   ];
   @override
   Widget build(BuildContext c) {
@@ -40,10 +49,10 @@ class _TourState extends State<_Tour> {
     title: Text(s.t('firstRunTour.title'),
       style: TextStyle(color: AyatColors.gold, fontSize: 16)),
     content: SizedBox(width: 300, height: 150, child: Column(children: [
-      Text(steps[i].$1, style: TextStyle(fontSize: 40, color: AyatColors.goldBright)),
-      Text(steps[i].$2, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      Text(_numerals[i], style: TextStyle(fontSize: 40, color: AyatColors.goldBright)),
+      Text(s.t(_titleKeys[i]), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       const SizedBox(height: 6),
-      Text(steps[i].$3, textAlign: TextAlign.center,
+      Text(s.t(_descKeys[i]), textAlign: TextAlign.center,
         style: TextStyle(fontSize: 12, color: AyatColors.parchment.withValues(alpha: .8))),
     ])),
     actions: [
@@ -51,7 +60,7 @@ class _TourState extends State<_Tour> {
         child: Text(s.t('firstRunTour.skip'))),
       ElevatedButton(onPressed: () =>
         i == 2 ? Navigator.pop(context) : setState(() => i++),
-        child: Text(i == 2 ? 'ابدأ' : 'التالي')),
+        child: Text(s.t(i == 2 ? 'firstRunTour.start' : 'firstRunTour.next'))),
     ]);
   }
 }

@@ -226,7 +226,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                   icon: const Icon(Icons.delete_outline, size: 17),
                   label: Text(
-                    _settings.lang == AppLang.ar ? 'مسح' : 'Clear',
+                    // PATCH_S141_HOME_SEQUENCE_ABOUT_I18N: this was
+                    // hardcoded ar/en-only, silently showing English
+                    // to fr/id/ur users -- route through the table
+                    // like every other string on this screen.
+                    s.t('settings.clearCache'),
                     style: GoogleFonts.tajawal(fontSize: 12),
                   ),
                   style: TextButton.styleFrom(

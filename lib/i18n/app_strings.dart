@@ -1634,6 +1634,77 @@ const Map<String, List<String>> _table = {
     'Surah {} — {}',
     'سورہ {} — {}',
   ],
+
+  // ---- PATCH_S145_LANGUAGES_PATCH_A: sequence_screen.dart, first_run_tour.dart
+  // and text_editor_pro.dart's remaining strings, plus one shared common.*
+  // entry. Arabic and English are hand-translated; French/Indonesian/Urdu
+  // fall back to English for now (better than showing Arabic to someone who
+  // can't read it) -- a follow-up language patch should replace these three
+  // with real translations rather than leaving them on English long-term. ----
+  'common.remove': ['إزالة', 'Remove', 'Remove', 'Remove', 'Remove'],
+  'sequence.busyRendering': ['جارٍ تركيب المقاطع… قد يستغرق هذا وقتًا حسب الطول والعدد.', 'Assembling the clips… this may take a while depending on length and count.', 'Assembling the clips… this may take a while depending on length and count.', 'Assembling the clips… this may take a while depending on length and count.', 'Assembling the clips… this may take a while depending on length and count.'],
+  'sequence.durationMinSec': ['{}د {}ث', '{}m {}s', '{}m {}s', '{}m {}s', '{}m {}s'],
+  'sequence.durationSecOnly': ['{}ث', '{}s', '{}s', '{}s', '{}s'],
+  'sequence.trimStartSec': ['بداية (ث)', 'Start (s)', 'Start (s)', 'Start (s)', 'Start (s)'],
+  'sequence.trimDurationSec': ['مدة (ث)', 'Duration (s)', 'Duration (s)', 'Duration (s)', 'Duration (s)'],
+  'firstRunTour.step1Title': ['ارفع تلاوة', 'Upload a recitation', 'Upload a recitation', 'Upload a recitation', 'Upload a recitation'],
+  'firstRunTour.step1Desc': ['فيديو أو ملف صوتي — ولو صوت فقط ضع خلفية صورة أو فيديو', 'A video or audio file — if it\'s audio only, add an image or video background', 'A video or audio file — if it\'s audio only, add an image or video background', 'A video or audio file — if it\'s audio only, add an image or video background', 'A video or audio file — if it\'s audio only, add an image or video background'],
+  'firstRunTour.step2Title': ['اختر الآيات', 'Choose the ayat', 'Choose the ayat', 'Choose the ayat', 'Choose the ayat'],
+  'firstRunTour.step2Desc': ['بالكشف التلقائي أو يدويًا من السورة والآية — النص يأتي من المصحف دائمًا', 'Automatically detected, or picked manually by surah and ayah — the text always comes from the mushaf', 'Automatically detected, or picked manually by surah and ayah — the text always comes from the mushaf', 'Automatically detected, or picked manually by surah and ayah — the text always comes from the mushaf', 'Automatically detected, or picked manually by surah and ayah — the text always comes from the mushaf'],
+  'firstRunTour.step3Title': ['صدّر', 'Export', 'Export', 'Export', 'Export'],
+  'firstRunTour.step3Desc': ['اضبط الشكل من تبويب النص ثم صدّر بجودة تصل إلى مصدر الفيديو', 'Adjust the look from the Text tab, then export at quality up to your source video', 'Adjust the look from the Text tab, then export at quality up to your source video', 'Adjust the look from the Text tab, then export at quality up to your source video', 'Adjust the look from the Text tab, then export at quality up to your source video'],
+  'firstRunTour.start': ['ابدأ', 'Start', 'Start', 'Start', 'Start'],
+  'firstRunTour.next': ['التالي', 'Next', 'Next', 'Next', 'Next'],
+  'textEditorPro.tabText': ['النص', 'Text', 'Text', 'Text', 'Text'],
+  'textEditorPro.tabBorder': ['الإطار', 'Border', 'Border', 'Border', 'Border'],
+  'textEditorPro.tabShadow': ['الظل', 'Shadow', 'Shadow', 'Shadow', 'Shadow'],
+  'textEditorPro.tabGlow': ['التوهج', 'Glow', 'Glow', 'Glow', 'Glow'],
+  'textEditorPro.tabLabel': ['اللافتة', 'Label', 'Label', 'Label', 'Label'],
+  'textEditorPro.tabOpacity': ['الشفافية', 'Opacity', 'Opacity', 'Opacity', 'Opacity'],
+  'textEditorPro.fontNaskh': ['نسخ', 'Naskh', 'Naskh', 'Naskh', 'Naskh'],
+  'textEditorPro.fontRuqaa': ['رقعة', 'Ruqaa', 'Ruqaa', 'Ruqaa', 'Ruqaa'],
+  'textEditorPro.fontAndalus': ['أندلس', 'Andalusi', 'Andalusi', 'Andalusi', 'Andalusi'],
+  'textEditorPro.fontQalam': ['القلم', 'Qalam', 'Qalam', 'Qalam', 'Qalam'],
+  'textEditorPro.fontKufi': ['الكوفي', 'Kufi', 'Kufi', 'Kufi', 'Kufi'],
+  'textEditorPro.fontElgharib': ['الغريب نون حفص', 'Elgharib (Hafs)', 'Elgharib (Hafs)', 'Elgharib (Hafs)', 'Elgharib (Hafs)'],
+  'textEditorPro.fontDigitalMadina': ['المدينة الرقمية', 'Digital Madinah', 'Digital Madinah', 'Digital Madinah', 'Digital Madinah'],
+  'textEditorPro.fontTharwatEmara': ['ثروت عمارة', 'Tharwat Emara', 'Tharwat Emara', 'Tharwat Emara', 'Tharwat Emara'],
+  'textEditorPro.fontDigitalKhatt': ['الرقمي الجديد', 'New Digital', 'New Digital', 'New Digital', 'New Digital'],
+  'textEditorPro.fontElgharibLpmq': ['الغريب اللجنة', 'Elgharib (Committee)', 'Elgharib (Committee)', 'Elgharib (Committee)', 'Elgharib (Committee)'],
+  'textEditorPro.fontElgharibEid': ['الغريب عيد الأضحى', 'Elgharib (Eid al-Adha)', 'Elgharib (Eid al-Adha)', 'Elgharib (Eid al-Adha)', 'Elgharib (Eid al-Adha)'],
+  'textEditorPro.fontPfMonumenta': ['PF مونومنتا', 'PF Monumenta', 'PF Monumenta', 'PF Monumenta', 'PF Monumenta'],
+  'textEditorPro.glowIntensity': ['شدّة التوهّج', 'Glow intensity', 'Glow intensity', 'Glow intensity', 'Glow intensity'],
+  'textEditorPro.karaokeToggleTitle': ['تظليل الكلمات مع التلاوة (كاريوكي)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)'],
+  'textEditorPro.karaokeToggleSubtitle': ['عند الإيقاف: تُعرض الآية كاملة دون إضاءة كل كلمة على حدة', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word'],
+  'textEditorPro.sizeLabel': ['الحجم', 'Size', 'Size', 'Size', 'Size'],
+  'textEditorPro.letterSpacing': ['تباعد الأحرف', 'Letter spacing', 'Letter spacing', 'Letter spacing', 'Letter spacing'],
+  'textEditorPro.borderCardLabel': ['الحد', 'Border', 'Border', 'Border', 'Border'],
+  'textEditorPro.thickness': ['السمك', 'Thickness', 'Thickness', 'Thickness', 'Thickness'],
+  'textEditorPro.distance': ['المسافة', 'Distance', 'Distance', 'Distance', 'Distance'],
+  'textEditorPro.blur': ['الضبابية', 'Blur', 'Blur', 'Blur', 'Blur'],
+  'textEditorPro.sharpness': ['الحدة', 'Sharpness', 'Sharpness', 'Sharpness', 'Sharpness'],
+  'textEditorPro.backgroundLabelParen': ['الخلفية (Label)', 'Background (Label)', 'Background (Label)', 'Background (Label)', 'Background (Label)'],
+  'textEditorPro.overallOpacity': ['الشفافية العامة', 'Overall opacity', 'Overall opacity', 'Overall opacity', 'Overall opacity'],
+  'textEditorPro.unifiedHintOff': ['اجعل كل الآيات سطرًا واحدًا بنفس الحجم المشترك', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size', 'Make every ayah a single line at the same shared size'],
+  'textEditorPro.unifiedHintNoAyat': ['أضف آيات أولًا ليُحسب الحجم المشترك', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed', 'Add ayat first so the shared size can be computed'],
+  'textEditorPro.unifiedHintComputed': ['الحجم المشترك المحسوب: {}', 'Computed shared size: {}', 'Computed shared size: {}', 'Computed shared size: {}', 'Computed shared size: {}'],
+
+  // ---- PATCH_S145_LANGUAGES_PATCH_A bonus fix: these 9 keys were
+  // referenced by settings_screen.dart / user_guide_sheet.dart but never
+  // added to the table at all -- not a translation gap, there was no
+  // Arabic text anywhere to translate from. Written fresh here; please
+  // sanity-check the wording since it wasn't yours to begin with.
+  // French/Indonesian/Urdu fall back to English, same as the rest of
+  // this patch. ----
+  'settings.guide': ['دليل التحكم باللمس', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide'],
+  'settings.guideOpen': ['فتح الدليل', 'Open the guide', 'Open the guide', 'Open the guide', 'Open the guide'],
+  'settings.guideHint': ['شرح سريع لكل إيماءات اللمس في الاستوديو.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.', 'A quick explainer for every touch gesture in the studio.'],
+  'guide.title': ['دليل التحكم باللمس', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide', 'Touch controls guide'],
+  'guide.box': ['اسحبي الإطار حول النص لتحريكه، واسحبي أطرافه لتغيير حجمه', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it', 'Drag the box around the text to move it, and drag its corners to resize it'],
+  'guide.drag': ['اسحبي النص مباشرة لتحريكه في أي اتجاه', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction', 'Drag the text directly to move it in any direction'],
+  'guide.pinch': ['اقرصي بإصبعين لتكبير النص أو تصغيره', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller', 'Pinch with two fingers to make the text bigger or smaller'],
+  'guide.wordTap': ['اضغطي على أي كلمة لتلوينها بالأحمر', 'Tap any word to color it red', 'Tap any word to color it red', 'Tap any word to color it red', 'Tap any word to color it red'],
+  'guide.timeline': ['اسحبي على الخط الزمني لتحديد وقت ظهور كل آية يدويًا', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears', 'Drag along the timeline to manually set when each ayah appears'],
 };
 
 /// Exposed for the i18n test — every row must have one entry per [AppLang].

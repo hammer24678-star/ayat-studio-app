@@ -20,6 +20,10 @@
 //     chopping, whatever the frame rate
 import 'dart:math' as math;
 
+// PATCH_S145_LANGUAGES_PATCH_A
+import '../i18n/app_strings.dart';
+import '../services/app_settings.dart';
+
 /// Bounds on how long a transition may last, in milliseconds.
 ///
 /// The floor is not a taste call. The overlay is rendered at
@@ -246,6 +250,14 @@ extension TextTransitionMeta on TextTransition {
         TextTransition.driftIn => 'Gentle drift',
         TextTransition.settleIn => 'Settle',
       };
+
+  // PATCH_S145_LANGUAGES_PATCH_A: labelAr/labelEn above are both
+  // hand-written and complete; this just picks between them by the
+  // current interface language. French/Indonesian/Urdu fall back to
+  // English until a follow-up patch adds dedicated labelFr/labelId/labelUr
+  // switches -- better than showing Arabic to someone who can't read it.
+  String get label =>
+      AppSettings.instance.lang == AppLang.ar ? labelAr : labelEn;
 
   /// Transitions that reveal the text progressively rather than moving it as
   /// a block. Grouped in the picker, because they read very differently and

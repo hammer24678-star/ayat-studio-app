@@ -189,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Shorthand for a localized string in this screen's chrome.
   String _t(String key) => AppSettings.instance.strings.t(key);
+  // PATCH_S141_HOME_SEQUENCE_ABOUT_I18N: same shorthand, with `{}` placeholders filled left
+  // to right -- see AppStrings.f.
+  String _tf(String key, List<Object> args) =>
+      AppSettings.instance.strings.f(key, args);
 
   // PATCH_S123_QURAN_ENTRY: an ayah chosen while reading the mushaf comes
   // straight back here as the studio's current ayah -- same path a manual
@@ -3097,7 +3101,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               for (final t in plain)
                 ChoiceChip(
-                  label: Text(t.labelAr),
+                  label: Text(t.label),
                   selected: current == t,
                   onSelected: (_) => onPick(t),
                 ),
@@ -3114,7 +3118,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               for (final t in reveals)
                 ChoiceChip(
-                  label: Text(t.labelAr),
+                  label: Text(t.label),
                   selected: current == t,
                   onSelected: (_) => onPick(t),
                 ),

@@ -17,13 +17,16 @@ enum TextEditorTab { text, border, shadow, glow, label, opacity }
 // the raw Dart enum identifier, English by construction, with no
 // translation possible via a literal string replace (there was no
 // literal string to replace). Real Arabic labels instead.
-const Map<TextEditorTab, String> _kTabLabelsAr = {
-  TextEditorTab.text: 'النص',
-  TextEditorTab.border: 'الإطار',
-  TextEditorTab.shadow: 'الظل',
-  TextEditorTab.glow: 'التوهج',
-  TextEditorTab.label: 'اللافتة',
-  TextEditorTab.opacity: 'الشفافية',
+// PATCH_S152_LANGUAGES_PATCH_A: holds i18n table KEYS now, not literal
+// text -- a `const` map can't call `t()`, so the lookup happens where
+// this is read (_tabRow(), below) instead of here.
+const Map<TextEditorTab, String> _kTabLabelKeys = {
+  TextEditorTab.text: 'textEditorPro.tabText',
+  TextEditorTab.border: 'textEditorPro.tabBorder',
+  TextEditorTab.shadow: 'textEditorPro.tabShadow',
+  TextEditorTab.glow: 'textEditorPro.tabGlow',
+  TextEditorTab.label: 'textEditorPro.tabLabel',
+  TextEditorTab.opacity: 'textEditorPro.tabOpacity',
 };
 // S128LabelShape mirrors S128LabelShape on StudioState
 // PATCH_S128_FIX2_TEXT_EDITOR_PRO: enum: removed, using S128LabelShape
@@ -41,6 +44,12 @@ class TextEditorPro extends StatefulWidget {
 class _TextEditorProState extends State<TextEditorPro> {
   TextEditorTab _tab = TextEditorTab.text;
   StudioState get s => widget.state;
+  // PATCH_S152_LANGUAGES_PATCH_A: 's' is already StudioState above, so
+  // this file's shorthand for looked-up UI text is `_t`/`_tf`, matching
+  // the pattern in home_screen.dart/sequence_screen.dart.
+  String _t(String key) => AppSettings.instance.strings.t(key);
+  String _tf(String key, List<Object> args) =>
+      AppSettings.instance.strings.f(key, args);
 
   static const _quick = [Color(0xFFF4A7B9), Color(0xFFEF5350), Color(0xFFFF9800),
     Color(0xFFFFEB3B), Color(0xFF4CAF50), Color(0xFF26C6DA), Color(0xFF3F51B5),
@@ -54,13 +63,21 @@ class _TextEditorProState extends State<TextEditorPro> {
   // and NONE of them showed as selected -- even though a real font was
   // applied. Every bundled asset font is listed here now, so whichever
   // one is active always shows as selected.
+  // PATCH_S152_LANGUAGES_PATCH_A: second element is an i18n key now (see
+  // _kTabLabelKeys above for why), not the literal Arabic script name.
   static const _fonts = [
-    ('elgharib', 'الغريب نون حفص'), ('digitalmadina', 'المدينة الرقمية'),
-    ('tharwatemara', 'ثروت عمارة'), ('digitalkhatt', 'الرقمي الجديد'),
-    ('elgharib_lpmq', 'الغريب اللجنة'), ('elgharib_eid', 'الغريب عيد الأضحى'),
-    ('pf_monumenta', 'PF مونومنتا'),
-    ('naskh', 'نسخ'), ('ruqaa', 'رقعة'), ('andalus', 'أندلس'),
-    ('qalam', 'القلم'), ('kufi', 'الكوفي'),
+    ('elgharib', 'textEditorPro.fontElgharib'),
+    ('digitalmadina', 'textEditorPro.fontDigitalMadina'),
+    ('tharwatemara', 'textEditorPro.fontTharwatEmara'),
+    ('digitalkhatt', 'textEditorPro.fontDigitalKhatt'),
+    ('elgharib_lpmq', 'textEditorPro.fontElgharibLpmq'),
+    ('elgharib_eid', 'textEditorPro.fontElgharibEid'),
+    ('pf_monumenta', 'textEditorPro.fontPfMonumenta'),
+    ('naskh', 'textEditorPro.fontNaskh'),
+    ('ruqaa', 'textEditorPro.fontRuqaa'),
+    ('andalus', 'textEditorPro.fontAndalus'),
+    ('qalam', 'textEditorPro.fontQalam'),
+    ('kufi', 'textEditorPro.fontKufi'),
   ];
 
   @override
@@ -80,7 +97,7 @@ class _TextEditorProState extends State<TextEditorPro> {
               color: _tab == t ? AyatColors.gold.withValues(alpha: .18) : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: _tab == t ? AyatColors.gold : Colors.transparent)),
-            child: Text(_kTabLabelsAr[t]!, style: TextStyle(
+            child: Text(_t(_kTabLabelKeys[t]!), style: TextStyle(
               fontSize: 12, letterSpacing: 1,
               color: _tab == t ? AyatColors.goldBright : AyatColors.goldDim))))]));
 
@@ -95,7 +112,7 @@ class _TextEditorProState extends State<TextEditorPro> {
       // PATCH_S149_REMOVE_FOUR_FONT_OPTIONS: 'خط قرآني' (amiri_quran)
       // chip removed by request. 'amiri' above already covers the same
       // Amiri Quran Google Font under a different key.
-      for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
+      for (final f in _fonts) _chip(_t(f.$2), f.$1, s.fontKey == f.$1,
           () => s.update(() => s.fontKey = f.$1)),
       // PATCH_S151_CUSTOM_FONTS_IN_CHIP_ROW: uploaded fonts applied
       // correctly the moment you picked them but had no chip here
@@ -110,9 +127,9 @@ class _TextEditorProState extends State<TextEditorPro> {
         label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.addFont')),
         onPressed: widget.onPickCustomFont)]),
 
-    _slider('الحجم', s.ayahFontSize, 14, 30, 0,
+    _slider(_t('textEditorPro.sizeLabel'), s.ayahFontSize, 14, 30, 0,
         (v) => s.update(() => s.ayahFontSize = v)),
-    _slider('تباعد الأحرف', s.letterSpacing, 0, 12, 0,
+    _slider(_t('textEditorPro.letterSpacing'), s.letterSpacing, 0, 12, 0,
         (v) => s.update(() => s.letterSpacing = v)),
     SwitchListTile(
       title: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.unifiedLineForAllAyat'),
@@ -133,10 +150,10 @@ class _TextEditorProState extends State<TextEditorPro> {
   ]));
 
   String _unifiedHint() {
-    if (!s.unifiedOneLine) return 'اجعل كل الآيات سطرًا واحدًا بنفس الحجم المشترك';
+    if (!s.unifiedOneLine) return _t('textEditorPro.unifiedHintOff');
     final u = _computeUnified();
-    return u == null ? 'أضف آيات أولًا ليُحسب الحجم المشترك'
-                     : 'الحجم المشترك المحسوب: ${u.toInt()}';
+    return u == null ? _t('textEditorPro.unifiedHintNoAyat')
+                     : _tf('textEditorPro.unifiedHintComputed', [u.toInt()]);
   }
   double? _computeUnified() {
     if (widget.segmentTexts.isEmpty) return null;
@@ -197,13 +214,13 @@ class _TextEditorProState extends State<TextEditorPro> {
   }
 
   // ── BORDER / SHADOW / GLOW / LABEL / OPACITY ──
-  Widget _border() => _card('الحد', Icons.border_style, s.textBorderEnabled,
+  Widget _border() => _card(_t('textEditorPro.borderCardLabel'), Icons.border_style, s.textBorderEnabled,
     (v) => s.update(() => s.textBorderEnabled = v), [
-    _slider('السمك', s.textBorderWidth, 1, 20, 0, (v) => s.update(() => s.textBorderWidth = v))]);
-  Widget _shadow() => _card('الظل', Icons.filter_frames, s.shadowEnabled,
+    _slider(_t('textEditorPro.thickness'), s.textBorderWidth, 1, 20, 0, (v) => s.update(() => s.textBorderWidth = v))]);
+  Widget _shadow() => _card(_t('textEditorPro.tabShadow'), Icons.filter_frames, s.shadowEnabled,
     (v) => s.update(() => s.shadowEnabled = v), [
-    _slider('المسافة', s.shadowDistance, 0, 40, 0, (v) => s.update(() => s.shadowDistance = v)),
-    _slider('الضبابية', s.shadowBlur, 0, 60, 0, (v) => s.update(() => s.shadowBlur = v))]);
+    _slider(_t('textEditorPro.distance'), s.shadowDistance, 0, 40, 0, (v) => s.update(() => s.shadowDistance = v)),
+    _slider(_t('textEditorPro.blur'), s.shadowBlur, 0, 60, 0, (v) => s.update(() => s.shadowBlur = v))]);
   // PATCH_S145_GLOW_KARAOKE_SETTINGS: the on/off switch this card
   // already had (s.glowEnabled) was real and correctly wired -- but the
   // two sliders under it (glowSize/glowSharpness) were never read by
@@ -216,24 +233,24 @@ class _TextEditorProState extends State<TextEditorPro> {
   // its glow -- which used to live in the now-orphaned old _textPanel()
   // and has had no reachable control anywhere since PATCH_S128 replaced
   // that screen with this one.
-  Widget _glow() => _card('التوهج', Icons.wb_sunny_outlined, s.glowEnabled,
+  Widget _glow() => _card(_t('textEditorPro.tabGlow'), Icons.wb_sunny_outlined, s.glowEnabled,
     (v) => s.update(() => s.glowEnabled = v), [
-    _slider('شدّة التوهّج', s.glowIntensity, 0, 1.5, 2,
+    _slider(_t('textEditorPro.glowIntensity'), s.glowIntensity, 0, 1.5, 2,
         (v) => s.update(() => s.glowIntensity = v)),
     const SizedBox(height: 6),
     SwitchListTile(
       contentPadding: EdgeInsets.zero,
-      title: const Text('تظليل الكلمات مع التلاوة (كاريوكي)',
-          style: TextStyle(fontSize: 13)),
-      subtitle: const Text(
-          'عند الإيقاف: تُعرض الآية كاملة دون إضاءة كل كلمة على حدة',
-          style: TextStyle(fontSize: 11)),
+      title: Text(_t('textEditorPro.karaokeToggleTitle'),
+          style: const TextStyle(fontSize: 13)),
+      subtitle: Text(
+          _t('textEditorPro.karaokeToggleSubtitle'),
+          style: const TextStyle(fontSize: 11)),
       value: s.karaokeEnabled,
       activeColor: AyatColors.gold,
       onChanged: (v) => s.update(() => s.karaokeEnabled = v),
     ),
   ]);
-  Widget _label() => _card('الخلفية (Label)', Icons.label_outline, s.labelEnabled,
+  Widget _label() => _card(_t('textEditorPro.backgroundLabelParen'), Icons.label_outline, s.labelEnabled,
     (v) => s.update(() => s.labelEnabled = v), [
     Row(children: [for (final sh in S128LabelShape.values)
       GestureDetector(onTap: () => s.update(() => s.labelShape = sh),
@@ -246,9 +263,9 @@ class _TextEditorProState extends State<TextEditorPro> {
               : sh == S128LabelShape.pill ? BorderRadius.circular(15) : BorderRadius.circular(4)),
           alignment: Alignment.center,
           child: Text(sh.name[0], style: const TextStyle(fontSize: 10))))]),
-    _slider('الشفافية', s.labelOpacity, 0, 100, 0,
+    _slider(_t('textEditorPro.tabOpacity'), s.labelOpacity, 0, 100, 0,
         (v) => s.update(() => s.labelOpacity = v / 100))]);
-  Widget _opacity() => _slider('الشفافية العامة', s.overallOpacity * 100, 10, 100, 0,
+  Widget _opacity() => _slider(_t('textEditorPro.overallOpacity'), s.overallOpacity * 100, 10, 100, 0,
       (v) => s.update(() => s.overallOpacity = v / 100));
 
   Widget _card(String t, IconData ic, bool on, ValueChanged<bool> set,
