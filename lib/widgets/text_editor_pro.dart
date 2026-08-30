@@ -45,11 +45,24 @@ class _TextEditorProState extends State<TextEditorPro> {
   static const _quick = [Color(0xFFF4A7B9), Color(0xFFEF5350), Color(0xFFFF9800),
     Color(0xFFFFEB3B), Color(0xFF4CAF50), Color(0xFF26C6DA), Color(0xFF3F51B5),
     Color(0xFF9C4DFF)];
-  // PATCH_S145: three more bundled fonts (see ayat_fonts.dart /
-  // studio_presets.dart) added alongside the original five.
-  static const _fonts = [('naskh', 'نسخ'), ('ruqaa', 'رقعة'), ('andalus', 'أندلس'),
-    ('qalam', 'القلم'), ('kufi', 'الكوفي'), ('digitalkhatt', 'الرقمي الجديد'),
-    ('elgharib_a001', 'الغريب A001'), ('elgharib_lpmq', 'الغريب اللجنة')];
+  // PATCH_S148_REMAINING_FONTS_AND_SELECTED_CHIP_FIX: this row used to
+  // list only Google-Fonts substitutes plus 2 of the S145 bundled fonts --
+  // it never included 'elgharib', 'tharwatemara', or 'digitalmadina', and
+  // digitalmadina is the actual app default (studio_state.dart). That
+  // meant whenever one of those three was the active font (including on
+  // a fresh project, every time), none of these chips matched s.fontKey
+  // and NONE of them showed as selected -- even though a real font was
+  // applied. Every bundled asset font is listed here now, so whichever
+  // one is active always shows as selected.
+  static const _fonts = [
+    ('elgharib', 'الغريب نون حفص'), ('digitalmadina', 'المدينة الرقمية'),
+    ('tharwatemara', 'ثروت عمارة'), ('digitalkhatt', 'الرقمي الجديد'),
+    ('elgharib_a001', 'الغريب A001'), ('elgharib_lpmq', 'الغريب اللجنة'),
+    ('elgharib_a603', 'الغريب A603'), ('elgharib_eid', 'الغريب عيد الأضحى'),
+    ('elgharib_qcf4', 'أسماء السور'), ('pf_monumenta', 'PF مونومنتا'),
+    ('naskh', 'نسخ'), ('ruqaa', 'رقعة'), ('andalus', 'أندلس'),
+    ('qalam', 'القلم'), ('kufi', 'الكوفي'),
+  ];
 
   @override
   Widget build(BuildContext c) => ListenableBuilder(listenable: s,

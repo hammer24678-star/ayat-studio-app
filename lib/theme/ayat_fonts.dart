@@ -56,6 +56,15 @@ TextStyle ayahTextStyle(
       return base.copyWith(fontFamily: 'ElgharibA001');
     case 'elgharib_lpmq':
       return base.copyWith(fontFamily: 'ElgharibLPMQMisbahTaweel');
+    // PATCH_S148_REMAINING_FONTS_AND_SELECTED_CHIP_FIX: 4 more bundled fonts.
+    case 'elgharib_a603':
+      return base.copyWith(fontFamily: 'ElgharibA603');
+    case 'elgharib_eid':
+      return base.copyWith(fontFamily: 'ElgharibEidAlAdha');
+    case 'elgharib_qcf4':
+      return base.copyWith(fontFamily: 'ElgharibQCF4SurahNames');
+    case 'pf_monumenta':
+      return base.copyWith(fontFamily: 'PFMonumentaPro');
     // PATCH_S145_FONT_BUTTONS_REAL_FONTS: text_editor_pro.dart's quick
     // font row (نسخ/رقعة/أندلس/القلم/الكوفي) set fontKey to these four
     // (ruqaa/amiri_quran already worked) but nothing here ever matched

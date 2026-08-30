@@ -61,6 +61,20 @@ flutter:
     - family: ElgharibLPMQMisbahTaweel
       fonts:
         - asset: assets/fonts/ElgharibLPMQMisbahTaweel.ttf
+    # PATCH_S148_REMAINING_FONTS_AND_SELECTED_CHIP_FIX: 4 more bundled
+    # fonts that were downloaded but never wired in.
+    - family: ElgharibA603
+      fonts:
+        - asset: assets/fonts/ElgharibA603.ttf
+    - family: ElgharibEidAlAdha
+      fonts:
+        - asset: assets/fonts/ElgharibEidAlAdha.ttf
+    - family: ElgharibQCF4SurahNames
+      fonts:
+        - asset: assets/fonts/ElgharibQCF4SurahNames.ttf
+    - family: PFMonumentaPro
+      fonts:
+        - asset: assets/fonts/PFMonumentaPro.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"
