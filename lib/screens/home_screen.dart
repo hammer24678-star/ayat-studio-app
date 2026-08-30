@@ -4159,7 +4159,15 @@ class _HomeScreenState extends State<HomeScreen>
             left: 18,
             right: 18,
             top: 14,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+            // PATCH_S150_TEXT_SHEET_SAFE_AREA_FIX: viewInsets.bottom only
+            // covers the keyboard -- it ignored the bottom system nav /
+            // gesture bar, so the last button in the sheet rendered
+            // straight underneath it. padding.bottom is the system-UI
+            // inset; add it on top of the keyboard inset so content
+            // always clears both.
+            bottom: MediaQuery.of(context).viewInsets.bottom +
+                MediaQuery.of(context).padding.bottom +
+                18,
           ),
           // PATCH_S147_TEXT_SHEET_SCROLL_FIX: the sheet's content
           // (title + kind chips + fields + buttons) doesn't fit above
