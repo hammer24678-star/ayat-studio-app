@@ -221,15 +221,13 @@ const List<AyahFontChoice> kBuiltInFonts = [
   AyahFontChoice('digitalmadina', 'المدينة الرقمية (افتراضي)'),
   // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: three more bundled fonts.
   AyahFontChoice('digitalkhatt', 'الخط الرقمي الجديد'),
-  AyahFontChoice('elgharib_a001', 'الغريب A001'),
   AyahFontChoice('elgharib_lpmq', 'الغريب اللجنة (مصباح طويل)'),
   // PATCH_S148_REMAINING_FONTS_AND_SELECTED_CHIP_FIX: 4 more bundled fonts.
-  // Note: elgharib_qcf4 is a QCF (surah-name ornament) glyph font, not a
-  // free-text Arabic font -- typed ayah text may not render as expected
-  // with it selected. pf_monumenta has no Arabic glyphs at all.
-  AyahFontChoice('elgharib_a603', 'الغريب A603'),
+  // PATCH_S149_REMOVE_FOUR_FONT_OPTIONS: elgharib_a001, elgharib_a603,
+  // elgharib_qcf4 and amiri_quran (text_editor_pro.dart) removed from
+  // the pickers by request -- their pubspec/ayahTextStyle() wiring is
+  // left in place, just unreachable from the UI now.
   AyahFontChoice('elgharib_eid', 'الغريب عيد الأضحى'),
-  AyahFontChoice('elgharib_qcf4', 'الغريب أسماء السور (QCF4)'),
   AyahFontChoice('pf_monumenta', 'PF مونومنتا برو'),
 ];
 

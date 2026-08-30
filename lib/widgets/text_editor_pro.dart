@@ -57,9 +57,8 @@ class _TextEditorProState extends State<TextEditorPro> {
   static const _fonts = [
     ('elgharib', 'الغريب نون حفص'), ('digitalmadina', 'المدينة الرقمية'),
     ('tharwatemara', 'ثروت عمارة'), ('digitalkhatt', 'الرقمي الجديد'),
-    ('elgharib_a001', 'الغريب A001'), ('elgharib_lpmq', 'الغريب اللجنة'),
-    ('elgharib_a603', 'الغريب A603'), ('elgharib_eid', 'الغريب عيد الأضحى'),
-    ('elgharib_qcf4', 'أسماء السور'), ('pf_monumenta', 'PF مونومنتا'),
+    ('elgharib_lpmq', 'الغريب اللجنة'), ('elgharib_eid', 'الغريب عيد الأضحى'),
+    ('pf_monumenta', 'PF مونومنتا'),
     ('naskh', 'نسخ'), ('ruqaa', 'رقعة'), ('andalus', 'أندلس'),
     ('qalam', 'القلم'), ('kufi', 'الكوفي'),
   ];
@@ -93,10 +92,11 @@ class _TextEditorProState extends State<TextEditorPro> {
   // ── TEXT ──
   Widget _text() => SingleChildScrollView(child: Column(children: [
     Wrap(spacing: 8, runSpacing: 8, children: [
+      // PATCH_S149_REMOVE_FOUR_FONT_OPTIONS: 'خط قرآني' (amiri_quran)
+      // chip removed by request. 'amiri' above already covers the same
+      // Amiri Quran Google Font under a different key.
       for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
           () => s.update(() => s.fontKey = f.$1)),
-      _chip('خط قرآني', 'amiri_quran', s.fontKey == 'amiri_quran',
-          () => s.update(() => s.fontKey = 'amiri_quran')),
       // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
         label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.addFont')),
