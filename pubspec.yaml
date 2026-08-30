@@ -50,6 +50,17 @@ flutter:
     - family: DigitalMadinaNON
       fonts:
         - asset: assets/fonts/DigitalMadinaNON.ttf
+    # PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: three more bundled ayah
+    # fonts, copied in from the phone's Download folder by this script.
+    - family: DigitalKhattNewV2
+      fonts:
+        - asset: assets/fonts/DigitalKhattNewV2.otf
+    - family: ElgharibA001
+      fonts:
+        - asset: assets/fonts/ElgharibA001.ttf
+    - family: ElgharibLPMQMisbahTaweel
+      fonts:
+        - asset: assets/fonts/ElgharibLPMQMisbahTaweel.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"

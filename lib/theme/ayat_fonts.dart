@@ -49,6 +49,33 @@ TextStyle ayahTextStyle(
       return base.copyWith(fontFamily: 'TharwatEmara');
     case 'digitalmadina':
       return base.copyWith(fontFamily: 'DigitalMadinaNON');
+    // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: three more bundled fonts.
+    case 'digitalkhatt':
+      return base.copyWith(fontFamily: 'DigitalKhattNewV2');
+    case 'elgharib_a001':
+      return base.copyWith(fontFamily: 'ElgharibA001');
+    case 'elgharib_lpmq':
+      return base.copyWith(fontFamily: 'ElgharibLPMQMisbahTaweel');
+    // PATCH_S145_FONT_BUTTONS_REAL_FONTS: text_editor_pro.dart's quick
+    // font row (نسخ/رقعة/أندلس/القلم/الكوفي) set fontKey to these four
+    // (ruqaa/amiri_quran already worked) but nothing here ever matched
+    // them -- they fell through to `default` and asked for a fontFamily
+    // that was never registered anywhere, so every one of those buttons
+    // silently rendered in the same fallback system font. Real,
+    // visually distinct Google Fonts now -- downloaded on demand the
+    // same way amiri/ruqaa above already do, no asset bundling needed.
+    // Swap any of these for a different GoogleFonts.xxx() call if you'd
+    // rather have a different family for that button.
+    case 'naskh':
+      return GoogleFonts.notoNaskhArabic(textStyle: base);
+    case 'andalus':
+      return GoogleFonts.markaziText(textStyle: base);
+    case 'qalam':
+      return GoogleFonts.qahiri(textStyle: base);
+    case 'kufi':
+      return GoogleFonts.reemKufi(textStyle: base);
+    case 'amiri_quran':
+      return GoogleFonts.amiriQuran(textStyle: base);
     default:
       // custom uploaded font, registered through FontLoader under fontKey
       return base.copyWith(fontFamily: fontKey);

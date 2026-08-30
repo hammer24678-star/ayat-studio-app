@@ -30,8 +30,8 @@ class OverlayStyle {
   final double lineHeightMultiplier;
   final Offset offset; // PATCH_S50_DRAGGABLE_TEXT: matches StudioState.textOffset
   final double userScale; // matches StudioState.textUserScale
-  // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION ----
-  final Set<int> redWordIndices;
+  // ---- PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S145 ----
+  final Map<int, Color> wordColors;
   final String captionText;
   final CaptionPosition captionPosition;
   // PATCH_S143_TEXT_LAYERS: independent stacked fixed-text boxes,
@@ -55,7 +55,7 @@ class OverlayStyle {
     this.lineHeightMultiplier = 1.5,
     this.offset = Offset.zero,
     this.userScale = 1.0,
-    this.redWordIndices = const {},
+    this.wordColors = const {},
     this.captionText = '',
     this.captionPosition = CaptionPosition.bottom,
     this.motion = TextMotion.identity,
@@ -80,7 +80,7 @@ class OverlayStyle {
         lineHeightMultiplier: lineHeightMultiplier,
         offset: offset,
         userScale: userScale,
-        redWordIndices: redWordIndices,
+        wordColors: wordColors,
         captionText: captionText,
         captionPosition: captionPosition,
         motion: m,
@@ -396,11 +396,11 @@ class OverlayRenderer {
         ];
         final dimColor =
             style.color.withValues(alpha: style.color.a * 0.30 * opacity);
-        // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: red-flagged words
-        // must stay red in exported auto-synced/timeline clips too --
-        // this branch previously only chose between lit/dim and
-        // silently dropped any redWordIndices selection.
-        final redColorK = const Color(0xFFE53935).withValues(alpha: opacity);
+        // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING / PATCH_S145: a
+        // word with its own assigned color must keep that color in
+        // exported auto-synced/timeline clips too -- this branch
+        // previously only chose between lit/dim and silently dropped any
+        // per-word color choice.
         ayahSpan = TextSpan(
           children: [
             for (var i = 0; i < karaokeWords.length; i++)
@@ -409,8 +409,8 @@ class OverlayRenderer {
                 style: ayahTextStyle(
                   style.fontKey,
                   fontSize: ayahFontSize,
-                  color: style.redWordIndices.contains(i)
-                      ? redColorK
+                  color: style.wordColors.containsKey(i)
+                      ? style.wordColors[i]!.withValues(alpha: opacity)
                       : (i < litWords ? effColor : dimColor),
                   height: style.lineHeightMultiplier,
                   letterSpacing: style.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
@@ -431,12 +431,11 @@ class OverlayRenderer {
                     blurRadius: 14 * scale * style.glowIntensity),
               ]
             : shadows;
-        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: render word-by-word so
-        // individually-flagged words can be colored red, same as the
-        // karaoke branch above builds one TextSpan per word.
-        if (style.redWordIndices.isNotEmpty) {
-          final redColor = const Color(0xFFE53935)
-              .withValues(alpha: opacity); // fixed highlight red
+        // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S145: render
+        // word-by-word so individually-colored words keep their own
+        // color, same as the karaoke branch above builds one TextSpan
+        // per word.
+        if (style.wordColors.isNotEmpty) {
           final ws = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
           ayahSpan = TextSpan(
             children: [
@@ -446,7 +445,9 @@ class OverlayRenderer {
                   style: ayahTextStyle(
                     style.fontKey,
                     fontSize: ayahFontSize,
-                    color: style.redWordIndices.contains(i) ? redColor : effColor,
+                    color: style.wordColors.containsKey(i)
+                        ? style.wordColors[i]!.withValues(alpha: opacity)
+                        : effColor,
                     height: style.lineHeightMultiplier,
                     letterSpacing: style.letterSpacing,
                     shadows: staticShadows,

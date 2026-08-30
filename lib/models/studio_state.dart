@@ -240,9 +240,19 @@ class StudioState extends ChangeNotifier {
   // Both null (the default) means "shown for the whole clip", same as before.
   double? textTimeStartOverride;
   double? textTimeEndOverride;
-  // Word indices (into state.ayahText.split(RegExp(r'\s+'))) to render in
-  // red instead of the normal text color. Cleared whenever setAyah() runs.
-  Set<int> redWordIndices = {};
+  // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: word index (into
+  // state.ayahText.split(RegExp(r'\s+'))) -> the color that word is
+  // drawn in instead of the normal text color. Was a Set<int> that only
+  // ever meant "red"; now any color, chosen from the same picker every
+  // other color field in this app already uses (showAyatColorPicker) or
+  // one of the quick swatches next to the word chips. Cleared whenever
+  // setAyah()/applyStageTextEdit() changes the underlying words, same
+  // as redWordIndices always was.
+  Map<int, Color> wordColors = {};
+  // The color the next tapped word gets. Defaults to the old hardcoded
+  // red so existing habits (tap a word, it turns red) keep working
+  // exactly as before unless a different color is deliberately picked.
+  Color activeWordColor = const Color(0xFFE53935);
   // Optional extra line (reciter/sheikh name, ayah-range label, ...) drawn
   // near the top or bottom of the frame, independent of the ayah text.
   String captionText = '';
@@ -372,9 +382,9 @@ class StudioState extends ChangeNotifier {
     } else {
       ayahText = trimmed;
       // PATCH_S133_STAGE_TEXT_SELECT_EDIT: a hand correction can change the
-      // word count/order -- a previous red-word selection almost never
+      // word count/order -- a previous word-color selection almost never
       // still lines up (same reasoning as setAyah()).
-      redWordIndices = {};
+      wordColors = {};
     }
     notifyListeners();
   }
@@ -527,9 +537,10 @@ class StudioState extends ChangeNotifier {
     pushHistory(); // PATCH_S56_UNDO_REDO
     ayahText = ar;
     translationText = en;
-    // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: a previous ayah's red-word
-    // selection almost never lines up with the new ayah's word count/order.
-    redWordIndices = {};
+    // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: a previous ayah's
+    // word-color selection almost never lines up with the new ayah's word
+    // count/order.
+    wordColors = {};
     detectedLabel = label;
     matchConfidenceText = confidenceText;
     notifyListeners();

@@ -21,6 +21,7 @@ import '../i18n/app_strings.dart';
 import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
+import 'color_picker_dialog.dart' show showAyatColorPicker; // PATCH_S145
 
 /// What the overlay is currently showing. During auto-sync playback the
 /// karaoke ticker feeds the current ayah part through here; otherwise it
@@ -215,9 +216,37 @@ class _StagePreviewState extends State<StagePreview>
               ),
               if (words.isNotEmpty) ...[
                 const SizedBox(height: 14),
-                Text(s.t('stage.toggleWords'),
-                    style: const TextStyle(
-                        color: AyatColors.goldDim, fontSize: 12)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(s.t('stage.toggleWords'),
+                          style: const TextStyle(
+                              color: AyatColors.goldDim, fontSize: 12)),
+                    ),
+                    // PATCH_S145: which color the next tap applies --
+                    // defaults to red so nothing changes for anyone who
+                    // never touches this, but any color works.
+                    GestureDetector(
+                      onTap: () async {
+                        final c = await showAyatColorPicker(
+                            context, state.activeWordColor);
+                        if (c != null) {
+                          state.update(() => state.activeWordColor = c);
+                          setDialogState(() {});
+                        }
+                      },
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: state.activeWordColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AyatColors.goldDim),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
@@ -228,15 +257,16 @@ class _StagePreviewState extends State<StagePreview>
                         label: Text(words[i],
                             style: ayahTextStyle(state.fontKey,
                                 fontSize: 13)),
-                        selected: state.redWordIndices.contains(i),
-                        selectedColor: const Color(0xFFE53935)
-                            .withValues(alpha: 0.35),
+                        selected: state.wordColors.containsKey(i),
+                        selectedColor:
+                            (state.wordColors[i] ?? state.activeWordColor)
+                                .withValues(alpha: 0.35),
                         onSelected: (sel) {
                           state.update(() {
                             if (sel) {
-                              state.redWordIndices.add(i);
+                              state.wordColors[i] = state.activeWordColor;
                             } else {
-                              state.redWordIndices.remove(i);
+                              state.wordColors.remove(i);
                             }
                           });
                           setDialogState(() {});
@@ -928,12 +958,11 @@ class _StagePreviewState extends State<StagePreview>
               blurRadius: 14 * scale * state.glowIntensity),
       ];
       final dimColor = state.textColor.withValues(alpha: 0.30);
-      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: a red-flagged word
-      // stays red regardless of karaoke lit/dim state -- previously
-      // redWordIndices was ignored entirely on this branch, so any
-      // red selection silently vanished once karaoke highlighting
-      // kicked in.
-      const redColor = Color(0xFFE53935);
+      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING / PATCH_S145: a word
+      // with its own assigned color keeps that color regardless of
+      // karaoke lit/dim state -- previously this map (then a red-only
+      // set) was ignored entirely on this branch, so any color choice
+      // silently vanished once karaoke highlighting kicked in.
       ayahWidget = Text.rich(
         TextSpan(
           children: _revealedWordSpans(
@@ -947,8 +976,8 @@ class _StagePreviewState extends State<StagePreview>
             styleFor: (i) => ayahTextStyle(
               state.fontKey,
               fontSize: ayahFontSize,
-              color: state.redWordIndices.contains(i)
-                  ? redColor
+              color: state.wordColors.containsKey(i)
+                  ? state.wordColors[i]!
                   : (i < live!.litWords ? state.textColor : dimColor),
               height: state.lineHeightMultiplier,
               letterSpacing: state.letterSpacing, // PATCH_S48_TEXT_SPACING_TOGGLES
@@ -970,13 +999,12 @@ class _StagePreviewState extends State<StagePreview>
                   blurRadius: 14 * scale * state.glowIntensity),
             ]
           : shadows;
-      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING: this branch never
-      // looked at state.redWordIndices before, so tapping a word chip
-      // in the "تلوين كلمات بالأحمر" section had zero visible effect
-      // in the live preview -- it only ever reached the exported
-      // video's static-text path. Mirror that path here.
-      if (state.redWordIndices.isNotEmpty || perUnitReveal) {
-        const redColor = Color(0xFFE53935);
+      // PATCH_S114_REDWORDS_AND_ROSETTE_CENTERING / PATCH_S145: this
+      // branch never looked at word colors before, so tapping a word
+      // chip had zero visible effect in the live preview -- it only
+      // ever reached the exported video's static-text path. Mirror
+      // that path here.
+      if (state.wordColors.isNotEmpty || perUnitReveal) {
         final ws = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
         ayahWidget = Text.rich(
           TextSpan(
@@ -987,8 +1015,8 @@ class _StagePreviewState extends State<StagePreview>
               styleFor: (i) => ayahTextStyle(
                 state.fontKey,
                 fontSize: ayahFontSize,
-                color: state.redWordIndices.contains(i)
-                    ? redColor
+                color: state.wordColors.containsKey(i)
+                    ? state.wordColors[i]!
                     : state.textColor,
                 height: state.lineHeightMultiplier,
                 letterSpacing: state.letterSpacing,

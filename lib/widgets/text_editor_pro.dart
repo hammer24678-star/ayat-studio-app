@@ -5,6 +5,7 @@
 // is inherent; "حفظ كشكل افتراضي" carries it to future projects.
 import 'package:flutter/material.dart';
 import '../theme/ayat_theme.dart';
+import '../theme/ayat_fonts.dart'; // PATCH_S145: ayahTextStyle for chip previews
 import '../models/studio_state.dart';
 import '../i18n/app_strings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
 import '../services/app_settings.dart'; // PATCH_S139_MUSHAF_AR_EN_AND_I18N_WIDGETS
@@ -44,8 +45,11 @@ class _TextEditorProState extends State<TextEditorPro> {
   static const _quick = [Color(0xFFF4A7B9), Color(0xFFEF5350), Color(0xFFFF9800),
     Color(0xFFFFEB3B), Color(0xFF4CAF50), Color(0xFF26C6DA), Color(0xFF3F51B5),
     Color(0xFF9C4DFF)];
+  // PATCH_S145: three more bundled fonts (see ayat_fonts.dart /
+  // studio_presets.dart) added alongside the original five.
   static const _fonts = [('naskh', 'نسخ'), ('ruqaa', 'رقعة'), ('andalus', 'أندلس'),
-    ('qalam', 'القلم'), ('kufi', 'الكوفي')];
+    ('qalam', 'القلم'), ('kufi', 'الكوفي'), ('digitalkhatt', 'الرقمي الجديد'),
+    ('elgharib_a001', 'الغريب A001'), ('elgharib_lpmq', 'الغريب اللجنة')];
 
   @override
   Widget build(BuildContext c) => ListenableBuilder(listenable: s,
@@ -76,9 +80,9 @@ class _TextEditorProState extends State<TextEditorPro> {
   // ── TEXT ──
   Widget _text() => SingleChildScrollView(child: Column(children: [
     Wrap(spacing: 8, runSpacing: 8, children: [
-      for (final f in _fonts) _chip(f.$2, s.fontKey == f.$1,
+      for (final f in _fonts) _chip(f.$2, f.$1, s.fontKey == f.$1,
           () => s.update(() => s.fontKey = f.$1)),
-      _chip('خط قرآني', s.fontKey == 'amiri_quran',
+      _chip('خط قرآني', 'amiri_quran', s.fontKey == 'amiri_quran',
           () => s.update(() => s.fontKey = 'amiri_quran')),
       // PATCH_S129_WIRE_AND_SIMPLIFY_UI: was hardcoded to onPressed: null
       ActionChip(avatar: const Icon(Icons.add, size: 14),
@@ -179,10 +183,35 @@ class _TextEditorProState extends State<TextEditorPro> {
     (v) => s.update(() => s.shadowEnabled = v), [
     _slider('المسافة', s.shadowDistance, 0, 40, 0, (v) => s.update(() => s.shadowDistance = v)),
     _slider('الضبابية', s.shadowBlur, 0, 60, 0, (v) => s.update(() => s.shadowBlur = v))]);
+  // PATCH_S145_GLOW_KARAOKE_SETTINGS: the on/off switch this card
+  // already had (s.glowEnabled) was real and correctly wired -- but the
+  // two sliders under it (glowSize/glowSharpness) were never read by
+  // either the live stage or the export renderer, so moving them did
+  // nothing. The one field that actually controls how strong the glow
+  // looks (glowIntensity, 0..1.5, used for both the plain-text glow and
+  // the karaoke lit-word glow while الشيخ is reciting) now has the real
+  // slider. The second switch below restores "تظليل الكلمات مع التلاوة
+  // (كاريوكي)" -- on/off for the word-by-word lighting itself, not just
+  // its glow -- which used to live in the now-orphaned old _textPanel()
+  // and has had no reachable control anywhere since PATCH_S128 replaced
+  // that screen with this one.
   Widget _glow() => _card('التوهج', Icons.wb_sunny_outlined, s.glowEnabled,
     (v) => s.update(() => s.glowEnabled = v), [
-    _slider('الحجم', s.glowSize, 0, 60, 0, (v) => s.update(() => s.glowSize = v)),
-    _slider('الحدة', s.glowSharpness, 0, 100, 0, (v) => s.update(() => s.glowSharpness = v))]);
+    _slider('شدّة التوهّج', s.glowIntensity, 0, 1.5, 2,
+        (v) => s.update(() => s.glowIntensity = v)),
+    const SizedBox(height: 6),
+    SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('تظليل الكلمات مع التلاوة (كاريوكي)',
+          style: TextStyle(fontSize: 13)),
+      subtitle: const Text(
+          'عند الإيقاف: تُعرض الآية كاملة دون إضاءة كل كلمة على حدة',
+          style: TextStyle(fontSize: 11)),
+      value: s.karaokeEnabled,
+      activeColor: AyatColors.gold,
+      onChanged: (v) => s.update(() => s.karaokeEnabled = v),
+    ),
+  ]);
   Widget _label() => _card('الخلفية (Label)', Icons.label_outline, s.labelEnabled,
     (v) => s.update(() => s.labelEnabled = v), [
     Row(children: [for (final sh in S128LabelShape.values)
@@ -221,8 +250,19 @@ class _TextEditorProState extends State<TextEditorPro> {
       SizedBox(width: 40, child: Text(dp == 0 ? v.toInt().toString() : v.toStringAsFixed(dp),
         style: const TextStyle(fontSize: 12)))]);
 
-  Widget _chip(String t, bool sel, VoidCallback on) => ChoiceChip(
-    label: Text(t, style: const TextStyle(fontSize: 12)), selected: sel, onSelected: (_) => on());
+  // PATCH_S145_FONT_BUTTONS_REAL_FONTS: each button now previews its
+  // own actual font (via the same ayahTextStyle() the live stage and
+  // the exporter use) instead of every label rendering in one shared
+  // generic style regardless of which font it names -- and a touch
+  // roomier so the preview is actually legible.
+  Widget _chip(String label, String fontKey, bool sel, VoidCallback on) =>
+      ChoiceChip(
+        label: Text(label, style: ayahTextStyle(fontKey, fontSize: 15)),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        selected: sel,
+        onSelected: (_) => on(),
+      );
 }
 
 // Shared painter so PREVIEW and EXPORT draw the label identically

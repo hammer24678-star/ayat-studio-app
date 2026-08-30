@@ -1169,7 +1169,16 @@ class _HomeScreenState extends State<HomeScreen>
           listenable: state,
           builder: (context, _) => SingleChildScrollView(
             controller: _scrollCtrl, // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
-            padding: const EdgeInsets.all(16),
+            // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: EdgeInsets.all(16)
+            // gave the same 16px at the bottom as everywhere else, which
+            // was never enough clearance past the last card (usually
+            // "نطاق آيات متعدد") on gesture-nav phones -- SafeArea alone
+            // doesn't add scroll-content padding, so the card's own
+            // bottom edge sat right against the screen edge even at max
+            // scroll. Extra bottom padding on top of the device's own
+            // inset now.
+            padding: EdgeInsets.fromLTRB(
+                16, 16, 16, 16 + MediaQuery.of(context).padding.bottom + 40),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

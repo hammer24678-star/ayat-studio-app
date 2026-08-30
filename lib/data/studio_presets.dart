@@ -219,6 +219,10 @@ const List<AyahFontChoice> kBuiltInFonts = [
   AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
   AyahFontChoice('tharwatemara', 'ثروت عمارة'),
   AyahFontChoice('digitalmadina', 'المدينة الرقمية (افتراضي)'),
+  // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: three more bundled fonts.
+  AyahFontChoice('digitalkhatt', 'الخط الرقمي الجديد'),
+  AyahFontChoice('elgharib_a001', 'الغريب A001'),
+  AyahFontChoice('elgharib_lpmq', 'الغريب اللجنة (مصباح طويل)'),
 ];
 
 class AyahTemplate {
