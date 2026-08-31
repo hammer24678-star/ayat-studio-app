@@ -2625,7 +2625,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             for (final entry in kColorGrades)
               ChoiceChip(
-                label: Text(entry.$2),
+                label: Text(_t(entry.$2)),
                 selected: state.colorGrade == entry.$1,
                 onSelected: (_) =>
                     state.update(() => state.colorGrade = entry.$1),
@@ -2949,15 +2949,19 @@ class _HomeScreenState extends State<HomeScreen>
         _panelTitle('إعدادات التصدير',
             'تحكّم احترافي في الإخراج النهائي — بلا أي شعار للتطبيق، ولا علامة مائية إلا التي تضيفينها بنفسك.'),
         if (state.hasVideo) ...[
-          _fieldLabel(
-              'ملاءمة الفيديو مع إطار ${kAspectRatios.firstWhere((r) => r.$1 == state.aspectRatio).$2}'),
+          // PATCH_S154_STUDIO_PRESETS_I18N: was reading kAspectRatios' dead
+          // Arabic-only 2nd field directly -- always showed Arabic regardless
+          // of interface language, even though the chip row right below this
+          // already uses the aspect.* i18n key. Now consistent with it.
+          _fieldLabel(_tf('preset.fitModeFrameHint',
+              [_t('aspect.${state.aspectRatio.name}')])),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               for (final entry in kVideoFitModes)
                 ChoiceChip(
-                  label: Text(entry.$2),
+                  label: Text(_t(entry.$2)),
                   selected: state.videoFit == entry.$1,
                   onSelected: (_) =>
                       state.update(() => state.videoFit = entry.$1),
@@ -3000,7 +3004,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             for (final entry in kExportQualities)
               ChoiceChip(
-                label: Text(entry.$2),
+                label: Text(_t(entry.$2)),
                 selected: state.exportQuality == entry.$1,
                 onSelected: (_) =>
                     state.update(() => state.exportQuality = entry.$1),
@@ -3014,7 +3018,10 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             for (final entry in kExportResolutions)
               ChoiceChip(
-                label: Text(entry.$2),
+                // PATCH_S154_STUDIO_PRESETS_I18N: '1080p'/'720p' aren't
+                // i18n keys and t() returns an unknown key unchanged, so
+                // this is safe for all three entries.
+                label: Text(_t(entry.$2)),
                 selected: state.exportResolution == entry.$1,
                 onSelected: (_) =>
                     state.update(() => state.exportResolution = entry.$1),
@@ -3435,7 +3442,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               for (final entry in kWatermarkCorners)
                 ChoiceChip(
-                  label: Text(entry.$2),
+                  label: Text(_t(entry.$2)),
                   selected: state.watermarkCorner == entry.$1,
                   onSelected: (_) =>
                       state.update(() => state.watermarkCorner = entry.$1),
@@ -4805,7 +4812,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               for (final entry in kBgSwitchTriggers)
                 ChoiceChip(
-                  label: Text(entry.$2),
+                  label: Text(_t(entry.$2)),
                   selected: state.bgSwitchTrigger == entry.$1,
                   onSelected: (_) =>
                       state.update(() => state.bgSwitchTrigger = entry.$1),
@@ -4844,7 +4851,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               for (final entry in kBgTransitionStyles)
                 ChoiceChip(
-                  label: Text(entry.$2),
+                  label: Text(_t(entry.$2)),
                   selected: state.bgTransitionStyle == entry.$1,
                   onSelected: (_) =>
                       state.update(() => state.bgTransitionStyle = entry.$1),
@@ -5336,7 +5343,7 @@ class _HomeScreenState extends State<HomeScreen>
             onTap: () {
               HapticFeedback.selectionClick(); // PATCH_S83_SYNC_QOL
               state.applyTemplate(i);
-              _toast('تم تطبيق قالب: ${kTemplates[i].name}');
+              _toast(_tf('preset.templateAppliedToast', [_t(kTemplates[i].name)]));
             },
             child: Container(
               margin: const EdgeInsets.only(bottom: 8),
@@ -5376,9 +5383,9 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(kTemplates[i].name,
+                        Text(_t(kTemplates[i].name),
                             style: Theme.of(context).textTheme.bodyLarge),
-                        Text(kTemplates[i].desc,
+                        Text(_t(kTemplates[i].desc),
                             style: Theme.of(context).textTheme.bodyMedium),
                       ],
                     ),
@@ -5410,7 +5417,11 @@ class _HomeScreenState extends State<HomeScreen>
               : 'elgharib',
           items: [
             for (final f in state.allFonts)
-              DropdownMenuItem(value: f.key, child: Text(f.label)),
+              // PATCH_S154_STUDIO_PRESETS_I18N: built-in fonts' `.label` is
+              // now an i18n key; custom/uploaded fonts keep a raw filename
+              // there, which t() returns unchanged since it's not a known
+              // key -- one call handles both cases correctly.
+              DropdownMenuItem(value: f.key, child: Text(_t(f.label))),
           ],
           onChanged: (v) => state.update(() => state.fontKey = v ?? 'elgharib'),
         ),

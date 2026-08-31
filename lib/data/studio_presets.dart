@@ -38,10 +38,11 @@ enum CaptionPosition { top, bottom }
 enum WatermarkCorner { topLeft, topRight, bottomLeft, bottomRight }
 
 const List<(WatermarkCorner, String)> kWatermarkCorners = [
-  (WatermarkCorner.topLeft, 'أعلى اليسار'),
-  (WatermarkCorner.topRight, 'أعلى اليمين'),
-  (WatermarkCorner.bottomLeft, 'أسفل اليسار'),
-  (WatermarkCorner.bottomRight, 'أسفل اليمين'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is an app_strings.dart key.
+  (WatermarkCorner.topLeft, 'preset.watermarkCorner.topLeft'),
+  (WatermarkCorner.topRight, 'preset.watermarkCorner.topRight'),
+  (WatermarkCorner.bottomLeft, 'preset.watermarkCorner.bottomLeft'),
+  (WatermarkCorner.bottomRight, 'preset.watermarkCorner.bottomRight'),
 ];
 
 // PATCH_S38_VIDEO_EFFECTS: export-time color grading presets — see
@@ -50,11 +51,14 @@ const List<(WatermarkCorner, String)> kWatermarkCorners = [
 enum ColorGrade { none, warmGold, nightTeal, sepia, softMono }
 
 const List<(ColorGrade, String)> kColorGrades = [
-  (ColorGrade.none, 'بدون تدرّج لوني'),
-  (ColorGrade.warmGold, 'ذهبي دافئ'),
-  (ColorGrade.nightTeal, 'ليلي هادئ'),
-  (ColorGrade.sepia, 'سيبيا كلاسيكي'),
-  (ColorGrade.softMono, 'أبيض وأسود ناعم'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is now an app_strings.dart
+  // key, not literal display text -- look it up with _t()/t() at the
+  // call site instead of rendering directly.
+  (ColorGrade.none, 'preset.colorGrade.none'),
+  (ColorGrade.warmGold, 'preset.colorGrade.warmGold'),
+  (ColorGrade.nightTeal, 'preset.colorGrade.nightTeal'),
+  (ColorGrade.sepia, 'preset.colorGrade.sepia'),
+  (ColorGrade.softMono, 'preset.colorGrade.softMono'),
 ];
 
 // PATCH_S40_MULTI_BG_CYCLE: user-editable auto-switching multi-background
@@ -97,23 +101,25 @@ extension BgTransitionStyleXfade on BgTransitionStyle {
 }
 
 const List<(BgSwitchTrigger, String)> kBgSwitchTriggers = [
-  (BgSwitchTrigger.ayahs, 'كل عدد آيات'),
-  (BgSwitchTrigger.seconds, 'كل عدد ثوانٍ'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is an app_strings.dart key.
+  (BgSwitchTrigger.ayahs, 'preset.bgSwitch.ayahs'),
+  (BgSwitchTrigger.seconds, 'preset.bgSwitch.seconds'),
 ];
 
 const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
-  (BgTransitionStyle.hardCut, 'قطع مباشر'),
-  (BgTransitionStyle.crossfade, 'تلاشٍ متداخل'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is an app_strings.dart key.
+  (BgTransitionStyle.hardCut, 'preset.bgTransition.hardCut'),
+  (BgTransitionStyle.crossfade, 'preset.bgTransition.crossfade'),
   // PATCH_S70_MORE_TRANSITIONS
-  (BgTransitionStyle.wipeLeft, 'مسح لليسار'),
-  (BgTransitionStyle.wipeRight, 'مسح لليمين'),
-  (BgTransitionStyle.slideUp, 'انزلاق للأعلى'),
-  (BgTransitionStyle.slideDown, 'انزلاق للأسفل'),
-  (BgTransitionStyle.circleOpen, 'دائرة تتّسع'),
-  (BgTransitionStyle.circleClose, 'دائرة تنغلق'),
-  (BgTransitionStyle.dissolve, 'تلاشٍ متناثر'),
-  (BgTransitionStyle.pixelize, 'تبكسل'),
-  (BgTransitionStyle.radial, 'مسح شعاعي'),
+  (BgTransitionStyle.wipeLeft, 'preset.bgTransition.wipeLeft'),
+  (BgTransitionStyle.wipeRight, 'preset.bgTransition.wipeRight'),
+  (BgTransitionStyle.slideUp, 'preset.bgTransition.slideUp'),
+  (BgTransitionStyle.slideDown, 'preset.bgTransition.slideDown'),
+  (BgTransitionStyle.circleOpen, 'preset.bgTransition.circleOpen'),
+  (BgTransitionStyle.circleClose, 'preset.bgTransition.circleClose'),
+  (BgTransitionStyle.dissolve, 'preset.bgTransition.dissolve'),
+  (BgTransitionStyle.pixelize, 'preset.bgTransition.pixelize'),
+  (BgTransitionStyle.radial, 'preset.bgTransition.radial'),
 ];
 
 // PATCH_S54_PRO_EXPORT_CONTROLS: how an uploaded video maps onto the chosen
@@ -124,9 +130,10 @@ const List<(BgTransitionStyle, String)> kBgTransitionStyles = [
 enum VideoFitMode { source, fillCrop, fitBlur }
 
 const List<(VideoFitMode, String)> kVideoFitModes = [
-  (VideoFitMode.source, 'بحجم الفيديو الأصلي'),
-  (VideoFitMode.fillCrop, 'ملء الإطار (قص)'),
-  (VideoFitMode.fitBlur, 'احتواء + خلفية ضبابية'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is an app_strings.dart key.
+  (VideoFitMode.source, 'preset.videoFit.source'),
+  (VideoFitMode.fillCrop, 'preset.videoFit.fillCrop'),
+  (VideoFitMode.fitBlur, 'preset.videoFit.fitBlur'),
 ];
 
 // PATCH_S54_PRO_EXPORT_CONTROLS: encoder quality tiers (x264 CRF + AAC
@@ -134,15 +141,18 @@ const List<(VideoFitMode, String)> kVideoFitModes = [
 enum ExportQuality { high, balanced, compact }
 
 const List<(ExportQuality, String)> kExportQualities = [
-  (ExportQuality.high, 'جودة قصوى'),
-  (ExportQuality.balanced, 'متوازن'),
-  (ExportQuality.compact, 'حجم أصغر'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: 2nd field is an app_strings.dart key.
+  (ExportQuality.high, 'preset.exportQuality.high'),
+  (ExportQuality.balanced, 'preset.exportQuality.balanced'),
+  (ExportQuality.compact, 'preset.exportQuality.compact'),
 ];
 
 enum ExportResolutionCap { source, hd1080, hd720 }
 
 const List<(ExportResolutionCap, String)> kExportResolutions = [
-  (ExportResolutionCap.source, 'دقة المصدر'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: only 'source' had translatable text;
+  // '1080p'/'720p' are units, not language, and stay literal on purpose.
+  (ExportResolutionCap.source, 'preset.exportRes.source'),
   (ExportResolutionCap.hd1080, '1080p'),
   (ExportResolutionCap.hd720, '720p'),
 ];
@@ -214,21 +224,26 @@ const List<AyahFontChoice> kBuiltInFonts = [
   // Elgharib stays selectable, just no longer pre-picked. See
   // studio_state.dart's `fontKey` default and ayat_fonts.dart's
   // ayahTextStyle() for the two new bundled-asset cases.
-  AyahFontChoice('elgharib', 'الغريب نون حفص'),
-  AyahFontChoice('amiri', 'أميري قرآن (كلاسيكي)'),
-  AyahFontChoice('ruqaa', 'ريقعة (خط الرقعة)'),
-  AyahFontChoice('tharwatemara', 'ثروت عمارة'),
-  AyahFontChoice('digitalmadina', 'المدينة الرقمية (افتراضي)'),
+  // PATCH_S154_STUDIO_PRESETS_I18N: `label` is now an app_strings.dart
+  // key, not literal display text. Custom, user-uploaded fonts (see
+  // `customFonts` / `allFonts` in studio_state.dart) keep their raw
+  // filename in this same field on purpose -- t() returns an unknown key
+  // unchanged, so a filename just displays as-is instead of resolving.
+  AyahFontChoice('elgharib', 'preset.font.elgharib'),
+  AyahFontChoice('amiri', 'preset.font.amiri'),
+  AyahFontChoice('ruqaa', 'preset.font.ruqaa'),
+  AyahFontChoice('tharwatemara', 'preset.font.tharwatemara'),
+  AyahFontChoice('digitalmadina', 'preset.font.digitalmadina'),
   // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: three more bundled fonts.
-  AyahFontChoice('digitalkhatt', 'الخط الرقمي الجديد'),
-  AyahFontChoice('elgharib_lpmq', 'الغريب اللجنة (مصباح طويل)'),
+  AyahFontChoice('digitalkhatt', 'preset.font.digitalkhatt'),
+  AyahFontChoice('elgharib_lpmq', 'preset.font.elgharib_lpmq'),
   // PATCH_S148_REMAINING_FONTS_AND_SELECTED_CHIP_FIX: 4 more bundled fonts.
   // PATCH_S149_REMOVE_FOUR_FONT_OPTIONS: elgharib_a001, elgharib_a603,
   // elgharib_qcf4 and amiri_quran (text_editor_pro.dart) removed from
   // the pickers by request -- their pubspec/ayahTextStyle() wiring is
   // left in place, just unreachable from the UI now.
-  AyahFontChoice('elgharib_eid', 'الغريب عيد الأضحى'),
-  AyahFontChoice('pf_monumenta', 'PF مونومنتا برو'),
+  AyahFontChoice('elgharib_eid', 'preset.font.elgharib_eid'),
+  AyahFontChoice('pf_monumenta', 'preset.font.pf_monumenta'),
 ];
 
 class AyahTemplate {
@@ -250,51 +265,51 @@ class AyahTemplate {
 
 const List<AyahTemplate> kTemplates = [
   AyahTemplate(
-      name: 'سطر سفلي كلاسيكي',
-      desc: 'الآية أسفل الشاشة، ترجمة تحتها',
+      name: 'preset.template.1.name',
+      desc: 'preset.template.1.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.none,
       fontKey: 'amiri',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'توسّط ذهبي',
-      desc: 'الآية في المنتصف بلون ذهبي',
+      name: 'preset.template.2.name',
+      desc: 'preset.template.2.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.none,
       fontKey: 'amiri',
       color: Color(0xFFECC875)),
   AyahTemplate(
-      name: 'عنوان رقعة علوي',
-      desc: 'خط الرقعة أعلى الشاشة',
+      name: 'preset.template.3.name',
+      desc: 'preset.template.3.desc',
       pos: AyahTextPosition.top,
       extra: FrameExtra.none,
       fontKey: 'ruqaa',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'بساطة بيضاء',
-      desc: 'نص أبيض واضح للقراءة السريعة',
+      name: 'preset.template.4.name',
+      desc: 'preset.template.4.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.none,
       fontKey: 'amiri',
       color: Color(0xFFFFFFFF)),
   AyahTemplate(
-      name: 'لوحة زجاجية سفلية',
-      desc: 'نص داخل لوحة شبه شفافة أسفل الشاشة',
+      name: 'preset.template.5.name',
+      desc: 'preset.template.5.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.boxed,
       fontKey: 'amiri',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'إطار ذهبي متوسط',
-      desc: 'نص داخل إطار مذهّب في المنتصف',
+      name: 'preset.template.6.name',
+      desc: 'preset.template.6.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.framed,
       fontKey: 'ruqaa',
       color: Color(0xFFECC875)),
   // PATCH_S38_VIDEO_EFFECTS
   AyahTemplate(
-      name: 'زجاج مصنفر أنيق',
-      desc: 'لوحة شبه شفافة بلمسة زجاجية عصرية أسفل الشاشة',
+      name: 'preset.template.7.name',
+      desc: 'preset.template.7.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.glass,
       fontKey: 'amiri',
@@ -303,85 +318,85 @@ const List<AyahTemplate> kTemplates = [
   // the S100 tharwatemara/digitalmadina, unused by any template until
   // now), all 3 positions, and every FrameExtra style.
   AyahTemplate(
-      name: 'عنوان ثروت علوي',
-      desc: 'خط ثروت عمارة أعلى الشاشة',
+      name: 'preset.template.8.name',
+      desc: 'preset.template.8.desc',
       pos: AyahTextPosition.top,
       extra: FrameExtra.none,
       fontKey: 'tharwatemara',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'توسّط المدينة الرقمية',
-      desc: 'الآية بخط المدينة الرقمية في المنتصف',
+      name: 'preset.template.9.name',
+      desc: 'preset.template.9.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.none,
       fontKey: 'digitalmadina',
       color: Color(0xFFFFFFFF)),
   AyahTemplate(
-      name: 'لوحة زجاجية علوية',
-      desc: 'نص داخل لوحة شبه شفافة أعلى الشاشة',
+      name: 'preset.template.10.name',
+      desc: 'preset.template.10.desc',
       pos: AyahTextPosition.top,
       extra: FrameExtra.glass,
       fontKey: 'amiri',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'إطار ذهبي سفلي',
-      desc: 'نص داخل إطار مذهّب أسفل الشاشة',
+      name: 'preset.template.11.name',
+      desc: 'preset.template.11.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.framed,
       fontKey: 'ruqaa',
       color: Color(0xFFECC875)),
   AyahTemplate(
-      name: 'زجاج مصنفر علوي',
-      desc: 'لوحة زجاجية عصرية أعلى الشاشة',
+      name: 'preset.template.12.name',
+      desc: 'preset.template.12.desc',
       pos: AyahTextPosition.top,
       extra: FrameExtra.glass,
       fontKey: 'tharwatemara',
       color: Color(0xFFFFFFFF)),
   AyahTemplate(
-      name: 'توسّط زمردي هادئ',
-      desc: 'الآية في المنتصف بلون أخضر زمردي هادئ',
+      name: 'preset.template.13.name',
+      desc: 'preset.template.13.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.none,
       fontKey: 'amiri',
       color: Color(0xFF8FBBAF)),
   AyahTemplate(
-      name: 'إطار المدينة المتوسط',
-      desc: 'نص داخل إطار مذهّب بخط المدينة الرقمية في المنتصف',
+      name: 'preset.template.14.name',
+      desc: 'preset.template.14.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.framed,
       fontKey: 'digitalmadina',
       color: Color(0xFFECC875)),
   AyahTemplate(
-      name: 'لوحة زجاجية متوسطة',
-      desc: 'نص داخل لوحة زجاجية شفافة في المنتصف',
+      name: 'preset.template.15.name',
+      desc: 'preset.template.15.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.glass,
       fontKey: 'elgharib',
       color: Color(0xFFECE2CB)),
   AyahTemplate(
-      name: 'عنوان الغريب سفلي',
-      desc: 'خط الغريب نون حفص أسفل الشاشة بوضوح',
+      name: 'preset.template.16.name',
+      desc: 'preset.template.16.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.none,
       fontKey: 'elgharib',
       color: Color(0xFFFFFFFF)),
   AyahTemplate(
-      name: 'صندوق كهرماني علوي',
-      desc: 'نص داخل صندوق كهرماني أعلى الشاشة',
+      name: 'preset.template.17.name',
+      desc: 'preset.template.17.desc',
       pos: AyahTextPosition.top,
       extra: FrameExtra.boxed,
       fontKey: 'ruqaa',
       color: Color(0xFFC9A24B)),
   AyahTemplate(
-      name: 'توسّط سماوي',
-      desc: 'الآية في المنتصف بلون أزرق سماوي هادئ',
+      name: 'preset.template.18.name',
+      desc: 'preset.template.18.desc',
       pos: AyahTextPosition.center,
       extra: FrameExtra.none,
       fontKey: 'tharwatemara',
       color: Color(0xFFA8C5D6)),
   AyahTemplate(
-      name: 'لوحة زجاجية ذهبية سفلية',
-      desc: 'لوحة زجاجية عصرية بلون ذهبي أسفل الشاشة',
+      name: 'preset.template.19.name',
+      desc: 'preset.template.19.desc',
       pos: AyahTextPosition.bottom,
       extra: FrameExtra.glass,
       fontKey: 'digitalmadina',
