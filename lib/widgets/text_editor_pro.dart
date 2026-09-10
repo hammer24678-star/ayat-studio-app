@@ -249,6 +249,24 @@ class _TextEditorProState extends State<TextEditorPro> {
       activeColor: AyatColors.gold,
       onChanged: (v) => s.update(() => s.karaokeEnabled = v),
     ),
+    const SizedBox(height: 6),
+    // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: separate from the toggle above --
+    // this one controls whether a long ayah gets cut into parts at all.
+    SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(_t('textEditorPro.splitLongAyahsToggleTitle'),
+          style: const TextStyle(fontSize: 13)),
+      subtitle: Text(
+          _t('textEditorPro.splitLongAyahsToggleSubtitle'),
+          style: const TextStyle(fontSize: 11)),
+      value: s.splitLongAyahsEnabled,
+      activeColor: AyatColors.gold,
+      onChanged: (v) => s.update(() => s.splitLongAyahsEnabled = v),
+    ),
+    if (s.splitLongAyahsEnabled)
+      _slider(_t('textEditorPro.maxWordsPerChunkLabel'),
+          s.maxWordsPerChunk.toDouble(), 4, 40, 0,
+          (v) => s.update(() => s.maxWordsPerChunk = v.round())),
   ]);
   Widget _label() => _card(_t('textEditorPro.backgroundLabelParen'), Icons.label_outline, s.labelEnabled,
     (v) => s.update(() => s.labelEnabled = v), [

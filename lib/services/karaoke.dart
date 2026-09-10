@@ -7,6 +7,11 @@
 // Used identically by the live preview (home_screen._tickAutoSync) and the
 // exporter (export_service._renderKaraokeSequence) so what you see during
 // playback is exactly what gets burned into the MP4.
+// PATCH_S156_LONG_AYAH_SPLIT_CONTROL: the split is no longer forced.
+// StudioState.splitLongAyahsEnabled can turn it off entirely (the whole
+// ayah stays one on-screen piece no matter how long), and
+// StudioState.maxWordsPerChunk controls the threshold when splitting is
+// on -- see buildKaraokeChunks's maxWordsPerChunk parameter below.
 import 'dart:math';
 
 import '../models/studio_state.dart';
@@ -66,14 +71,19 @@ class KaraokeCue {
   const KaraokeCue(this.chunk, this.litWords);
 }
 
-List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg) {
+List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg,
+    {int maxWordsPerChunk = kKaraokeMaxWordsPerChunk}) {
   // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: a segment added from the
   // partial-ayah picker carries just the sliced words as textOverride --
   // karaoke chunking (and therefore export) reads that instead of the
   // full ayah when it's set.
+  // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: [maxWordsPerChunk] defaults to the
+  // same constant as always, but callers can now pass a huge value (the
+  // whole ayah simply never crosses it, so parts stays 1) to keep a long
+  // ayah as one piece, or a smaller one to split more aggressively.
   final words = (seg.textOverride ?? seg.ayah.ar).trim().split(RegExp(r'\s+'));
   final total = words.length;
-  final parts = max(1, (total / kKaraokeMaxWordsPerChunk).ceil());
+  final parts = max(1, (total / maxWordsPerChunk).ceil());
   final enWords = seg.ayah.en.trim().isEmpty
       ? const <String>[]
       : seg.ayah.en.trim().split(RegExp(r'\s+'));

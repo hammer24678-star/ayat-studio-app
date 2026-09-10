@@ -72,7 +72,10 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
 
   _Step _step = _Step.version;
   bool _v2 = true;
-  _Runtime _runtime = _Runtime.cloud;
+  // PATCH_S156_WIZARD_LOCAL_DEFAULT: default to the runtime that
+  // actually works standalone in this build (see the runtime step
+  // widget below for why Cloud shouldn't be the default).
+  _Runtime _runtime = _Runtime.local;
   WhisperModelSize _tier = WhisperModelSize.small;
   bool _large = true;
   bool _gpu = true;
@@ -288,13 +291,24 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
         ]);
       case _Step.runtime:
         return Column(children: [
+          // PATCH_S156_WIZARD_LOCAL_DEFAULT: Local moved first and now
+          // carries the "recommended" badge. Cloud has no backend in this
+          // build (see wizard.cloudNote below) but used to sit here,
+          // marked recommended, as the default selection -- so hitting
+          // Start with the wizard's own defaults did nothing at all.
+          // Local is the one runtime that genuinely works with one tap.
+          _card(
+              selected: _runtime == _Runtime.local,
+              onTap: () => setState(() => _runtime = _Runtime.local),
+              child: Row(children: [
+                Expanded(child: _title(_s.t('wizard.local'), _s.t('wizard.localDesc'))),
+                _badge(),
+              ])),
+          const SizedBox(height: 10),
           _card(
               selected: _runtime == _Runtime.cloud,
               onTap: () => setState(() => _runtime = _Runtime.cloud),
-              child: Row(children: [
-                Expanded(child: _title(_s.t('wizard.cloud'), _s.t('wizard.cloudDesc'))),
-                _badge(),
-              ])),
+              child: _title(_s.t('wizard.cloud'), _s.t('wizard.cloudDesc'))),
           if (_runtime == _Runtime.cloud) ...[
             const SizedBox(height: 6),
             Text(_s.t('wizard.cloudNote'),
@@ -303,11 +317,6 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
                     .bodySmall
                     ?.copyWith(color: AyatColors.goldDim)),
           ],
-          const SizedBox(height: 10),
-          _card(
-              selected: _runtime == _Runtime.local,
-              onTap: () => setState(() => _runtime = _Runtime.local),
-              child: _title(_s.t('wizard.local'), _s.t('wizard.localDesc'))),
           const SizedBox(height: 10),
           _card(
               selected: _runtime == _Runtime.json,

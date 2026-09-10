@@ -1675,7 +1675,13 @@ const Map<String, List<String>> _table = {
   'textEditorPro.fontPfMonumenta': ['PF مونومنتا', 'PF Monumenta', 'PF Monumenta', 'PF Monumenta', 'PF Monumenta'],
   'textEditorPro.glowIntensity': ['شدّة التوهّج', 'Glow intensity', 'Glow intensity', 'Glow intensity', 'Glow intensity'],
   'textEditorPro.karaokeToggleTitle': ['تظليل الكلمات مع التلاوة (كاريوكي)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)', 'Light up words with the recitation (karaoke)'],
-  'textEditorPro.karaokeToggleSubtitle': ['عند الإيقاف: تُعرض الآية كاملة دون إضاءة كل كلمة على حدة', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word', 'When off: the whole ayah shows without lighting up word by word'],
+  // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: corrected -- this toggle only ever
+  // controlled the per-word lighting, never whether a long ayah gets
+  // split into parts (that's the new toggle right below).
+  'textEditorPro.karaokeToggleSubtitle': ['عند الإيقاف: يُعرض كل جزء من الآية كنص ثابت دون إضاءة كلماته — للتحكم في تقسيم الآيات الطويلة نفسه استخدمي الخيار أدناه', 'When off: each part of the ayah shows as static text without word lighting — to control whether long ayat get split at all, use the option below', 'When off: each part of the ayah shows as static text without word lighting — to control whether long ayat get split at all, use the option below', 'When off: each part of the ayah shows as static text without word lighting — to control whether long ayat get split at all, use the option below', 'When off: each part of the ayah shows as static text without word lighting — to control whether long ayat get split at all, use the option below'],
+  'textEditorPro.splitLongAyahsToggleTitle': ['تقسيم الآيات الطويلة إلى أجزاء متتالية', 'Split long ayat into sequential parts', 'Split long ayat into sequential parts', 'Split long ayat into sequential parts', 'Split long ayat into sequential parts'],
+  'textEditorPro.splitLongAyahsToggleSubtitle': ['عند الإيقاف: تبقى الآية قطعة واحدة على الشاشة مهما طال طولها', 'When off: the ayah stays on screen as one piece no matter how long', 'When off: the ayah stays on screen as one piece no matter how long', 'When off: the ayah stays on screen as one piece no matter how long', 'When off: the ayah stays on screen as one piece no matter how long'],
+  'textEditorPro.maxWordsPerChunkLabel': ['أقصى كلمات/جزء', 'Max words/part', 'Max words/part', 'Max words/part', 'Max words/part'],
   'textEditorPro.sizeLabel': ['الحجم', 'Size', 'Size', 'Size', 'Size'],
   'textEditorPro.letterSpacing': ['تباعد الأحرف', 'Letter spacing', 'Letter spacing', 'Letter spacing', 'Letter spacing'],
   'textEditorPro.borderCardLabel': ['الحد', 'Border', 'Border', 'Border', 'Border'],

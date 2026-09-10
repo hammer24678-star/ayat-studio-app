@@ -419,6 +419,15 @@ class StudioState extends ChangeNotifier {
   // on by default (matches previous always-on behavior). Off falls back
   // to showing each ayah part as plain static text.
   bool karaokeEnabled = true;
+  // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: whether long ayat get split into
+  // sequential on-screen parts at all. On by default (matches previous
+  // always-split behavior). This is independent of karaokeEnabled above,
+  // which only ever controlled the per-word lighting, not the splitting.
+  bool splitLongAyahsEnabled = true;
+  // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: word-count threshold above which
+  // an ayah is split, when splitLongAyahsEnabled is on. 12 matches
+  // karaoke.dart's kKaraokeMaxWordsPerChunk, the previous fixed value.
+  int maxWordsPerChunk = 12;
 
   // PATCH_S82_AUTOSYNC_MAX: the segment playing at clip-time [t], if any —
   // shared by the karaoke ticker, the loop-one-ayah control and the ribbon.
@@ -1011,6 +1020,8 @@ class StudioState extends ChangeNotifier {
         'textOffset': textOffset,
         'textUserScale': textUserScale,
         'karaokeEnabled': karaokeEnabled,
+        'splitLongAyahsEnabled': splitLongAyahsEnabled,
+        'maxWordsPerChunk': maxWordsPerChunk,
         'aspectRatio': aspectRatio,
         'colorGrade': colorGrade,
         'vignetteEnabled': vignetteEnabled,
@@ -1073,6 +1084,8 @@ class StudioState extends ChangeNotifier {
     textOffset = s['textOffset'] as Offset;
     textUserScale = s['textUserScale'] as double;
     karaokeEnabled = s['karaokeEnabled'] as bool;
+    splitLongAyahsEnabled = s['splitLongAyahsEnabled'] as bool;
+    maxWordsPerChunk = s['maxWordsPerChunk'] as int;
     aspectRatio = s['aspectRatio'] as AyatAspectRatio;
     colorGrade = s['colorGrade'] as ColorGrade;
     vignetteEnabled = s['vignetteEnabled'] as bool;

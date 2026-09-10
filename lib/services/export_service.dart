@@ -506,8 +506,15 @@ class ExportService {
       String key = 'empty';
       var motion = TextMotion.identity; // PATCH_S126_TEXT_TRANSITIONS
       if (seg != null) {
-        final cue =
-            karaokeCueAt(chunkCache[seg] ??= buildKaraokeChunks(seg), videoT);
+        // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: same effectively-infinite
+        // threshold trick as the live preview, so what gets burned into
+        // the exported video matches what auto-sync playback showed.
+        final cue = karaokeCueAt(
+            chunkCache[seg] ??= buildKaraokeChunks(seg,
+                maxWordsPerChunk: state.splitLongAyahsEnabled
+                    ? state.maxWordsPerChunk
+                    : 1 << 30),
+            videoT);
         final chunk = cue.chunk;
         text = chunk.text;
         trans = chunk.translation;

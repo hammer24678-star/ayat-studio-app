@@ -109,6 +109,12 @@ class SettingsService {
       // PATCH_S51_KARAOKE_TOGGLE
       state.karaokeEnabled =
           read<bool>('karaokeEnabled') ?? state.karaokeEnabled;
+      // PATCH_S156_LONG_AYAH_SPLIT_CONTROL
+      state.splitLongAyahsEnabled =
+          read<bool>('splitLongAyahsEnabled') ?? state.splitLongAyahsEnabled;
+      state.maxWordsPerChunk =
+          (read<int>('maxWordsPerChunk') ?? state.maxWordsPerChunk)
+              .clamp(4, 40);
       // PATCH_S43_MODEL_SIZE_PICKER
       final modelSize = read<int>('whisperModelSize');
       if (modelSize != null &&
@@ -371,6 +377,9 @@ class SettingsService {
       p.setString('${_prefix}pollinationsApiKey', state.pollinationsApiKey),
       // PATCH_S51_KARAOKE_TOGGLE
       p.setBool('${_prefix}karaokeEnabled', state.karaokeEnabled),
+      // PATCH_S156_LONG_AYAH_SPLIT_CONTROL
+      p.setBool('${_prefix}splitLongAyahsEnabled', state.splitLongAyahsEnabled),
+      p.setInt('${_prefix}maxWordsPerChunk', state.maxWordsPerChunk),
       // PATCH_S43_MODEL_SIZE_PICKER
       p.setInt('${_prefix}whisperModelSize', state.whisperModelSize.index),
       // PATCH_S38_VIDEO_EFFECTS

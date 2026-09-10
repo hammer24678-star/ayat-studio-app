@@ -751,7 +751,15 @@ class _HomeScreenState extends State<HomeScreen>
     if (controller.value.size.width <= 0 || state.chromaEnabled) {
       state.ensureArtForPlayback(seg.ayah);
     }
-    final cue = karaokeCueAt(buildKaraokeChunks(seg), t);
+    // PATCH_S156_LONG_AYAH_SPLIT_CONTROL: an effectively-infinite
+    // threshold when splitting is off keeps the whole ayah as one chunk
+    // no matter its word count, instead of always cutting long ayat into
+    // parts.
+    final cue = karaokeCueAt(
+        buildKaraokeChunks(seg,
+            maxWordsPerChunk:
+                state.splitLongAyahsEnabled ? state.maxWordsPerChunk : 1 << 30),
+        t);
     // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-part key so StagePreview only fades when
     // the ayah part actually changes, not on every newly lit word.
     final segmentKey =
@@ -1683,7 +1691,18 @@ class _HomeScreenState extends State<HomeScreen>
       _revealTimelineCard();
       _toast('${_t('wizard.imported')}: ${res.importedSegments} \u2713');
     } else if (res.tierApplied) {
-      _toast(_t('wizard.localNote'));
+      // PATCH_S156_WIZARD_LOCAL_RUNS: the wizard used to just save the
+      // model tier and tell the user, in a toast, to go find the
+      // separate auto-sync button themselves -- so tapping the wizard's
+      // own "Start segmentation" button visibly did nothing. Local has
+      // no reason to stop short of actually running the scan it just
+      // configured, so it does now -- the same real TimelineBuilder
+      // pass the standalone button triggers.
+      if (state.hasVideo) {
+        await _autoSync();
+      } else {
+        _toast(_t('wizard.localNote'));
+      }
     } else if (res.cloudChosen) {
       _toast(_t('wizard.cloudNote'));
     }

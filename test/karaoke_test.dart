@@ -39,6 +39,23 @@ void main() {
     expect(buildKaraokeChunks(seg(words(30), '', 0, 10)).length, 3);
   });
 
+  // PATCH_S156_LONG_AYAH_SPLIT_CONTROL
+  test('maxWordsPerChunk overrides the default split threshold', () {
+    // same 30-word ayah that splits into 3 parts by default (test above)
+    // stays as one chunk when the caller raises the threshold -- this is
+    // exactly what StudioState.splitLongAyahsEnabled == false does via an
+    // effectively-infinite maxWordsPerChunk.
+    expect(
+        buildKaraokeChunks(seg(words(30), '', 0, 10), maxWordsPerChunk: 1000)
+            .length,
+        1);
+    // and a lower threshold splits an ayah the 12-word default would not
+    expect(
+        buildKaraokeChunks(seg(words(8), '', 0, 10), maxWordsPerChunk: 4)
+            .length,
+        2);
+  });
+
   test('chunks tile the segment with word-proportional windows', () {
     final chunks = buildKaraokeChunks(seg(words(20), words(10, 'en'), 4.0, 14.0));
     expect(chunks.length, 2);
