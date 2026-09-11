@@ -29,6 +29,14 @@ class TimelineSegment {
   // PATCH_S133_STAGE_TEXT_SELECT_EDIT: no longer final -- the stage-text
   // edit dialog corrects it in place instead of rebuilding the segment.
   String? textOverride;
+
+  // PATCH_S157_TYPED_TEXT_DISPLAY: the ONE text this segment shows
+  // in preview, export and subtitles alike. Typed text, partial-ayah
+  // slices and custom captions carry their exact words in
+  // textOverride; ayah.ar is the full canonical ayah and must never
+  // replace them. Renderers read this getter — never ayah.ar.
+  String get displayText => textOverride ?? ayah.ar;
+
   TimelineSegment({
     required this.start,
     required this.end,

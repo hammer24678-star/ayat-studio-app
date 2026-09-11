@@ -122,7 +122,7 @@ class SubtitleService {
       TimelineSegment seg, SubtitleContent content, bool includeReference) {
     // A segment sliced to a word range carries its own text; the whole ayah
     // would be wrong for it.
-    final arabic = (seg.textOverride ?? seg.ayah.ar).trim();
+    final arabic = (seg.textOverride ?? seg.displayText).trim();
     final english = seg.ayah.en.trim();
     final reference = includeReference
         ? '[${seg.ayah.surah} ${seg.ayah.num}]'

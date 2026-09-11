@@ -39,6 +39,32 @@ void main() {
     expect(buildKaraokeChunks(seg(words(30), '', 0, 10)).length, 3);
   });
 
+  // PATCH_S157_TYPED_TEXT_DISPLAY: regression tests for both S157 fixes.
+  test('textOverride (typed text) is displayed, not the full matched ayah', () {
+    final full =
+        'قال إنما أشكو بثي وحزني إلى الله وأعلم من الله ما لا تعلمون';
+    final typed = 'وأعلم من الله ما لا تعلمون';
+    final s = TimelineSegment(
+      start: 13,
+      end: 17,
+      confidence: 1,
+      ayah: Ayah(surahNum: 12, surah: 'يوسف', num: 86, ar: full, en: ''),
+      textOverride: typed,
+    );
+    expect(s.displayText, typed);
+    expect(buildKaraokeChunks(s).length, 1);
+    expect(buildKaraokeChunks(s).first.words.join(' '), typed);
+  });
+
+  test('splitting can be turned off entirely (infinite threshold)', () {
+    expect(
+      buildKaraokeChunks(seg(words(30), '', 0, 10), maxWordsPerChunk: 1 << 30)
+          .length,
+      1,
+    );
+  });
+
+
   // PATCH_S156_LONG_AYAH_SPLIT_CONTROL
   test('maxWordsPerChunk overrides the default split threshold', () {
     // same 30-word ayah that splits into 3 parts by default (test above)

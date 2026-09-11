@@ -5,7 +5,7 @@
 //
 // Bump BOTH this and pubspec.yaml together when releasing; the test in
 // test/app_info_test.dart fails if they ever drift apart.
-const String kAppVersion = '1.6.0';
+const String kAppVersion = '1.7.0';
 const int kAppBuildNumber = 6;
 
 const String kSupportTelegram = 't.me/TilawaEhnacher';
