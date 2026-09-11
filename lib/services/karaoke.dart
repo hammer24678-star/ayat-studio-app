@@ -72,7 +72,7 @@ class KaraokeCue {
 }
 
 List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg,
-    {int maxWordsPerChunk = maxWordsPerChunk}) {
+    {int maxWordsPerChunk = kKaraokeMaxWordsPerChunk}) {
   // PATCH_S118_PARTIAL_AYAH_TIMELINE_MERGE: a segment added from the
   // partial-ayah picker carries just the sliced words as textOverride --
   // karaoke chunking (and therefore export) reads that instead of the
