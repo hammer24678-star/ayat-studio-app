@@ -15,6 +15,7 @@
 import 'dart:math';
 
 import '../models/studio_state.dart';
+import 'ayah_matcher.dart'; // PATCH_S158_PARTIAL_TRANSLATION_SLICE: normalizeArabic()
 
 /// An ayah with more words than this gets split into multiple parts.
 const int kKaraokeMaxWordsPerChunk = 12;
@@ -29,6 +30,30 @@ const double kKaraokeLightingSpan = 0.9;
 // of assuming equal time for every word — reciters dwell longer on longer
 // words (more letters, more madd). The constant keeps very short words
 // (لا، من، بل) from flashing by.
+// PATCH_S158_PARTIAL_TRANSLATION_SLICE: finds where [part]'s words start inside [full] (both
+// already word-split), comparing with normalizeArabic() so tashkeel/
+// hamza-shape differences between the stored override and the
+// canonical ayah text don't break the match. Returns 0 -- i.e. "treat
+// [part] as if it opened the ayah" -- when no clean run is found,
+// which is the same fallback as before this patch (whole translation)
+// since fullTotal ends up == total in the caller for that case.
+int _wordRangeStart(List<String> full, List<String> part) {
+  if (part.isEmpty || part.length > full.length) return 0;
+  final normFull = [for (final w in full) normalizeArabic(w)];
+  final normPart = [for (final w in part) normalizeArabic(w)];
+  for (var i = 0; i <= normFull.length - normPart.length; i++) {
+    var match = true;
+    for (var j = 0; j < normPart.length; j++) {
+      if (normFull[i + j] != normPart[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return i;
+  }
+  return 0;
+}
+
 double _wordWeight(String word) => word.length + 2.0;
 
 double _weightOf(Iterable<String> words) =>
@@ -87,6 +112,17 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg,
   final enWords = seg.ayah.en.trim().isEmpty
       ? const <String>[]
       : seg.ayah.en.trim().split(RegExp(r'\s+'));
+  // PATCH_S158_PARTIAL_TRANSLATION_SLICE: a textOverride segment's `words` is already just
+  // its own slice -- fullArWords/rangeStart locate that slice
+  // inside the WHOLE ayah so the translation below is cut to the
+  // same span, not treated as 0%-100% of its own partial text.
+  final fullArWords = seg.textOverride == null
+      ? words
+      : seg.ayah.ar.trim().split(RegExp(r'\s+'));
+  final fullTotal = fullArWords.length;
+  final rangeStart = seg.textOverride == null
+      ? 0
+      : _wordRangeStart(fullArWords, words);
   final segDur = max(0.001, seg.end - seg.start);
   // PATCH_S55_WORD_TIMESTAMPS: onsets recorded for this segment, used both
   // to place part boundaries where words actually fall and to pace the
@@ -104,7 +140,14 @@ List<KaraokeChunk> buildKaraokeChunks(TimelineSegment seg,
   var tFrom = seg.start;
   for (var p = 0; p < parts; p++) {
     final wordTo = ((p + 1) * total / parts).round();
-    final enTo = ((p + 1) * enWords.length / parts).round();
+    // PATCH_S158_PARTIAL_TRANSLATION_SLICE: proportional to position in the FULL ayah
+    // (rangeStart + wordTo) / fullTotal, not to this segment's
+    // own (possibly partial) word count.
+    final enTo = fullTotal == 0
+        ? 0
+        : (((rangeStart + wordTo) * enWords.length) / fullTotal)
+            .round()
+            .clamp(0, enWords.length);
     final isLast = p == parts - 1;
     final onsetTo = isLast
         ? onsetCount
