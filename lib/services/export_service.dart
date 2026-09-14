@@ -233,6 +233,12 @@ class ExportService {
       );
       String? overlaySeqPattern;
       String? overlayPng;
+      // PATCH_S160_MULTI_TEXT_TIME_CUES (scope fix): declared here, next to the overlayPng
+      // this function already had, because the version added by
+      // patch_s160 landed in a different same-shaped block elsewhere
+      // in this file -- out of scope for the overlayPngCues usage
+      // right below in *this* function.
+      List<({String path, double start, double end})>? overlayPngCues;
       // PATCH_S160_MULTI_TEXT_TIME_CUES: one rendered PNG + its own [start, end) window per
       // committed text cue, so several different texts can each show up
       // only during their own slice of the export instead of one baked
