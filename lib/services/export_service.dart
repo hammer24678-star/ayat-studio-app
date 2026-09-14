@@ -233,6 +233,11 @@ class ExportService {
       );
       String? overlaySeqPattern;
       String? overlayPng;
+      // PATCH_S160_MULTI_TEXT_TIME_CUES: one rendered PNG + its own [start, end) window per
+      // committed text cue, so several different texts can each show up
+      // only during their own slice of the export instead of one baked
+      // PNG (and one shared window) for the whole clip.
+      List<({String path, double start, double end})>? overlayPngCues;
       if (state.hasVideo && state.timelineActive && state.timeline.isNotEmpty) {
         final seqDir = Directory('${work.path}/seq')..createSync();
         await _renderKaraokeSequence(
@@ -267,15 +272,49 @@ class ExportService {
         );
         overlaySeqPattern = '${seqDir.path}/ov_%05d.png';
       } else if (state.hasAyah) {
-        overlayPng = '${work.path}/overlay.png';
-        await File(overlayPng)
-            .writeAsBytes(await OverlayRenderer.renderTextOverlayPng(
-          w: w,
-          h: h,
-          text: state.ayahText,
-          translation: state.translationText,
-          style: style,
-        ));
+        // PATCH_S160_MULTI_TEXT_TIME_CUES: state.textTimeCues (plus whatever's still sitting in
+        // the single-shot override fields, for anyone who only ever wants
+        // one timed text) -- render each one as its own PNG instead of
+        // collapsing them all into the single `state.ayahText` that used
+        // to be the only thing this branch ever knew how to bake.
+        final cues = <TextTimeCue>[
+          ...state.textTimeCues,
+          if (state.textTimeStartOverride != null &&
+              state.textTimeEndOverride != null)
+            TextTimeCue(
+              text: state.ayahText,
+              translation: state.translationText,
+              start: state.textTimeStartOverride!,
+              end: state.textTimeEndOverride!,
+            ),
+        ];
+        if (cues.isEmpty) {
+          overlayPng = '${work.path}/overlay.png';
+          await File(overlayPng)
+              .writeAsBytes(await OverlayRenderer.renderTextOverlayPng(
+            w: w,
+            h: h,
+            text: state.ayahText,
+            translation: state.translationText,
+            style: style,
+          ));
+        } else {
+          final rendered = <({String path, double start, double end})>[];
+          for (var i = 0; i < cues.length; i++) {
+            final cue = cues[i];
+            final png = '${work.path}/overlay_$i.png';
+            await File(png).writeAsBytes(
+                await OverlayRenderer.renderTextOverlayPng(
+              w: w,
+              h: h,
+              text: cue.text,
+              translation: cue.translation,
+              style: style,
+            ));
+            rendered.add((path: png, start: cue.start, end: cue.end));
+          }
+          overlayPngCues = rendered;
+        }
       }
 
       // ---- PATCH_S34_STAGE_EFFECTS: transparent particle loop frames ----
@@ -1129,6 +1168,30 @@ class ExportService {
       final ovIdx = idx++;
       filters.add('[$ovIdx:v]format=rgba[ovf]');
       filters.add('[$base][ovf]overlay=0:0[outv]');
+    } else if (overlayPngCues != null && overlayPngCues!.isNotEmpty) {
+      // PATCH_S160_MULTI_TEXT_TIME_CUES: chain one overlay per cue, each gated to ONLY its own
+      // window -- this is the actual fix for "the second text never
+      // shows": before this, there was only ever one overlay and one
+      // window, so a second typed text simply had nowhere to go.
+      for (var i = 0; i < overlayPngCues!.length; i++) {
+        final cue = overlayPngCues![i];
+        inputs.write('-loop 1 -i "${cue.path}" ');
+        final ovIdx = idx++;
+        final ws = (cue.start - clipStart).clamp(0.0, duration);
+        final we = (cue.end - clipStart).clamp(ws, duration);
+        final fadeOutStart = (we - 0.6).clamp(ws, we);
+        final fadeOutFilter = (we - ws) > 1.3
+            ? ',fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.6:alpha=1'
+            : '';
+        filters.add('[$ovIdx:v]format=rgba,'
+            'fade=t=in:st=${ws.toStringAsFixed(3)}:d=0.6:alpha=1'
+            '$fadeOutFilter[ov$i]');
+        final outLabel = i == overlayPngCues!.length - 1 ? 'outv' : 'ovbase$i';
+        filters.add("[$base][ov$i]overlay=0:0:shortest=1:"
+            "enable='between(t,${ws.toStringAsFixed(3)},"
+            "${we.toStringAsFixed(3)})'[$outLabel]");
+        base = outLabel;
+      }
     } else if (overlayPng != null) {
       inputs.write('-loop 1 -i "$overlayPng" ');
       final ovIdx = idx++;
@@ -1139,20 +1202,7 @@ class ExportService {
           ? ',fade=t=out:st=${fadeOutStart.toStringAsFixed(3)}:d=0.6:alpha=1'
           : '';
       filters.add('[$ovIdx:v]format=rgba,fade=t=in:st=0:d=0.6:alpha=1$fadeOutFilter[ovf]');
-      // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION: if the user picked an
-      // explicit start/stop second for the ayah text, gate the overlay to
-      // that window instead of showing it for the whole clip.
-      var enableClause = '';
-      if (state.textTimeStartOverride != null &&
-          state.textTimeEndOverride != null) {
-        final ws =
-            (state.textTimeStartOverride! - clipStart).clamp(0.0, duration);
-        final we =
-            (state.textTimeEndOverride! - clipStart).clamp(ws, duration);
-        enableClause =
-            ":enable='between(t,${ws.toStringAsFixed(3)},${we.toStringAsFixed(3)})'";
-      }
-      filters.add('[$base][ovf]overlay=0:0:shortest=1$enableClause[outv]');
+      filters.add('[$base][ovf]overlay=0:0:shortest=1[outv]');
     } else {
       filters.add('[$base]null[outv]');
     }

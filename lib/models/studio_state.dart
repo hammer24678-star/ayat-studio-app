@@ -72,6 +72,23 @@ class TextLayer {
   });
 }
 
+// PATCH_S160_MULTI_TEXT_TIME_CUES: one independently-timed piece of ayah text. The old
+// PATCH_S109 textTimeStartOverride/textTimeEndOverride pair could only
+// ever describe ONE text's window -- a second typed text just overwrote
+// it. StudioState.textTimeCues below is a real list of these instead.
+class TextTimeCue {
+  String text;
+  String translation;
+  double start;
+  double end;
+  TextTimeCue({
+    required this.text,
+    this.translation = '',
+    required this.start,
+    required this.end,
+  });
+}
+
 class StudioState extends ChangeNotifier {
   // ---- corpus ----
   List<Ayah> ayaat = [];
@@ -248,6 +265,38 @@ class StudioState extends ChangeNotifier {
   // Both null (the default) means "shown for the whole clip", same as before.
   double? textTimeStartOverride;
   double? textTimeEndOverride;
+  // ---- PATCH_S160_MULTI_TEXT_TIME_CUES ----
+  // Committed timed texts -- each keeps its own independent [start, end)
+  // window. textTimeStartOverride/textTimeEndOverride above are now just
+  // "the entry currently being typed/edited"; commitTextTimeCue() below
+  // is what actually locks it in as its own cue instead of silently
+  // replacing whatever text+window was set before it.
+  List<TextTimeCue> textTimeCues = [];
+
+  void commitTextTimeCue() {
+    if (textTimeStartOverride == null || textTimeEndOverride == null) return;
+    if (textTimeEndOverride! <= textTimeStartOverride!) return;
+    if (ayahText.trim().isEmpty) return;
+    textTimeCues = [
+      ...textTimeCues,
+      TextTimeCue(
+        text: ayahText,
+        translation: translationText,
+        start: textTimeStartOverride!,
+        end: textTimeEndOverride!,
+      ),
+    ];
+    textTimeStartOverride = null;
+    textTimeEndOverride = null;
+    notifyListeners();
+  }
+
+  void removeTextTimeCueAt(int index) {
+    if (index < 0 || index >= textTimeCues.length) return;
+    final next = [...textTimeCues]..removeAt(index);
+    textTimeCues = next;
+    notifyListeners();
+  }
   // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: word index (into
   // state.ayahText.split(RegExp(r'\s+'))) -> the color that word is
   // drawn in instead of the normal text color. Was a Set<int> that only

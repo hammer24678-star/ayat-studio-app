@@ -3924,8 +3924,54 @@ class _HomeScreenState extends State<HomeScreen>
                 });
               }),
             ),
+            const SizedBox(width: 6),
+            // PATCH_S160_MULTI_TEXT_TIME_CUES: commits the text+window above as its OWN cue
+            // instead of it getting silently overwritten by the next text
+            // you type -- this is what actually lets two different texts
+            // each appear in their own time window.
+            IconButton(
+              tooltip: 'إضافة كنص مستقل بتوقيته الخاص',
+              icon: const Icon(Icons.playlist_add),
+              onPressed: (state.textTimeStartOverride == null ||
+                      state.textTimeEndOverride == null ||
+                      state.ayahText.trim().isEmpty)
+                  ? null
+                  : () => setState(() {
+                        state.update(() => state.commitTextTimeCue());
+                        _textStartCtrl.clear();
+                        _textEndCtrl.clear();
+                        _toast('أُضيف النص إلى القائمة ✓');
+                      }),
+            ),
           ],
         ),
+        if (state.textTimeCues.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          for (var _cueIdx = 0; _cueIdx < state.textTimeCues.length; _cueIdx++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${state.textTimeCues[_cueIdx].text}  ·  '
+                      '${_fmtSec(state.textTimeCues[_cueIdx].start)}'
+                      '–${_fmtSec(state.textTimeCues[_cueIdx].end)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ayahTextStyle(state.fontKey, fontSize: 13),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'حذف',
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () =>
+                        state.update(() => state.removeTextTimeCueAt(_cueIdx)),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     )); // PATCH_S120_ADVANCED_OPTIONS_CLEANUP
   }
