@@ -98,6 +98,7 @@ void assertGraphIsSound(String cmd, {required String what}) {
 
 String build(StudioState state, {
   String? overlayPng,
+  List<({String path, double start, double end})>? overlayPngCues, // PATCH_S160E
   String? overlaySeq,
   String? effectSeq,
   String? watermarkPng,
@@ -115,6 +116,7 @@ String build(StudioState state, {
       bgSegments: null,
       overlaySeqPattern: overlaySeq,
       overlayPng: overlayPng,
+      overlayPngCues: overlayPngCues, // PATCH_S160E
       effectSeqPattern: effectSeq,
       watermarkPng: watermarkPng,
       reciterPath: reciterPath,
