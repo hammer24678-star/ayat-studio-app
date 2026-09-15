@@ -1,7 +1,7 @@
 name: ayat_studio_app
 description: Ayat Studio — Quran video editing and ayah detection, native APK.
 publish_to: 'none'
-version: 1.7.2+9
+version: 1.7.3+10
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

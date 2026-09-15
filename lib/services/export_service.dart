@@ -253,6 +253,49 @@ class ExportService {
           onStatus: onStatus,
         );
         overlaySeqPattern = '${seqDir.path}/ov_%05d.png';
+      } else if (state.hasAyah &&
+          (state.textTimeCues.isNotEmpty ||
+              (state.textTimeStartOverride != null &&
+                  state.textTimeEndOverride != null))) {
+        // PATCH_S161_TEXT_CUES_BEFORE_TRANSITION: this branch used to sit AFTER the `hasTextTransition`
+        // branch below, so whenever text transitions were on (the
+        // DEFAULT -- textInTransition defaults to riseFade,
+        // textOutTransition to fade, neither is `none`) that branch
+        // always won first and rendered nothing but `state.ayahText` for
+        // the whole clip, discarding every committed textTimeCue
+        // outright. That's the "second typed text never shows" report
+        // coming back -- it never actually depended on the karaoke
+        // toggle (karaokeEnabled isn't referenced by any of these branch
+        // conditions; it only ever affects per-word lighting inside the
+        // karaoke-sequence branch above). Checking for a committed (or
+        // still-being-typed) cue FIRST means it always gets its own
+        // window, regardless of the transition settings.
+        final cues = <TextTimeCue>[
+          ...state.textTimeCues,
+          if (state.textTimeStartOverride != null &&
+              state.textTimeEndOverride != null)
+            TextTimeCue(
+              text: state.ayahText,
+              translation: state.translationText,
+              start: state.textTimeStartOverride!,
+              end: state.textTimeEndOverride!,
+            ),
+        ];
+        final rendered = <({String path, double start, double end})>[];
+        for (var i = 0; i < cues.length; i++) {
+          final cue = cues[i];
+          final png = '${work.path}/overlay_$i.png';
+          await File(png).writeAsBytes(
+              await OverlayRenderer.renderTextOverlayPng(
+            w: w,
+            h: h,
+            text: cue.text,
+            translation: cue.translation,
+            style: style,
+          ));
+          rendered.add((path: png, start: cue.start, end: cue.end));
+        }
+        overlayPngCues = rendered;
       } else if (state.hasAyah && state.hasTextTransition) {
         // PATCH_S126_TEXT_TRANSITIONS: a single-ayah export used to be one
         // still PNG with an ffmpeg alpha fade bolted on — which can do a fade
@@ -260,6 +303,9 @@ class ExportService {
         // gets exactly the same transitions, and the same smoothness, as a
         // synced one. Frames outside the entrance and exit are identical, so
         // the dedupe+hard-link path below makes this nearly free.
+        // (PATCH_S161_TEXT_CUES_BEFORE_TRANSITION: only reached now when there are NO timed cues --
+        // this is still the right choice for the plain "one ayah, no
+        // manual timing" case, which is most exports.)
         onStatus?.call('جارٍ رسم ظهور النص…');
         final seqDir = Directory('${work.path}/ov')..createSync();
         await _renderTextSequence(
@@ -274,49 +320,20 @@ class ExportService {
         );
         overlaySeqPattern = '${seqDir.path}/ov_%05d.png';
       } else if (state.hasAyah) {
-        // PATCH_S160_MULTI_TEXT_TIME_CUES: state.textTimeCues (plus whatever's still sitting in
-        // the single-shot override fields, for anyone who only ever wants
-        // one timed text) -- render each one as its own PNG instead of
-        // collapsing them all into the single `state.ayahText` that used
-        // to be the only thing this branch ever knew how to bake.
-        final cues = <TextTimeCue>[
-          ...state.textTimeCues,
-          if (state.textTimeStartOverride != null &&
-              state.textTimeEndOverride != null)
-            TextTimeCue(
-              text: state.ayahText,
-              translation: state.translationText,
-              start: state.textTimeStartOverride!,
-              end: state.textTimeEndOverride!,
-            ),
-        ];
-        if (cues.isEmpty) {
-          overlayPng = '${work.path}/overlay.png';
-          await File(overlayPng)
-              .writeAsBytes(await OverlayRenderer.renderTextOverlayPng(
-            w: w,
-            h: h,
-            text: state.ayahText,
-            translation: state.translationText,
-            style: style,
-          ));
-        } else {
-          final rendered = <({String path, double start, double end})>[];
-          for (var i = 0; i < cues.length; i++) {
-            final cue = cues[i];
-            final png = '${work.path}/overlay_$i.png';
-            await File(png).writeAsBytes(
-                await OverlayRenderer.renderTextOverlayPng(
-              w: w,
-              h: h,
-              text: cue.text,
-              translation: cue.translation,
-              style: style,
-            ));
-            rendered.add((path: png, start: cue.start, end: cue.end));
-          }
-          overlayPngCues = rendered;
-        }
+        // PATCH_S161_TEXT_CUES_BEFORE_TRANSITION: reached only when there are no committed/in-progress
+        // timed cues AND text transitions are off -- always a single
+        // static overlay for the whole clip. (Old branch-3's now-dead
+        // "cues.isEmpty" fork folded in here, since cues is guaranteed
+        // empty by this point.)
+        overlayPng = '${work.path}/overlay.png';
+        await File(overlayPng)
+            .writeAsBytes(await OverlayRenderer.renderTextOverlayPng(
+          w: w,
+          h: h,
+          text: state.ayahText,
+          translation: state.translationText,
+          style: style,
+        ));
       }
 
       // ---- PATCH_S34_STAGE_EFFECTS: transparent particle loop frames ----
