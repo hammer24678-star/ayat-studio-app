@@ -233,16 +233,12 @@ class ExportService {
       );
       String? overlaySeqPattern;
       String? overlayPng;
-      // PATCH_S160_MULTI_TEXT_TIME_CUES (scope fix): declared here, next to the overlayPng
-      // this function already had, because the version added by
-      // patch_s160 landed in a different same-shaped block elsewhere
-      // in this file -- out of scope for the overlayPngCues usage
-      // right below in *this* function.
-      List<({String path, double start, double end})>? overlayPngCues;
       // PATCH_S160_MULTI_TEXT_TIME_CUES: one rendered PNG + its own [start, end) window per
       // committed text cue, so several different texts can each show up
       // only during their own slice of the export instead of one baked
-      // PNG (and one shared window) for the whole clip.
+      // PNG (and one shared window) for the whole clip. Threaded into
+      // buildMainCommand as a real parameter (PATCH_S160D) -- it's a
+      // static method and can't see this local otherwise.
       List<({String path, double start, double end})>? overlayPngCues;
       if (state.hasVideo && state.timelineActive && state.timeline.isNotEmpty) {
         final seqDir = Directory('${work.path}/seq')..createSync();
@@ -384,6 +380,7 @@ class ExportService {
         bgSegments: bgSegments, // PATCH_S40_MULTI_BG_CYCLE
         overlaySeqPattern: overlaySeqPattern,
         overlayPng: overlayPng,
+        overlayPngCues: overlayPngCues, // PATCH_S160D
         effectSeqPattern: effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
         watermarkPng: watermarkPng, // PATCH_S123_WATERMARK
         reciterPath: reciterPath,
@@ -1043,6 +1040,7 @@ class ExportService {
     required List<({String path, double dur})>? bgSegments, // PATCH_S40_MULTI_BG_CYCLE
     required String? overlaySeqPattern,
     required String? overlayPng,
+    required List<({String path, double start, double end})>? overlayPngCues, // PATCH_S160D
     required String? effectSeqPattern, // PATCH_S34_STAGE_EFFECTS
     required String? watermarkPng, // PATCH_S123_WATERMARK
     required String? reciterPath,
