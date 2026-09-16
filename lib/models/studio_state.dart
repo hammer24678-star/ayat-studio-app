@@ -106,12 +106,20 @@ class StudioState extends ChangeNotifier {
   List<TextLayer> textLayers = [];
 
   void addTextLayer(TextLayer layer) {
+    // PATCH_S162_CUE_GATE_AND_UNDO_FIX: called directly (never wrapped in
+    // state.update()) everywhere in the UI, and this method never pushed
+    // its own history entry -- adding a text layer was invisible to
+    // undo/redo, not merely unrestorable. Paired with the textLayers
+    // entry added to _capture()/_apply() above.
+    pushHistory();
     textLayers = [...textLayers, layer];
     notifyListeners();
   }
 
   void updateTextLayerAt(int index, TextLayer layer) {
     if (index < 0 || index >= textLayers.length) return;
+    // PATCH_S162_CUE_GATE_AND_UNDO_FIX: see addTextLayer() above.
+    pushHistory();
     final next = [...textLayers];
     next[index] = layer;
     textLayers = next;
@@ -120,6 +128,8 @@ class StudioState extends ChangeNotifier {
 
   void removeTextLayerAt(int index) {
     if (index < 0 || index >= textLayers.length) return;
+    // PATCH_S162_CUE_GATE_AND_UNDO_FIX: see addTextLayer() above.
+    pushHistory();
     final next = [...textLayers]..removeAt(index);
     textLayers = next;
     notifyListeners();
@@ -1107,6 +1117,39 @@ class StudioState extends ChangeNotifier {
         'musicBedPath': musicBedPath,
         'musicBedVolume': musicBedVolume,
         'musicBedFade': musicBedFade,
+        // PATCH_S162_CUE_GATE_AND_UNDO_FIX: these were never added when
+        // each feature landed (S129/S143/S145/S160), unlike same-vintage
+        // watermark/music-bed fields just above -- removing a committed
+        // text-time-cue and hitting Undo did not bring it back, and
+        // editing a caption/word-color/transition choice was not
+        // undoable at all. Lists/maps are copied by value here, same
+        // reasoning as the `timeline` entry above: capturing the live
+        // List/Map reference would let later mutations bleed into this
+        // "old" snapshot and undo would silently do nothing.
+        'textTimeCues': [
+          for (final c in textTimeCues)
+            TextTimeCue(
+                text: c.text,
+                translation: c.translation,
+                start: c.start,
+                end: c.end),
+        ],
+        'textTimeStartOverride': textTimeStartOverride,
+        'textTimeEndOverride': textTimeEndOverride,
+        'textLayers': [
+          for (final l in textLayers)
+            TextLayer(
+                text: l.text,
+                position: l.position,
+                fontSize: l.fontSize,
+                color: l.color),
+        ],
+        'wordColors': Map<int, Color>.from(wordColors),
+        'activeWordColor': activeWordColor,
+        'captionText': captionText,
+        'captionPosition': captionPosition,
+        'textInTransition': textInTransition,
+        'textOutTransition': textOutTransition,
       };
 
   void _apply(Map<String, Object?> s) {
@@ -1168,6 +1211,17 @@ class StudioState extends ChangeNotifier {
     musicBedPath = s['musicBedPath'] as String?;
     musicBedVolume = s['musicBedVolume'] as double;
     musicBedFade = s['musicBedFade'] as bool;
+    // PATCH_S162_CUE_GATE_AND_UNDO_FIX: restore the fields captured above.
+    textTimeCues = (s['textTimeCues'] as List).cast<TextTimeCue>();
+    textTimeStartOverride = s['textTimeStartOverride'] as double?;
+    textTimeEndOverride = s['textTimeEndOverride'] as double?;
+    textLayers = (s['textLayers'] as List).cast<TextLayer>();
+    wordColors = (s['wordColors'] as Map).cast<int, Color>();
+    activeWordColor = s['activeWordColor'] as Color;
+    captionText = s['captionText'] as String;
+    captionPosition = s['captionPosition'] as CaptionPosition;
+    textInTransition = s['textInTransition'] as TextTransition;
+    textOutTransition = s['textOutTransition'] as TextTransition;
   }
 
   /// Pushes a pre-edit snapshot. Called automatically by [update] and the

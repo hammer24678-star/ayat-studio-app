@@ -253,10 +253,22 @@ class ExportService {
           onStatus: onStatus,
         );
         overlaySeqPattern = '${seqDir.path}/ov_%05d.png';
-      } else if (state.hasAyah &&
-          (state.textTimeCues.isNotEmpty ||
-              (state.textTimeStartOverride != null &&
-                  state.textTimeEndOverride != null))) {
+      } else if (state.textTimeCues.isNotEmpty ||
+          (state.hasAyah &&
+              state.textTimeStartOverride != null &&
+              state.textTimeEndOverride != null)) {
+        // PATCH_S162_CUE_GATE_AND_UNDO_FIX: a committed TextTimeCue already
+        // carries its own text/translation snapshot (commitTextTimeCue()
+        // copies state.ayahText/translationText into it at commit time), so
+        // it doesn't need a live, non-empty state.ayahText to render. The
+        // previous `state.hasAyah && (...)` gate put hasAyah in front of
+        // BOTH halves of the condition -- clearing the typed-text field
+        // after committing one or more cues (a normal "done, type the next
+        // one" motion) made hasAyah false and every branch below fall
+        // through with nothing rendered, silently dropping every committed
+        // cue from the export. Only the still-being-typed override half
+        // genuinely needs hasAyah, since it reads ayahText/translationText
+        // live rather than from a snapshot.
         // PATCH_S161_TEXT_CUES_BEFORE_TRANSITION: this branch used to sit AFTER the `hasTextTransition`
         // branch below, so whenever text transitions were on (the
         // DEFAULT -- textInTransition defaults to riseFade,
