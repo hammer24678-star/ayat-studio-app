@@ -72,8 +72,37 @@ class WhisperService {
   // sustained thermal load, so oversubscription also pushes the phone into
   // throttling sooner. Leave one core for the UI/decoder, cap at 8 (whisper.cpp
   // stops scaling past that on ARM), and never drop below 2.
-  static int get _threads =>
-      math.max(2, math.min(8, Platform.numberOfProcessors - 1));
+  // PATCH_S164_BIG_CORE_THREADS: whisper_ggml_plus runs on the CPU only on
+  // Android. On a big.LITTLE phone the slow cores finish each layer late and
+  // every other thread waits for them, so "all cores" is slower than "fast
+  // cores". Count the cores whose max frequency is within 70% of the fastest;
+  // when sysfs can't be read (some Android builds block it) fall back to a
+  // core-count heuristic. Computed once.
+  static int? _threadsMemo;
+  static int get _threads => _threadsMemo ??= _pickThreads();
+
+  static int _pickThreads() {
+    final total = Platform.numberOfProcessors;
+    try {
+      final freqs = <int>[];
+      for (var i = 0; i < total; i++) {
+        final f = File(
+            '/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq');
+        if (!f.existsSync()) continue;
+        final v = int.tryParse(f.readAsStringSync().trim());
+        if (v != null && v > 0) freqs.add(v);
+      }
+      if (freqs.length == total && total >= 4) {
+        final top = freqs.reduce(math.max);
+        final fast = freqs.where((f) => f >= top * 0.7).length;
+        return math.max(2, math.min(6, fast));
+      }
+    } catch (_) {
+      // fall through to the heuristic
+    }
+    if (total >= 6) return 4; // typical 1+3+4 / 2+4 / 4+4 layouts
+    return math.max(2, total - 1);
+  }
   static WhisperModelSize get currentSize => _size; // PATCH_S43_MODEL_SIZE_PICKER
   static String labelFor(WhisperModelSize size) => _modelSpecs[size]!.labelAr; // PATCH_S43_MODEL_SIZE_PICKER
 
