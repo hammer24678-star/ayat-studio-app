@@ -27,6 +27,7 @@ import '../services/export_service.dart';
 import '../services/font_service.dart'; // PATCH_S39_PERSISTENT_FONTS
 import '../services/karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import '../services/media_service.dart';
+import '../services/background_job.dart'; // PATCH_S163
 import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
@@ -371,12 +372,14 @@ class _HomeScreenState extends State<HomeScreen>
     _busyWatch
       ..reset()
       ..start(); // PATCH_S83_SYNC_QOL
+    await BackgroundJob.start(); // PATCH_S163: survive minimize / screen-off
     try {
       return await job();
     } catch (e) {
       _toast('$e'.replaceFirst('Exception: ', ''));
       return null;
     } finally {
+      await BackgroundJob.stop(); // PATCH_S163
       _busyWatch.stop(); // PATCH_S83_SYNC_QOL
       if (mounted) {
         setState(() {
@@ -404,6 +407,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _setBusyStatus(String s, [double? progress]) {
+    BackgroundJob.update(s, progress ?? _busyProgress); // PATCH_S163
     if (!mounted) return;
     setState(() {
       _busyStatus = s;
@@ -662,7 +666,10 @@ class _HomeScreenState extends State<HomeScreen>
         scanStart: state.manualTrimSet ? state.trimManualStart : null,
         scanEnd: state.manualTrimSet ? state.trimManualEnd : null,
         onStatus: (s) => _setBusyStatus(s),
-        onProgress: (f) => setState(() => _busyProgress = f),
+        onProgress: (f) {
+          BackgroundJob.update(null, f); // PATCH_S163
+          setState(() => _busyProgress = f);
+        },
       );
       final timeline = result.timeline;
       state.detectedAudioDurationSec = result.totalSec;
@@ -834,7 +841,10 @@ class _HomeScreenState extends State<HomeScreen>
       return ExportService.export(
         state: state,
         onStatus: (s) => _setBusyStatus(s),
-        onProgress: (f) => setState(() => _busyProgress = f),
+        onProgress: (f) {
+          BackgroundJob.update(null, f); // PATCH_S163
+          setState(() => _busyProgress = f);
+        },
       );
     });
     if (path == null || !mounted) return;

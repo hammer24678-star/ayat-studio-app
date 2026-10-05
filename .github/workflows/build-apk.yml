@@ -199,6 +199,17 @@ jobs:
           sed -i 's|android:label="ayat_studio_app"|android:label="استوديو الآيات"|' "$MANIFEST"
           echo "-- resulting manifest:"; cat "$MANIFEST"
 
+      - name: Foreground service + notification permissions for background jobs (PATCH_S163)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          for PERM in FOREGROUND_SERVICE FOREGROUND_SERVICE_DATA_SYNC WAKE_LOCK POST_NOTIFICATIONS; do
+            grep -q "android.permission.$PERM\"" "$MANIFEST" || \
+              sed -i "s|<application|<uses-permission android:name=\"android.permission.$PERM\"/>\n    <application|" "$MANIFEST"
+          done
+          grep -q 'flutter_foreground_task.service.ForegroundService' "$MANIFEST" || \
+            sed -i 's|</application>|    <service android:name="com.pravera.flutter_foreground_task.service.ForegroundService" android:foregroundServiceType="dataSync" android:exported="false" />\n    </application>|' "$MANIFEST"
+          echo "-- manifest after background-job step:"; cat "$MANIFEST"
+
       - name: Decode release keystore from secrets (build silently stays on the debug key if secrets aren't set yet, so this doesn't block anyone before the one-time keystore setup is done)
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}

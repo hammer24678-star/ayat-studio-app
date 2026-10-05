@@ -703,6 +703,29 @@ class StudioState extends ChangeNotifier {
     _lastMatchedAyahEn = ayah.en; // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
     _aiArtSeedOffset = 0;
     _generateAiArt(ayah.surahNum, ayah.num, ayah.ar, ayah.en);
+    _prefetchNextArt(ayah); // PATCH_S163_AI_ART_SPEED
+  }
+
+  // PATCH_S163_AI_ART_SPEED: warm the NEXT distinct ayah's art while this one
+  // plays, so the crossfade finds it already on disk. Fire-and-forget.
+  void _prefetchNextArt(Ayah current) {
+    var seenCurrent = false;
+    for (final seg in timeline) {
+      final a = seg.ayah;
+      if (a.surahNum == current.surahNum && a.num == current.num) {
+        seenCurrent = true;
+        continue;
+      }
+      if (seenCurrent) {
+        AiArtService.artFor(
+          surahNum: a.surahNum,
+          ayahNum: a.num,
+          ayahArabic: a.ar,
+          ayahEnglish: a.en,
+        ).then((_) {}, onError: (_) {});
+        return;
+      }
+    }
   }
 
   // PATCH_S69_AI_ART_FIX: standalone manual entry point -- works from whatever ayah
@@ -732,7 +755,7 @@ class StudioState extends ChangeNotifier {
   // cache-checked, so re-running this after a partial success only retries
   // whatever didn't finish, and never re-hits the network for ayat that
   // already have art.
-  static const int _aiArtBatchMax = 6;
+  static const int _aiArtBatchMax = 10; // PATCH_S163: was 6 (parallel now)
   Future<void> generateArtForTimelineBatch() async {
     if (aiArtBatchBusy || aiArtBusy) return;
     if (timeline.isEmpty) {
@@ -756,38 +779,46 @@ class StudioState extends ChangeNotifier {
     notifyListeners();
     var ok = 0;
     try {
-      for (var i = 0; i < targets.length; i++) {
-        final ayah = targets[i];
-        aiArtBatchProgress = 'الآية ${i + 1} من ${targets.length}…';
-        notifyListeners();
-        try {
-          final path = await AiArtService.artFor(
-            surahNum: ayah.surahNum,
-            ayahNum: ayah.num,
-            ayahArabic: ayah.ar,
-            ayahEnglish: ayah.en, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
-          );
-          if (path != null) {
-            ok++;
-            if (i == 0) {
-              useCustomBg = true;
-              customBgPath = path;
-              _aiArtSurah = ayah.surahNum;
-              _aiArtAyahNum = ayah.num;
-              _aiArtAyahText = ayah.ar;
-              _aiArtSeedOffset = 0;
+      // PATCH_S163_AI_ART_SPEED: every target starts at once; AiArtService
+      // gates real network concurrency itself (2, or 1 after a 429). The first
+      // ayah's art still takes over the background the moment it lands.
+      var done = 0;
+      await Future.wait([
+        for (var i = 0; i < targets.length; i++)
+          () async {
+            final ayah = targets[i];
+            try {
+              final path = await AiArtService.artFor(
+                surahNum: ayah.surahNum,
+                ayahNum: ayah.num,
+                ayahArabic: ayah.ar,
+                ayahEnglish: ayah.en, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
+              );
+              if (path != null) {
+                ok++;
+                if (i == 0) {
+                  useCustomBg = true;
+                  customBgPath = path;
+                  _aiArtSurah = ayah.surahNum;
+                  _aiArtAyahNum = ayah.num;
+                  _aiArtAyahText = ayah.ar;
+                  _aiArtSeedOffset = 0;
+                  _lastMatchedSurah = ayah.surahNum;
+                  _lastMatchedAyahNum = ayah.num;
+                  _lastMatchedAyahText = ayah.ar;
+                  _lastMatchedAyahEn = ayah.en;
+                }
+              }
+            } on AiArtException catch (e) {
+              aiArtError = e.message; // last error stays visible if all fail
+            } catch (e) {
+              aiArtError = 'تعذر توليد الفن: $e';
             }
-            _lastMatchedSurah = ayah.surahNum;
-            _lastMatchedAyahNum = ayah.num;
-            _lastMatchedAyahText = ayah.ar;
-            _lastMatchedAyahEn = ayah.en; // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
-          }
-        } on AiArtException catch (e) {
-          aiArtError = e.message; // last error stays visible if all fail
-        } catch (e) {
-          aiArtError = 'تعذر توليد الفن: $e';
-        }
-      }
+            done++;
+            aiArtBatchProgress = 'تم $done من ${targets.length}…';
+            notifyListeners();
+          }(),
+      ]);
       if (ok == 0) {
         aiArtError ??= 'تعذر توليد الفن لأي من آيات المقطع';
         aiArtBatchProgress = null;

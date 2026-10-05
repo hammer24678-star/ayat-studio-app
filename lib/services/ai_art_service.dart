@@ -11,6 +11,7 @@
 // Images are cached to disk forever, keyed by surah:ayah (+ a seed offset
 // for manual regenerate), so the same ayah never re-hits the network and
 // re-editing the same clip later reproduces the exact same art.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -54,17 +55,21 @@ class AiArtService {
   // for every following ayah so dead models are only probed once.
   static String? _workingModel;
 
+  // PATCH_S163_AI_ART_SPEED: the old-cache cleanup + mkdir check used to run on
+  // EVERY call; now once per session.
+  static Directory? _cacheDirMemo;
   static Future<Directory> _cacheDir() async {
+    final memo = _cacheDirMemo;
+    if (memo != null) {
+      if (!await memo.exists()) await memo.create(recursive: true);
+      return memo;
+    }
     final docs = await getApplicationDocumentsDirectory();
-    // PATCH_S84_AI_ART_MODEL_CHAIN: v2 -- cache is versioned so art cached
-    // from the old single-model days regenerates on the better chain
-    // instead of being served forever. The old dir is cleaned up once.
-    Directory('${docs.path}/ai_art_cache')
-        .delete(recursive: true)
-        .ignore();
+    // v2 cache (PATCH_S84); the pre-chain v1 dir is removed once.
+    Directory('${docs.path}/ai_art_cache').delete(recursive: true).ignore();
     final dir = Directory('${docs.path}/ai_art_cache_v2');
     if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    return _cacheDirMemo = dir;
   }
 
   static Future<File> _fileFor(int surahNum, int ayahNum, int seedOffset) async {
@@ -176,94 +181,152 @@ class AiArtService {
         'down to a lone empty landscape, $_noFacesRule';
   }
 
+  // PATCH_S163_AI_ART_SPEED
+  // - one keep-alive client (was a fresh TLS handshake per request)
+  // - 768x1344 (9:16, multiples of 64): ~2x faster than 1080x1920; the art is
+  //   thin glowing line-art on black and is scaled to cover the frame anyway
+  // - 2 requests in flight (drops to 1 for the session after an HTTP 429)
+  // - identical requests in flight are shared, cache writes are atomic
+  // - a model that times out / answers garbage is skipped for 2-5 minutes
+  //   instead of being re-probed (and re-timed-out) for every ayah
+  static final http.Client _client = http.Client();
+  static final Map<String, Future<String?>> _inFlight = {};
+  static final Map<String, DateTime> _deadUntil = {};
+  static int _maxParallel = 2;
+  static int _active = 0;
+  static final List<Completer<void>> _waiters = [];
+
+  static Future<void> _acquire() {
+    if (_active < _maxParallel) {
+      _active++;
+      return Future<void>.value();
+    }
+    final c = Completer<void>();
+    _waiters.add(c);
+    return c.future; // slot is handed over directly by _release()
+  }
+
+  static void _release() {
+    if (_waiters.isNotEmpty) {
+      _waiters.removeAt(0).complete();
+    } else {
+      _active--;
+    }
+  }
+
+  static void _markDead(String model, int minutes) {
+    _deadUntil[model] = DateTime.now().add(Duration(minutes: minutes));
+  }
+
   /// Returns a local file path to the cached (or freshly generated) art for
   /// [surahNum]:[ayahNum], or null on any failure -- caller should keep
   /// whatever background was already active if this returns null.
-  /// PATCH_S84_AI_ART_MODEL_CHAIN: walks [kModelChain] (working model first)
-  /// until one returns a validated image.
   static Future<String?> artFor({
     required int surahNum,
     required int ayahNum,
     required String ayahArabic,
-    // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: optional so existing call
-    // sites keep compiling; empty just falls back to the old vague prompt
-    // instead of crashing -- but every call site below is updated to pass
-    // the real translation.
     String ayahEnglish = '',
     int seedOffset = 0,
   }) async {
     final cached = await _fileFor(surahNum, ayahNum, seedOffset);
-    if (await cached.exists()) return cached.path;
+    if (await cached.exists() && await cached.length() > 5000) {
+      return cached.path;
+    }
+    final running = _inFlight[cached.path];
+    if (running != null) return running;
+    final job = _generate(
+        cached, surahNum, ayahNum, ayahArabic, ayahEnglish, seedOffset);
+    _inFlight[cached.path] = job;
+    try {
+      return await job;
+    } finally {
+      _inFlight.remove(cached.path);
+    }
+  }
 
+  static Future<String?> _generate(File cached, int surahNum, int ayahNum,
+      String ayahArabic, String ayahEnglish, int seedOffset) async {
     final prompt = _buildPrompt(ayahArabic, ayahEnglish);
     // Deterministic seed from surah:ayah (+ offset) -- same ayah always
-    // reproduces the same art; a regenerate tap bumps the offset for a
-    // genuinely different result.
+    // reproduces the same art; a regenerate tap bumps the offset.
     final seed = (surahNum * 1000 + ayahNum) * 97 + seedOffset;
-    // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: key stays optional -- omit the
-    // param entirely when empty rather than sending it blank.
     final keyParam = apiKey.trim().isEmpty
         ? ''
         : '&key=${Uri.encodeComponent(apiKey.trim())}';
 
-    final models = [
+    var models = [
       if (_workingModel != null) _workingModel!,
       ...kModelChain.where((m) => m != _workingModel),
     ];
+    final now = DateTime.now();
+    final alive = models.where((m) {
+      final d = _deadUntil[m];
+      return d == null || now.isAfter(d);
+    }).toList();
+    if (alive.isNotEmpty) models = alive; // never end up with nothing to try
+
     AiArtException? lastError;
-    for (final model in models) {
-      // private=true keeps generated Quranic art off the provider's public
-      // feed; safe=true forces the strictest content filter tier.
-      final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
-          '?width=1080&height=1920&seed=$seed&model=$model'
-          '&nologo=true&private=true&safe=true$keyParam');
-      // one retry per model for transient failures, with a short backoff
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (attempt > 0) {
-          await Future<void>.delayed(const Duration(seconds: 3));
+    await _acquire();
+    try {
+      for (final model in models) {
+        final url = Uri.parse('$_base${Uri.encodeComponent(prompt)}'
+            '?width=768&height=1344&seed=$seed&model=$model'
+            '&nologo=true&private=true&safe=true$keyParam');
+        for (var attempt = 0; attempt < 2; attempt++) {
+          if (attempt > 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 1500));
+          }
+          http.Response res;
+          try {
+            res = await _client.get(url).timeout(const Duration(seconds: 35));
+          } on TimeoutException {
+            lastError = AiArtException('انتهت مهلة توليد الفن -- حاول مرة أخرى');
+            _markDead(model, 2); // slow model: skip it, don't wait twice
+            break;
+          } on Exception {
+            lastError = AiArtException(
+                'تعذر الاتصال بخدمة توليد الفن -- تحقق من الإنترنت');
+            continue;
+          }
+          if (res.statusCode == 401 && apiKey.trim().isNotEmpty) {
+            throw AiArtException(
+                'المفتاح المُدخَل في الإعدادات غير صالح -- احذفه لاستخدام التوليد المجاني بدون مفتاح، أو تحقق منه في enter.pollinations.ai');
+          }
+          if (res.statusCode == 402 || res.statusCode == 429) {
+            lastError = AiArtException(
+                'تم تجاوز الحد المسموح مؤقتًا -- حاول مرة أخرى خلال دقيقة');
+            _maxParallel = 1; // the provider is throttling: stop doubling up
+            await Future<void>.delayed(const Duration(seconds: 3));
+            continue; // retry, then next model
+          }
+          if (res.statusCode >= 500) {
+            lastError =
+                AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
+            continue;
+          }
+          // A gated/renamed model can answer 200 with a tiny HTML/JSON error
+          // body -- only a real image counts as success.
+          final contentType = res.headers['content-type'] ?? '';
+          final looksLikeImage = res.statusCode == 200 &&
+              res.bodyBytes.length > 5000 &&
+              (contentType.startsWith('image/') || contentType.isEmpty);
+          if (!looksLikeImage) {
+            lastError =
+                AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
+            _markDead(model, 5);
+            break; // hard failure for this model -- try the next one
+          }
+          final tmp = File('${cached.path}.part');
+          await tmp.writeAsBytes(res.bodyBytes, flush: true);
+          await tmp.rename(cached.path);
+          _workingModel = model;
+          return cached.path;
         }
-        http.Response res;
-        try {
-          res = await http.get(url).timeout(const Duration(seconds: 40));
-        } on Exception {
-          lastError =
-              AiArtException('تعذر الاتصال بخدمة توليد الفن -- تحقق من الإنترنت');
-          continue;
-        }
-        if (res.statusCode == 401 && apiKey.trim().isNotEmpty) {
-          // only reachable with a user-typed (invalid) key -- the keyless
-          // path is never authenticated
-          throw AiArtException(
-              'المفتاح المُدخَل في الإعدادات غير صالح -- احذفه لاستخدام التوليد المجاني بدون مفتاح، أو تحقق منه في enter.pollinations.ai');
-        }
-        if (res.statusCode == 402 || res.statusCode == 429) {
-          lastError = AiArtException(
-              'تم تجاوز الحد المسموح مؤقتًا -- حاول مرة أخرى خلال دقيقة');
-          continue; // retry, then next model
-        }
-        if (res.statusCode >= 500) {
-          lastError =
-              AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
-          continue;
-        }
-        // A gated/renamed model can answer 200 with a tiny HTML/JSON error
-        // body -- only a real image counts as success.
-        final contentType = res.headers['content-type'] ?? '';
-        final looksLikeImage = res.statusCode == 200 &&
-            res.bodyBytes.length > 5000 &&
-            (contentType.startsWith('image/') || contentType.isEmpty);
-        if (!looksLikeImage) {
-          lastError =
-              AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
-          break; // hard failure for this model -- try the next one
-        }
-        await cached.writeAsBytes(res.bodyBytes);
-        _workingModel = model;
-        return cached.path;
       }
+    } finally {
+      _release();
     }
-    throw lastError ??
-        AiArtException('فشل توليد الفن -- حاول مرة أخرى لاحقًا');
+    throw lastError ?? AiArtException('فشل توليد الفن -- حاول مرة أخرى لاحقًا');
   }
 
   // PATCH_S51_AI_ART_DELETE: removes the base cached image AND every

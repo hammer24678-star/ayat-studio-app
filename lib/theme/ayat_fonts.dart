@@ -20,6 +20,17 @@ double ayahAutoFontScale(String text) {
   return 0.58;
 }
 
+// PATCH_S163_FONTS: Aref Ruqaa / Qahiri / Markazi / Reem Kufi (and every
+// custom font) lack the Quranic annotation marks - waqf signs, small seen,
+// ayah-end U+06DD... - so those glyphs fell to a random system font. Amiri
+// Quran and Scheherazade New carry the full set; they are bundled in
+// google_fonts/ and sit behind EVERY ayah style as the fallback chain.
+List<String> _quranFallback() => [
+      GoogleFonts.amiriQuran().fontFamily!,
+      GoogleFonts.scheherazadeNew().fontFamily!,
+      GoogleFonts.notoNaskhArabic().fontFamily!,
+    ];
+
 TextStyle ayahTextStyle(
   String fontKey, {
   double? fontSize,
@@ -36,6 +47,7 @@ TextStyle ayahTextStyle(
     shadows: shadows,
     fontWeight: fontWeight,
     letterSpacing: letterSpacing,
+    fontFamilyFallback: _quranFallback(), // PATCH_S163_FONTS
   );
   switch (fontKey) {
     case 'elgharib': // PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled asset font, not google_fonts
@@ -78,11 +90,11 @@ TextStyle ayahTextStyle(
     case 'naskh':
       return GoogleFonts.notoNaskhArabic(textStyle: base);
     case 'andalus':
-      return GoogleFonts.markaziText(textStyle: base);
+      return GoogleFonts.amiri(textStyle: base);
     case 'qalam':
-      return GoogleFonts.qahiri(textStyle: base);
+      return GoogleFonts.scheherazadeNew(textStyle: base);
     case 'kufi':
-      return GoogleFonts.reemKufi(textStyle: base);
+      return GoogleFonts.notoKufiArabic(textStyle: base);
     case 'amiri_quran':
       return GoogleFonts.amiriQuran(textStyle: base);
     default:

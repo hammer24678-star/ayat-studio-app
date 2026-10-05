@@ -1,7 +1,7 @@
 name: ayat_studio_app
 description: Ayat Studio — Quran video editing and ayah detection, native APK.
 publish_to: 'none'
-version: 1.7.4+11
+version: 1.7.5+12
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -21,6 +21,7 @@ dependencies:
   share_plus: ^12.0.0
   google_fonts: ^6.2.1
   media_store_plus: ^0.1.3 # PATCH_S25_SAVE_TO_DOWNLOADS: publish exports to the public Download folder
+  flutter_foreground_task: ^8.17.0 # PATCH_S163: background jobs
   shared_preferences: ^2.2.2 # PATCH_S37_PERSISTENT_SETTINGS: remember style/effect choices across sessions
 
 dev_dependencies:
@@ -34,6 +35,9 @@ flutter:
   assets:
     - assets/quran/
     - assets/icon/
+    # PATCH_S163_FONTS: bundled Google fonts (google_fonts package finds
+    # them here by file name, so no runtime download)
+    - google_fonts/
     # PATCH_S107_CURATED_NATURE_BACKGROUNDS
     - assets/backgrounds/curated/
   # PATCH_S46_DEFAULT_FONT_AND_GLOW: bundled default ayah font (place the .ttf file at

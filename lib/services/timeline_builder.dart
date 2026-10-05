@@ -41,6 +41,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show compute; // PATCH_S163
+
 import '../models/studio_state.dart';
 import 'ayah_matcher.dart';
 import 'media_service.dart';
@@ -113,7 +115,8 @@ class TimelineBuilder {
 
     onStatus?.call('جارٍ استخراج الصوت الكامل…');
     final wavPath = await MediaService.extractWav16kMono(mediaPath);
-    final pcm = _readWavMono16(wavPath);
+    // PATCH_S163: decode off the UI isolate (a 20-minute clip is ~38 MB of PCM)
+    final pcm = await compute(_readWavMono16, wavPath);
 
     final decodedSec = pcm.length / sampleRate;
     // PATCH_S96_HONEST_SCAN_DURATION: cross-check the decode against the

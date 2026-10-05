@@ -105,13 +105,52 @@ class WhisperService {
   // PATCH_S75_COMPACT_PICKER_FALLBACK: download/verify for whichever tier `size` currently points at.
   // Pulled out of ensureReady() so it can be attempted for the selected tier
   // first, then retried for a fallback tier without duplicating this logic.
+  // PATCH_S163: a GGML model starts with the 'lmgg' magic. A saved HTML/JSON
+  // error page (captive portal, rate-limit page) is printable ASCII instead,
+  // and would otherwise be cached forever as a "model" that fails to load.
+  static Future<bool> _hasGgmlMagic(File f) async {
+    try {
+      final raf = await f.open();
+      final head = await raf.read(4);
+      await raf.close();
+      if (head.length < 4) return false;
+      if (head[0] == 0x6c && head[1] == 0x6d && head[2] == 0x67 && head[3] == 0x67) {
+        return true;
+      }
+      return !head.every((b) => b >= 0x20 && b <= 0x7e);
+    } catch (_) {
+      return true; // an IO hiccup must not block a possibly-good file
+    }
+  }
+
+  // PATCH_S163: 3 attempts, each resuming from the .part file, with a short
+  // back-off. Only after all three fail does ensureReady() fall back to `small`.
   static Future<void> _downloadAndVerify(
+      WhisperModelSize size, {void Function(String status)? onStatus}) async {
+    Object? last;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await _downloadAndVerifyOnce(size, onStatus: onStatus);
+        return;
+      } catch (e) {
+        last = e;
+        if (attempt < 2) {
+          onStatus?.call('انقطع التنزيل — إعادة المحاولة (${attempt + 2}/3)…');
+          await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
+        }
+      }
+    }
+    throw last ?? Exception('تعذّر تنزيل نموذج التعرّف');
+  }
+
+  static Future<void> _downloadAndVerifyOnce(
       WhisperModelSize size, {void Function(String status)? onStatus}) async {
     final spec = _modelSpecs[size]!;
     final path = await _controller.getPath(spec.model);
     final file = File(path);
-    final needsDownload =
-        !(await file.exists()) || (await file.length()) < spec.minExpectedBytes;
+    final needsDownload = !(await file.exists()) ||
+        (await file.length()) < spec.minExpectedBytes ||
+        !(await _hasGgmlMagic(file)); // PATCH_S163
 
     if (needsDownload) {
       // PATCH_S57_RESUMABLE_MODEL_DOWNLOAD: tester feedback — the old
@@ -126,10 +165,25 @@ class WhisperService {
       final uri = Uri.parse('$_releaseBaseUrl/${spec.assetName}');
       final request = http.Request('GET', uri);
       if (have > 0) request.headers['range'] = 'bytes=$have-';
-      final response = await http.Client().send(request);
+      final client = http.Client(); // PATCH_S163: closed in the finally below
+      final http.StreamedResponse response;
+      try {
+        response =
+            await client.send(request).timeout(const Duration(seconds: 30));
+      } catch (_) {
+        client.close();
+        rethrow;
+      }
       if (response.statusCode == 200) {
         have = 0; // server ignored the range — start clean
       } else if (response.statusCode != 206) {
+        client.close();
+        if (response.statusCode == 416) {
+          // stale/oversized .part — drop it so the retry starts clean
+          try {
+            if (await part.exists()) await part.delete();
+          } catch (_) {}
+        }
         throw Exception(
             'تعذّر تنزيل نموذج التعرّف من GitHub (HTTP ${response.statusCode})');
       }
@@ -139,7 +193,8 @@ class WhisperService {
       var got = have;
       var lastShownPct = -1;
       try {
-        await for (final chunk in response.stream) {
+        await for (final chunk
+            in response.stream.timeout(const Duration(seconds: 45))) {
           sink.add(chunk);
           got += chunk.length;
           if (total > 0) {
@@ -155,10 +210,17 @@ class WhisperService {
       } finally {
         // keep whatever arrived — that's exactly what resume picks up from
         await sink.close();
+        client.close(); // PATCH_S163
       }
       if (await part.length() < spec.minExpectedBytes) {
         throw Exception(
             'انقطع تنزيل النموذج — أعد المحاولة وسيُستأنف تلقائيًا من حيث توقف');
+      }
+      if (!await _hasGgmlMagic(part)) {
+        try {
+          await part.delete();
+        } catch (_) {}
+        throw Exception('ملف النموذج المنزَّل غير صالح — أعد المحاولة');
       }
       await part.rename(path);
     }
@@ -171,7 +233,17 @@ class WhisperService {
   // it falls back to `small` and retries once, so auto-sync/detect still
   // works. `_size` itself is updated on fallback so the UI can re-sync its
   // displayed selection via currentSize.
-  static Future<void> ensureReady({void Function(String status)? onStatus}) async {
+  // PATCH_S163: two flows asking at once (auto-sync + detect) share ONE
+  // download instead of both writing the same .part file.
+  static Future<void>? _readyInFlight;
+  static Future<void> ensureReady({void Function(String status)? onStatus}) {
+    if (_modelReady) return Future<void>.value();
+    return _readyInFlight ??= _ensureReadyImpl(onStatus: onStatus)
+        .whenComplete(() => _readyInFlight = null);
+  }
+
+  static Future<void> _ensureReadyImpl(
+      {void Function(String status)? onStatus}) async {
     if (_modelReady) return;
     try {
       await _downloadAndVerify(_size, onStatus: onStatus);
@@ -199,6 +271,7 @@ class WhisperService {
       audioPath: wavPath,
       lang: 'ar',
       threads: _threads, // PATCH_S123_WHISPER_THREADS
+      convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
     );
     return result?.transcription.text.trim() ?? '';
   }
@@ -226,6 +299,7 @@ class WhisperService {
       withTimestamps: true,
       splitOnWord: splitOnWord,
       threads: _threads, // PATCH_S123_WHISPER_THREADS
+      convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
     );
     final text = result?.transcription.text.trim() ?? '';
     final rawSegments = result?.transcription.segments ?? const [];

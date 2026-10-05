@@ -97,6 +97,12 @@ class OverlayRenderer {
     GoogleFonts.amiriQuran();
     GoogleFonts.arefRuqaa();
     GoogleFonts.tajawal();
+    // PATCH_S163_FONTS: the fallback chain + the remapped styles must be
+    // loaded before the first export frame paints.
+    GoogleFonts.amiri();
+    GoogleFonts.scheherazadeNew();
+    GoogleFonts.notoNaskhArabic();
+    GoogleFonts.notoKufiArabic();
     await GoogleFonts.pendingFonts();
   }
 
