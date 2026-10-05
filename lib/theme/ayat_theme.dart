@@ -123,6 +123,58 @@ class AyatTheme {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
           ),
         ),
+        // PATCH_S165_UI_REFRESH: one look for chips, sliders, dialogs, sheets
+        // and snack bars - gold on deep green, pill shaped, hairline edged.
+        chipTheme: ChipThemeData(
+          backgroundColor: AyatColors.surface2,
+          selectedColor: AyatColors.gold,
+          side: const BorderSide(color: AyatColors.hairline),
+          shape: const StadiumBorder(),
+          showCheckmark: false,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          labelStyle: GoogleFonts.tajawal(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              color: AyatColors.parchment),
+          secondaryLabelStyle: GoogleFonts.tajawal(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: AyatColors.ink),
+        ),
+        sliderTheme: SliderThemeData(
+          trackHeight: 4,
+          activeTrackColor: AyatColors.gold,
+          inactiveTrackColor: AyatColors.surface3,
+          thumbColor: AyatColors.goldBright,
+          overlayColor: AyatColors.gold.withValues(alpha: 0.16),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: AyatColors.surface2,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: const BorderSide(color: AyatColors.hairline),
+          ),
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: AyatColors.surface,
+          surfaceTintColor: Colors.transparent,
+          showDragHandle: true,
+          dragHandleColor: AyatColors.goldDim,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: AyatColors.surface3,
+          behavior: SnackBarBehavior.floating,
+          contentTextStyle: GoogleFonts.tajawal(
+              fontSize: 13, color: AyatColors.parchment),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AyatColors.hairline),
+          ),
+        ),
         progressIndicatorTheme: const ProgressIndicatorThemeData(
           color: AyatColors.goldBright,
         ),
