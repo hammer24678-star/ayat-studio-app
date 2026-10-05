@@ -1261,17 +1261,44 @@ class _HomeScreenState extends State<HomeScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // PATCH_S166_UI_POLISH: a faint gold basmala while empty.
+                if (!state.hasVideo)
+                  FadeSlideIn(
+                    child: GoldShimmer(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          '\uFDFD',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .displayLarge
+                              ?.copyWith(
+                                fontSize: 30,
+                                height: 1.3,
+                                color:
+                                    AyatColors.gold.withValues(alpha: 0.75),
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
                 FadeSlideIn(child: _statusCard()), // PATCH_S165_UI_REFRESH
                 const SizedBox(height: 14),
                 FadeSlideIn(
                     delay: const Duration(milliseconds: 60),
                     child: _ratioToggle()),
                 const SizedBox(height: 10),
-                StagePreview(
-                  state: state,
-                  videoController: _video,
-                  liveOverride: _liveOverlay,
-                ),
+                _Breathing(
+                  enabled: true,
+                  borderRadius: 18,
+                  subtle: true,
+                  child: StagePreview(
+                    state: state,
+                    videoController: _video,
+                    liveOverride: _liveOverlay,
+                  ),
+                ), // PATCH_S166_UI_POLISH
                 // PATCH_S34_PLAYER_CONTROLS_TRIM
                 if (_video != null && _video!.value.isInitialized) ...[
                   const SizedBox(height: 8),
@@ -1556,18 +1583,13 @@ class _HomeScreenState extends State<HomeScreen>
     final (fw, fh) = state.frameSize;
     return Column(
       children: [
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 8,
-          runSpacing: 8,
+        // PATCH_S166_UI_POLISH: every shape drawn as a miniature of itself.
+        Row(
           children: [
-            for (final entry in kAspectRatios)
-              ChoiceChip(
-                label: Text(AppStrings(AppSettings.instance.lang).t('aspect.${entry.$1.name}')), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
-                selected: state.aspectRatio == entry.$1,
-                onSelected: (_) =>
-                    state.update(() => state.aspectRatio = entry.$1),
-              ),
+            for (var i = 0; i < kAspectRatios.length; i++) ...[
+              if (i > 0) const SizedBox(width: 6),
+              Expanded(child: _ratioTile(kAspectRatios[i])),
+            ],
           ],
         ),
         if (state.aspectRatio == AyatAspectRatio.custom) ...[
@@ -1770,77 +1792,395 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _mediaButtons() {
+    // PATCH_S166_UI_POLISH: one hero upload card, three action tiles, the
+    // model picker, and the rarely-used clip tools tucked in a drawer.
+    // Handlers and enabled-state are identical to the old button stack.
+    final lang = AppStrings(AppSettings.instance.lang);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // PATCH_S75_COMPACT_PICKER_FALLBACK: model-size picker -- controls every detect/auto-sync
-        // button below via WhisperService.setModelSize(). Collapsed to one
-        // compact row (current tier + chevron) that opens a bottom-sheet list
-        // on tap -- same interaction pattern as a model picker, instead of
-        // permanently occupying 5 full-width cards' worth of vertical space.
-        _fieldLabel('دقة التعرّف على الكلام'),
-        _modelSizeSelector(),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _busy ? null : _pickVideo,
-          icon: const Icon(Icons.upload_file, size: 18),
-          label: const Text('رفع فيديو أو تلاوة صوتية'),
-        ),
-        const SizedBox(height: 8),
-        // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE
-        OutlinedButton.icon(
-          onPressed: (_busy || !state.hasVideo) ? null : _pickAndMergeVideo,
-          icon: const Icon(Icons.video_collection_outlined, size: 18),
-          label: const Text('دمج مع فيديو آخر'),
-        ),
-        const SizedBox(height: 8),
-        // PATCH_S125_SEQUENCE: S79's merge is two clips, whole, butted
-        // together. This is the general case -- any number of clips, each
-        // trimmed, reordered, joined with a real transition.
-        OutlinedButton.icon(
-          onPressed: _busy ? null : _openSequence,
-          icon: const Icon(Icons.playlist_add, size: 18),
-          label: const Text('تركيب عدة مقاطع (قصّ وترتيب وانتقالات)'),
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _busy ? null : _micDetect,
-          icon: Icon(_listening ? Icons.stop_circle_outlined : Icons.mic,
-              size: 18),
-          label: Text(_listening
-              ? 'جارٍ الاستماع… اضغط للإيقاف'
-              : 'تعرّف من الميكروفون (مباشر)'),
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _busy ? null : _detectFromVideo,
-          icon: const Icon(Icons.manage_search, size: 18),
-          label: const Text('تعرّف من صوت الفيديو المرفوع'),
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton.icon(
-          onPressed: _busy ? null : _autoSync,
-          style: ElevatedButton.styleFrom(
-            side: const BorderSide(color: AyatColors.gold),
-          ),
-          icon: const Icon(Icons.auto_awesome, size: 18),
-          // PATCH_S83_SYNC_QOL: make it clear a re-run replaces the current scan
-          label: Text(state.timelineActive
-              ? AppStrings(AppSettings.instance.lang).t('autosync.btnRescan')
-              : AppStrings(AppSettings.instance.lang).t('autosync.btn')), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
+        _uploadHero(),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _actionTile(
+                icon: _listening ? Icons.stop_circle_outlined : Icons.mic,
+                label: _listening ? 'إيقاف الاستماع' : 'تعرّف من الميكروفون',
+                onTap: _busy ? null : _micDetect,
+                active: _listening,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _actionTile(
+                icon: Icons.manage_search,
+                label: 'تعرّف من صوت الفيديو',
+                onTap: _busy ? null : _detectFromVideo,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _actionTile(
+                icon: Icons.auto_awesome,
+                label: state.timelineActive
+                    ? lang.t('autosync.btnRescan')
+                    : lang.t('autosync.btn'),
+                onTap: _busy ? null : _autoSync,
+                primary: true,
+              ),
+            ),
+          ],
         ),
         // PATCH_S101_AUTOSYNC_HINT_PARTIAL_AYAH: set expectations before they tap it --
         // it does the job well on roughly half the video; the rest may
         // need a manual touch-up from the review card above.
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Text(
-          AppStrings(AppSettings.instance.lang).t('autosync.hint'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
+          lang.t('autosync.hint'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
+          textAlign: TextAlign.center,
           style: Theme.of(context)
               .textTheme
               .bodyMedium
-              ?.copyWith(color: AyatColors.goldDim),
+              ?.copyWith(color: AyatColors.goldDim, fontSize: 12),
+        ),
+        // PATCH_S75_COMPACT_PICKER_FALLBACK: model-size picker -- controls every detect/auto-sync
+        // button above via WhisperService.setModelSize(). One compact row
+        // that opens a bottom-sheet list on tap.
+        _fieldLabel('دقة التعرّف على الكلام'),
+        _modelSizeSelector(),
+        const SizedBox(height: 8),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+            childrenPadding: const EdgeInsets.only(bottom: 4),
+            iconColor: AyatColors.goldBright,
+            collapsedIconColor: AyatColors.parchmentDim,
+            leading: const Icon(Icons.video_collection_outlined,
+                size: 19, color: AyatColors.goldDim),
+            title: const Text('أدوات المقاطع',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+            children: [
+              // PATCH_S79_CUSTOM_BG_NUMBER_AND_VIDEO_MERGE
+              OutlinedButton.icon(
+                onPressed:
+                    (_busy || !state.hasVideo) ? null : _pickAndMergeVideo,
+                icon: const Icon(Icons.video_collection_outlined, size: 18),
+                label: const Text('دمج مع فيديو آخر'),
+              ),
+              const SizedBox(height: 8),
+              // PATCH_S125_SEQUENCE: S79's merge is two clips, whole, butted
+              // together. This is the general case -- any number of clips,
+              // each trimmed, reordered, joined with a real transition.
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openSequence,
+                icon: const Icon(Icons.playlist_add, size: 18),
+                label: const Text('تركيب عدة مقاطع (قصّ وترتيب وانتقالات)'),
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  // PATCH_S166_UI_POLISH: the primary entry point. While nothing is loaded
+  // its halo breathes, drawing the eye to the one thing to do first.
+  Widget _uploadHero() {
+    final empty = !state.hasVideo;
+    final disabled = _busy;
+    final card = Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AyatColors.gold.withValues(alpha: empty ? 0.16 : 0.08),
+            AyatColors.gold.withValues(alpha: 0.03),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AyatColors.gold.withValues(alpha: empty ? 0.55 : 0.28),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AyatColors.gold.withValues(alpha: 0.14),
+              border:
+                  Border.all(color: AyatColors.gold.withValues(alpha: 0.5)),
+            ),
+            child: const Icon(Icons.upload_file,
+                size: 22, color: AyatColors.goldBright),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('رفع فيديو أو تلاوة صوتية',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AyatColors.parchment)),
+                const SizedBox(height: 2),
+                Text(
+                  empty ? 'ابدأ من هنا' : 'استبدال الملف الحالي',
+                  style: const TextStyle(
+                      fontSize: 12, color: AyatColors.parchmentDim),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_left, color: AyatColors.goldDim),
+        ],
+      ),
+    );
+    return AnimatedOpacity(
+      duration: AppMotion.d(AppMotion.fast),
+      opacity: disabled ? 0.5 : 1,
+      child: _Breathing(
+        enabled: empty && !disabled,
+        borderRadius: 22,
+        child: PressableScale(
+          borderRadius: BorderRadius.circular(22),
+          onTap: disabled ? null : _pickVideo,
+          child: card,
+        ),
+      ),
+    );
+  }
+
+  // PATCH_S166_UI_POLISH: square-ish action tile. primary = gold (auto-sync).
+  Widget _actionTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool primary = false,
+    bool active = false,
+  }) {
+    final on = onTap != null;
+    final fg = primary ? AyatColors.ink : AyatColors.parchment;
+    return AnimatedOpacity(
+      duration: AppMotion.d(AppMotion.fast),
+      opacity: on ? 1 : 0.45,
+      child: PressableScale(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 84),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: primary
+                ? const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [AyatColors.goldBright, AyatColors.gold],
+                  )
+                : null,
+            color: primary
+                ? null
+                : (active
+                    ? AyatColors.gold.withValues(alpha: 0.18)
+                    : AyatColors.surface2),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: primary
+                  ? AyatColors.goldBright
+                  : (active ? AyatColors.gold : AyatColors.hairline),
+            ),
+            boxShadow: primary && on
+                ? [
+                    BoxShadow(
+                      color: AyatColors.gold.withValues(alpha: 0.3),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 24,
+                  color: primary ? AyatColors.ink : AyatColors.goldBright),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.25,
+                  fontWeight: FontWeight.w700,
+                  color: fg,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // PATCH_S166_UI_POLISH: one aspect-ratio tile - a miniature frame drawn in
+  // the real proportion of the shape it selects.
+  Widget _ratioTile((AyatAspectRatio, String, int, int) entry) {
+    final selected = state.aspectRatio == entry.$1;
+    final isCustom = entry.$1 == AyatAspectRatio.custom;
+    final ar = (entry.$4 > 0) ? entry.$3 / entry.$4 : 1.0;
+    const box = 26.0;
+    final gw = ar >= 1 ? box : box * ar;
+    final gh = ar >= 1 ? box / ar : box;
+    final dur = AppMotion.d(AppMotion.fast);
+    final fg = selected ? AyatColors.ink : AyatColors.parchment;
+    return PressableScale(
+      borderRadius: BorderRadius.circular(16),
+      pressedScale: 0.95,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        state.update(() => state.aspectRatio = entry.$1);
+      },
+      child: AnimatedContainer(
+        duration: dur,
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
+        decoration: BoxDecoration(
+          gradient: selected
+              ? const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [AyatColors.goldBright, AyatColors.gold],
+                )
+              : null,
+          color: selected ? null : AyatColors.surface2,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AyatColors.goldBright : AyatColors.hairline,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AyatColors.gold.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: box,
+              height: box,
+              child: Center(
+                child: isCustom
+                    ? Icon(Icons.tune, size: 20, color: fg)
+                    : AnimatedContainer(
+                        duration: dur,
+                        width: gw,
+                        height: gh,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          color: selected
+                              ? AyatColors.ink.withValues(alpha: 0.12)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: selected
+                                ? AyatColors.ink
+                                : AyatColors.parchmentDim,
+                            width: 1.6,
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                AppStrings(AppSettings.instance.lang)
+                    .t('aspect.${entry.$1.name}'), // PATCH_S128_TEXT_EDITOR_PRO_SIMPLE_MODE_SELECTION_GUIDE_I18N
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: fg,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // PATCH_S166_UI_POLISH: line - diamond - line, replaces plain Divider
+  // between panel sections.
+  Widget _ornament() {
+    const line = Expanded(
+      child: SizedBox(
+        height: 1,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.transparent, AyatColors.hairline],
+            ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: Row(
+        children: [
+          line,
+          const SizedBox(width: 10),
+          Transform.rotate(
+            angle: 0.785398,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: AyatColors.gold,
+                boxShadow: [
+                  BoxShadow(
+                    color: AyatColors.gold.withValues(alpha: 0.6),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Transform.flip(
+              flipX: true,
+              child: const SizedBox(
+                height: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.transparent, AyatColors.hairline],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3045,30 +3385,68 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       );
     }
-    return Row(
-      children: [
-        for (var i = 0; i < _tabs.length; i++)
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: i == 0 ? 0 : 4,
-                right: i == _tabs.length - 1 ? 0 : 4,
+    // PATCH_S166_UI_POLISH: one gold pill glides behind the tabs. Directional
+    // alignment, so it follows the tab order in both RTL and LTR.
+    final n = _tabs.length;
+    final sel = _safeSelectedTab;
+    return Container(
+      height: 62,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AyatColors.surface2,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AyatColors.hairline),
+      ),
+      child: Stack(
+        children: [
+          AnimatedAlign(
+            duration: AppMotion.d(AppMotion.medium),
+            curve: Curves.easeOutBack,
+            alignment: AlignmentDirectional(
+                n <= 1 ? 0.0 : -1.0 + 2.0 * sel / (n - 1), 0),
+            child: FractionallySizedBox(
+              widthFactor: 1 / n,
+              heightFactor: 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [AyatColors.goldBright, AyatColors.gold],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AyatColors.gold.withValues(alpha: 0.4),
+                      blurRadius: 14,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
               ),
-              child: _tabButton(i),
             ),
           ),
-      ],
+          Row(
+            children: [
+              for (var i = 0; i < n; i++)
+                Expanded(child: _tabButton(i, slider: true)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   // PATCH_S129_WIRE_AND_SIMPLIFY_UI: compact chip — icon + short label, works in a 5-wide row.
-  Widget _tabButton(int i) {
+  Widget _tabButton(int i, {bool slider = false}) {
     // PATCH_S165_UI_REFRESH: animated pill. Selected = gold gradient + glow,
     // icon pops with a spring; everything is a no-op when animations are off.
-    final selected = _selectedTab == i;
+    // PATCH_S166_UI_POLISH: slider = true means the shared sliding pill in
+    // _tabChips paints the selected background, so this tab stays transparent.
+    final selected = _safeSelectedTab == i;
     final dur = AppMotion.d(AppMotion.fast);
     return PressableScale(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       pressedScale: 0.94,
       onTap: () {
         HapticFeedback.selectionClick();
@@ -3077,22 +3455,25 @@ class _HomeScreenState extends State<HomeScreen>
       child: AnimatedContainer(
         duration: dur,
         curve: Curves.easeOutCubic,
-        height: 56,
+        height: slider ? double.infinity : 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          gradient: selected
+          gradient: (selected && !slider)
               ? const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [AyatColors.goldBright, AyatColors.gold],
                 )
               : null,
-          color: selected ? null : AyatColors.surface2,
+          color: (selected || slider) ? null : AyatColors.surface2,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? AyatColors.goldBright : AyatColors.hairline,
-          ),
-          boxShadow: selected
+          border: slider
+              ? null
+              : Border.all(
+                  color:
+                      selected ? AyatColors.goldBright : AyatColors.hairline,
+                ),
+          boxShadow: (selected && !slider)
               ? [
                   BoxShadow(
                     color: AyatColors.gold.withValues(alpha: 0.38),
@@ -3193,7 +3574,7 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _effectsPanel(),
-        const Divider(height: 28, color: AyatColors.hairline),
+        _ornament(), // PATCH_S166_UI_POLISH
         _templatesPanel(),
       ],
     );
@@ -3205,9 +3586,9 @@ class _HomeScreenState extends State<HomeScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _bgPanel(),
-        const Divider(height: 28, color: AyatColors.hairline),
+        _ornament(), // PATCH_S166_UI_POLISH
         _chromaPanel(),
-        const Divider(height: 28, color: AyatColors.hairline),
+        _ornament(),
         _recitersPanel(),
       ],
     );
@@ -5948,6 +6329,98 @@ class _HomeScreenState extends State<HomeScreen>
 // PATCH_S165_UI_REFRESH: the prototype's ambient background - emerald light
 // from the top corner, a whisper of burgundy from the bottom. Static, so it
 // sits in its own repaint layer and never costs a frame while scrolling.
+// PATCH_S166_UI_POLISH: a slow breathing gold halo behind [child]. The halo
+// lives in its own RepaintBoundary and the child is passed through untouched,
+// so animating it never repaints the child (which may be a live video).
+// Static when animations are off or [enabled] is false.
+class _Breathing extends StatefulWidget {
+  final Widget child;
+  final bool enabled;
+  final double borderRadius;
+  final bool subtle;
+  const _Breathing({
+    required this.child,
+    required this.enabled,
+    this.borderRadius = 18,
+    this.subtle = false,
+  });
+
+  @override
+  State<_Breathing> createState() => _BreathingState();
+}
+
+class _BreathingState extends State<_Breathing>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 3600));
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _Breathing old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    if (AppMotion.on && widget.enabled) {
+      if (!_c.isAnimating) _c.repeat(reverse: true);
+    } else {
+      _c.stop();
+      _c.value = 0.5;
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = widget.subtle ? 0.05 : 0.10;
+    final swing = widget.subtle ? 0.10 : 0.22;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _c,
+                builder: (context, _) {
+                  final t = Curves.easeInOut.transform(_c.value);
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius:
+                          BorderRadius.circular(widget.borderRadius),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AyatColors.gold
+                              .withValues(alpha: base + swing * t),
+                          blurRadius: 18 + 16 * t,
+                          spreadRadius: 0.5 + 1.5 * t,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        widget.child,
+      ],
+    );
+  }
+}
+
 class _AmbientGlow extends StatelessWidget {
   const _AmbientGlow();
 
