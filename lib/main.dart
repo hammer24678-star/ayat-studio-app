@@ -42,19 +42,41 @@ class AyatStudioApp extends StatelessWidget {
           title: settings.strings.t('app.name'),
           debugShowCheckedModeBanner: false,
           theme: AyatTheme.dark,
+          scrollBehavior: const _AyatScrollBehavior(), // PATCH_S167_APP_POLISH
           locale: Locale(kLangCodes[settings.lang]!),
           // PATCH_S123_I18N: the UI was hard-forced to RTL for the
           // Arabic-only build. It now follows the chosen language, so English
           // and French lay out left-to-right while Arabic and Urdu stay RTL.
           // The Quran text itself is always rendered RTL by the reader, in
           // every language.
-          builder: (context, child) => Directionality(
-            textDirection: settings.textDirection,
-            child: child ?? const SizedBox.shrink(),
+          // PATCH_S167_APP_POLISH: honour the system font size, but inside a
+          // range the layouts were actually designed for.
+          builder: (context, child) => MediaQuery.withClampedTextScaling(
+            minScaleFactor: 0.9,
+            maxScaleFactor: 1.2,
+            child: Directionality(
+              textDirection: settings.textDirection,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
           home: const SplashScreen(),
         );
       },
     );
   }
+}
+
+// PATCH_S167_APP_POLISH: bouncy overscroll on every platform and no Android
+// glow, so every list and sheet feels like the same physical material.
+class _AyatScrollBehavior extends MaterialScrollBehavior {
+  const _AyatScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+
+  @override
+  Widget buildOverscrollIndicator(
+          BuildContext context, Widget child, ScrollableDetails details) =>
+      child;
 }

@@ -343,8 +343,17 @@ class _HomeScreenState extends State<HomeScreen>
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(msg, textAlign: TextAlign.center),
+        // PATCH_S167_APP_POLISH: gold spark + text; shape/colour from the theme.
+        content: Row(
+          children: [
+            const Icon(Icons.auto_awesome,
+                size: 16, color: AyatColors.goldBright),
+            const SizedBox(width: 10),
+            Expanded(child: Text(msg)),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         duration: const Duration(milliseconds: 2200),
       ));
   }
@@ -1442,7 +1451,12 @@ class _HomeScreenState extends State<HomeScreen>
       child: PressableScale(
         borderRadius: BorderRadius.circular(20),
         pressedScale: 0.97,
-        onTap: disabled ? null : _export,
+        onTap: disabled
+            ? null
+            : () {
+                HapticFeedback.mediumImpact(); // PATCH_S167_APP_POLISH
+                _export();
+              },
         child: GoldShimmer(
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
@@ -1513,13 +1527,17 @@ class _HomeScreenState extends State<HomeScreen>
             Row(
               children: [
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: _busyProgress,
-                      minHeight: 6,
-                      backgroundColor: AyatColors.surface3,
-                      valueColor: const AlwaysStoppedAnimation(AyatColors.gold),
+                  // PATCH_S167_APP_POLISH: thicker bar with the gold sweep.
+                  child: GoldShimmer(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: _busyProgress,
+                        minHeight: 9,
+                        backgroundColor: AyatColors.surface3,
+                        valueColor:
+                            const AlwaysStoppedAnimation(AyatColors.gold),
+                      ),
                     ),
                   ),
                 ),
@@ -1952,7 +1970,12 @@ class _HomeScreenState extends State<HomeScreen>
         borderRadius: 22,
         child: PressableScale(
           borderRadius: BorderRadius.circular(22),
-          onTap: disabled ? null : _pickVideo,
+          onTap: disabled
+              ? null
+              : () {
+                  HapticFeedback.selectionClick(); // PATCH_S167_APP_POLISH
+                  _pickVideo();
+                },
           child: card,
         ),
       ),
@@ -1974,7 +1997,12 @@ class _HomeScreenState extends State<HomeScreen>
       opacity: on ? 1 : 0.45,
       child: PressableScale(
         borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
+        onTap: onTap == null
+            ? null
+            : () {
+                HapticFeedback.selectionClick(); // PATCH_S167_APP_POLISH
+                onTap();
+              },
         child: Container(
           constraints: const BoxConstraints(minHeight: 84),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
@@ -2384,15 +2412,52 @@ class _HomeScreenState extends State<HomeScreen>
                           color: AyatColors.parchmentDim, size: 20),
                       tooltip: 'الآية السابقة',
                     ),
-                  IconButton(
-                    onPressed: () => v.isPlaying ? c.pause() : c.play(),
-                    icon: Icon(
-                      v.isPlaying
-                          ? Icons.pause_circle_outline
-                          : Icons.play_circle_outline,
-                      color: AyatColors.goldBright,
+                  // PATCH_S167_APP_POLISH: round gold play/pause with an animated
+                  // icon swap and a soft glow.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Tooltip(
+                      message: 'تشغيل/إيقاف',
+                      child: PressableScale(
+                        borderRadius: BorderRadius.circular(22),
+                        pressedScale: 0.9,
+                        onTap: () => v.isPlaying ? c.pause() : c.play(),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [AyatColors.goldBright, AyatColors.gold],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AyatColors.gold.withValues(alpha: 0.35),
+                                blurRadius: 12,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: AnimatedSwitcher(
+                            duration: AppMotion.d(AppMotion.fast),
+                            transitionBuilder: (child, anim) => ScaleTransition(
+                              scale: anim,
+                              child: FadeTransition(opacity: anim, child: child),
+                            ),
+                            child: Icon(
+                              v.isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              key: ValueKey(v.isPlaying),
+                              size: 26,
+                              color: AyatColors.ink,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                    tooltip: 'تشغيل/إيقاف',
                   ),
                   if (state.timelineActive)
                     IconButton(

@@ -120,7 +120,7 @@ class AyatTheme {
             side: const BorderSide(color: AyatColors.goldDim),
             textStyle: GoogleFonts.tajawal(fontWeight: FontWeight.w700, fontSize: 12.5),
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), // PATCH_S167_APP_POLISH
           ),
         ),
         // PATCH_S165_UI_REFRESH: one look for chips, sliders, dialogs, sheets
@@ -174,6 +174,94 @@ class AyatTheme {
             borderRadius: BorderRadius.circular(14),
             side: const BorderSide(color: AyatColors.hairline),
           ),
+        ),
+        // PATCH_S167_APP_POLISH: the finishing layer - every remaining stock
+        // control picks up the gold/emerald language.
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: AyatColors.goldBright,
+          selectionColor: AyatColors.gold.withValues(alpha: 0.30),
+          selectionHandleColor: AyatColors.goldBright,
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AyatColors.parchment,
+            side: BorderSide(color: AyatColors.goldDim.withValues(alpha: 0.7)),
+            textStyle:
+                GoogleFonts.tajawal(fontWeight: FontWeight.w700, fontSize: 12.5),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: AyatColors.goldBright,
+            textStyle:
+                GoogleFonts.tajawal(fontWeight: FontWeight.w700, fontSize: 12.5),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        switchTheme: SwitchThemeData(
+          thumbColor: WidgetStateProperty.resolveWith((s) =>
+              s.contains(WidgetState.selected)
+                  ? AyatColors.ink
+                  : AyatColors.parchmentDim),
+          trackColor: WidgetStateProperty.resolveWith((s) =>
+              s.contains(WidgetState.selected)
+                  ? AyatColors.gold
+                  : AyatColors.surface3),
+          trackOutlineColor: WidgetStateProperty.resolveWith((s) =>
+              s.contains(WidgetState.selected)
+                  ? Colors.transparent
+                  : AyatColors.hairline),
+        ),
+        checkboxTheme: CheckboxThemeData(
+          fillColor: WidgetStateProperty.resolveWith((s) =>
+              s.contains(WidgetState.selected)
+                  ? AyatColors.gold
+                  : Colors.transparent),
+          checkColor: const WidgetStatePropertyAll(AyatColors.ink),
+          side: const BorderSide(color: AyatColors.goldDim, width: 1.4),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+        ),
+        scrollbarTheme: ScrollbarThemeData(
+          thumbColor: WidgetStatePropertyAll(
+              AyatColors.gold.withValues(alpha: 0.35)),
+          radius: const Radius.circular(8),
+          thickness: const WidgetStatePropertyAll(3),
+        ),
+        tooltipTheme: TooltipThemeData(
+          waitDuration: const Duration(milliseconds: 400),
+          decoration: BoxDecoration(
+            color: AyatColors.surface3,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AyatColors.hairline),
+          ),
+          textStyle:
+              GoogleFonts.tajawal(fontSize: 12, color: AyatColors.parchment),
+        ),
+        popupMenuTheme: PopupMenuThemeData(
+          color: AyatColors.surface2,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AyatColors.hairline),
+          ),
+          textStyle:
+              GoogleFonts.tajawal(fontSize: 13, color: AyatColors.parchment),
+        ),
+        expansionTileTheme: const ExpansionTileThemeData(
+          iconColor: AyatColors.goldBright,
+          collapsedIconColor: AyatColors.parchmentDim,
+          textColor: AyatColors.parchment,
+          collapsedTextColor: AyatColors.parchment,
+        ),
+        listTileTheme: const ListTileThemeData(
+          iconColor: AyatColors.goldBright,
+          textColor: AyatColors.parchment,
+        ),
+        dividerTheme: const DividerThemeData(
+          color: AyatColors.hairline,
+          thickness: 1,
         ),
         progressIndicatorTheme: const ProgressIndicatorThemeData(
           color: AyatColors.goldBright,
