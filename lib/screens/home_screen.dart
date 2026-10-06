@@ -1348,24 +1348,16 @@ class _HomeScreenState extends State<HomeScreen>
                   _timelineEditorCard(), // PATCH_S36_TIMELINE_EDITOR
                 ],
                 const SizedBox(height: 18),
-                FadeSlideIn(
-                    delay: const Duration(milliseconds: 140),
-                    child: _simpleTopTabs()), // PATCH_S128 + PATCH_S165
+                _simpleTopTabs(), // PATCH_S128 + PATCH_S165 + PATCH_S172_NO_LAYER_WRAP
                 const SizedBox(height: 12),
-                FadeSlideIn(
-                    delay: const Duration(milliseconds: 220),
-                    child: _panelCard()),
+                _panelCard(), // PATCH_S172_NO_LAYER_WRAP
                 const SizedBox(height: 18),
                 // PATCH_S170_MAGIC_FEATURES: mood / moment / lamp
-                FadeSlideIn(
-                    delay: const Duration(milliseconds: 200),
-                    child: MagicCard(state: state, onToast: _toast)),
+                MagicCard(state: state, onToast: _toast), // PATCH_S172_NO_LAYER_WRAP
                 const SizedBox(height: 14),
                 if (!state.hasVideo) _staticDurationRow(),
                 const SizedBox(height: 8),
-                FadeSlideIn(
-                    delay: const Duration(milliseconds: 300),
-                    child: _exportButton()), // PATCH_S165_UI_REFRESH
+                _exportButton(), // PATCH_S165_UI_REFRESH + PATCH_S172_NO_LAYER_WRAP
                 const SizedBox(height: 24),
               ],
             ),
@@ -1464,7 +1456,7 @@ class _HomeScreenState extends State<HomeScreen>
   // ShaderMask, and the whole button paints in its own RepaintBoundary.
   Widget _exportButton() {
     final disabled = _busy;
-    return RepaintBoundary(
+    return KeyedSubtree( // PATCH_S172_NO_LAYER_WRAP: no own layer
       child: AnimatedOpacity(
         duration: AppMotion.d(AppMotion.fast),
         opacity: disabled ? 0.5 : 1,
