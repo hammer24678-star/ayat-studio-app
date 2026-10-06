@@ -1,5 +1,5 @@
 // PATCH_S170_MAGIC_FEATURES
-// "سحر الآية": Ayah Mood + Moment of the day + Studio Lamp, in one card.
+// "ظلال الآية": Ayah Mood + Moment of the day + Studio Lamp, in one card.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -100,7 +100,7 @@ class _MagicCardState extends State<MagicCard> {
       s.vignetteEnabled = r.vignette > 0;
       if (r.vignette > 0) s.vignetteIntensity = r.vignette;
     });
-    widget.onToast('طُبِّق مزاج «${r.labelAr}» ${r.emoji}');
+    widget.onToast('اكتست الآية روح «${r.labelAr}» ${r.emoji}');
   }
 
   void _surprise(MoodRecipe current) {
@@ -122,7 +122,7 @@ class _MagicCardState extends State<MagicCard> {
     }
     final a = s.ayaat[idx];
     HapticFeedback.selectionClick();
-    s.setAyah(a.ar, a.en, 'اقتراح اللحظة: سورة ${a.surah} — آية ${a.num}',
+    s.setAyah(a.ar, a.en, 'آية اللحظة: سورة ${a.surah} — آية ${a.num}',
         surahNum: a.surahNum, ayahNum: a.num);
   }
 
@@ -222,7 +222,7 @@ class _MagicCardState extends State<MagicCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('مزاج الآية: ${r.labelAr}',
+                  Text('روح الآية: ${r.labelAr}',
                       style: const TextStyle(
                           fontSize: 15.5,
                           fontWeight: FontWeight.w800,
@@ -256,7 +256,7 @@ class _MagicCardState extends State<MagicCard> {
           ]),
           const SizedBox(height: 14),
           Wrap(spacing: 10, runSpacing: 10, children: [
-            _goldButton(applied ? 'مُطبَّق ✓' : 'طبّق المزاج',
+            _goldButton(applied ? 'مُطبَّق ✓' : 'طبّق روح الآية',
                 applied ? Icons.check_rounded : Icons.auto_fix_high_rounded,
                 applied ? null : () => _apply(r)),
             _ghostButton('فاجئني', Icons.casino_outlined, () => _surprise(r)),
@@ -279,7 +279,7 @@ class _MagicCardState extends State<MagicCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('اقتراح اللحظة',
+                const Text('آية اللحظة',
                     style: TextStyle(
                         fontSize: 15.5,
                         fontWeight: FontWeight.w800,
@@ -369,7 +369,7 @@ class _MagicCardState extends State<MagicCard> {
                 const Icon(Icons.auto_awesome_rounded,
                     size: 15, color: AyatColors.gold),
                 const SizedBox(width: 6),
-                const Text('سحر الآية',
+                const Text('ظلال الآية',
                     style: TextStyle(
                         fontSize: 11.5,
                         letterSpacing: 0.4,
