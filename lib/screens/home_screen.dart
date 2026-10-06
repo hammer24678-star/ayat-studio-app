@@ -100,6 +100,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _settingsRestored = false;
 
   int _selectedTab = 0;
+  // PATCH_S173_INSHOT_LAYOUT: which bottom tool panel is open (-1 = none).
+  // 100 = video, 101 = size, 102 = magic, 0..n-1 = the tab index.
+  int _toolOpen = -1;
   // PATCH_S132_GAUNTLET_LOOP: classic<->grouped have different tab
   // counts (8 vs 5) -- clamp so a stale index can't be out of range.
   int get _safeSelectedTab => _selectedTab.clamp(0, _tabs.length - 1);
@@ -1255,116 +1258,287 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ],
           ),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 6),
+            child: Center(child: _exportPill()), // PATCH_S173_INSHOT_LAYOUT
+          ),
         ],
       ),
       body: Stack(
         children: [
-          const Positioned.fill(child: _AmbientGlow()), // PATCH_S165_UI_REFRESH
+          const Positioned.fill(child: _AmbientGlow()),
           SafeArea(
-        child: ListenableBuilder(
-          listenable: state,
-          builder: (context, _) => SingleChildScrollView(
-            controller: _scrollCtrl, // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
-            // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: EdgeInsets.all(16)
-            // gave the same 16px at the bottom as everywhere else, which
-            // was never enough clearance past the last card (usually
-            // "نطاق آيات متعدد") on gesture-nav phones -- SafeArea alone
-            // doesn't add scroll-content padding, so the card's own
-            // bottom edge sat right against the screen edge even at max
-            // scroll. Extra bottom padding on top of the device's own
-            // inset now.
-            padding: EdgeInsets.fromLTRB(
-                16, 16, 16, 16 + MediaQuery.of(context).padding.bottom + 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: ListenableBuilder(
+              listenable: state,
+              builder: (context, _) => _studioBody(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S173_INSHOT_LAYOUT: preview on top, tool strip at the bottom.
+  // ---------------------------------------------------------------------
+
+  // (id, icon, label). 100/101/102 are extra tools, 0..n-1 the existing tabs.
+  List<(int, IconData, String)> _toolList() => [
+        (100, Icons.movie_outlined, 'الفيديو'),
+        (101, Icons.aspect_ratio, 'المقاس'),
+        for (var i = 0; i < _tabs.length; i++) (i, _tabs[i].$1, _tabs[i].$2),
+        (102, Icons.auto_fix_high, 'لمسات'),
+      ];
+
+  void _openTool(int id) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _toolOpen = _toolOpen == id ? -1 : id;
+      if (id < 100) _selectedTab = id;
+    });
+  }
+
+  Widget _studioBody() {
+    return LayoutBuilder(builder: (context, c) {
+      final panelH = (c.maxHeight * 0.42).clamp(0.0, 460.0);
+      final hasStatus = _busy || state.corpusStatus.isNotEmpty;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (hasStatus)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: _statusCard(),
+            ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Center(
+                child: StagePreview(
+                  state: state,
+                  videoController: _video,
+                  liveOverride: _liveOverlay,
+                ),
+              ),
+            ),
+          ),
+          if (_video != null && _video!.value.isInitialized)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _transportBar(),
+            ),
+          if (!state.hasVideo && _toolOpen == -1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _uploadHero(),
+            ),
+          if (_toolOpen != -1) _toolPanel(panelH),
+          _toolStrip(),
+        ],
+      );
+    });
+  }
+
+  Widget _toolPanel(double h) {
+    final tools = _toolList();
+    final cur =
+        tools.firstWhere((t) => t.$1 == _toolOpen, orElse: () => tools.first);
+    return Container(
+      height: h,
+      decoration: BoxDecoration(
+        color: AyatColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        border: Border.all(color: AyatColors.hairline),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 46,
+            child: Row(
               children: [
-                // PATCH_S166_UI_POLISH: a faint gold basmala while empty.
-                if (!state.hasVideo)
-                  FadeSlideIn(
-                    child: GoldShimmer(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '\uFDFD',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .displayLarge
-                              ?.copyWith(
-                                fontSize: 30,
-                                height: 1.3,
-                                color:
-                                    AyatColors.gold.withValues(alpha: 0.75),
-                              ),
-                        ),
+                const SizedBox(width: 16),
+                Container(
+                  width: 3,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: AyatColors.goldBright,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(cur.$3,
+                      style: Theme.of(context).textTheme.headlineMedium),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down,
+                      color: AyatColors.goldBright),
+                  onPressed: () => setState(() => _toolOpen = -1),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollCtrl,
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 24),
+              child: _toolBody(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _toolBody() {
+    switch (_toolOpen) {
+      case 100:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _mediaButtons(),
+            if (state.detectedLabel.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(state.detectedLabel,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 12, color: AyatColors.goldBright)),
+            ],
+            if (state.matchConfidenceText.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(state.matchConfidenceText,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 11, color: AyatColors.parchmentDim)),
+            ],
+            if (state.hasVideo && state.videoDurationSec > 1) ...[
+              const SizedBox(height: 12),
+              _manualCutCard(),
+            ],
+            if (state.timelineActive) ...[
+              const SizedBox(height: 12),
+              _trimCard(),
+              const SizedBox(height: 12),
+              _timelineEditorCard(),
+            ],
+            if (!state.hasVideo) ...[
+              const SizedBox(height: 12),
+              _staticDurationRow(),
+            ],
+          ],
+        );
+      case 101:
+        return _ratioToggle();
+      case 102:
+        return MagicCard(state: state, onToast: _toast);
+      default:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _panelBody(),
+            if (_toolOpen == _tabs.length - 1) ...[
+              const SizedBox(height: 16),
+              _exportButton(),
+            ],
+          ],
+        );
+    }
+  }
+
+  Widget _toolStrip() {
+    final tools = _toolList();
+    return Container(
+      height: 68,
+      decoration: const BoxDecoration(
+        color: AyatColors.ink,
+        border: Border(top: BorderSide(color: AyatColors.hairline)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          itemCount: tools.length,
+          itemBuilder: (context, i) {
+            final t = tools[i];
+            final sel = _toolOpen == t.$1;
+            final col = sel ? AyatColors.goldBright : AyatColors.parchmentDim;
+            return InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => _openTool(t.$1),
+              child: SizedBox(
+                width: 76,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 22,
+                      height: 3,
+                      margin: const EdgeInsets.only(bottom: 5),
+                      decoration: BoxDecoration(
+                        color: sel ? AyatColors.goldBright : Colors.transparent,
+                        borderRadius: BorderRadius.circular(3),
                       ),
                     ),
-                  ),
-                FadeSlideIn(child: _statusCard()), // PATCH_S165_UI_REFRESH
-                const SizedBox(height: 14),
-                FadeSlideIn(
-                    delay: const Duration(milliseconds: 60),
-                    child: _ratioToggle()),
-                const SizedBox(height: 10),
-                _Breathing(
-                  enabled: true,
-                  borderRadius: 18,
-                  subtle: true,
-                  child: StagePreview(
-                    state: state,
-                    videoController: _video,
-                    liveOverride: _liveOverlay,
-                  ),
-                ), // PATCH_S166_UI_POLISH
-                // PATCH_S34_PLAYER_CONTROLS_TRIM
-                if (_video != null && _video!.value.isInitialized) ...[
-                  const SizedBox(height: 8),
-                  _transportBar(),
-                ],
-                if (state.hasVideo && state.videoDurationSec > 1) ...[
-                  const SizedBox(height: 8),
-                  _manualCutCard(),
-                ],
-                const SizedBox(height: 12),
-                _mediaButtons(),
-                if (state.detectedLabel.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(state.detectedLabel,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 12, color: AyatColors.goldBright)),
-                ],
-                if (state.matchConfidenceText.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(state.matchConfidenceText,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 11, color: AyatColors.parchmentDim)),
-                ],
-                if (state.timelineActive) ...[
-                  const SizedBox(height: 12),
-                  _trimCard(),
-                  const SizedBox(height: 12),
-                  _timelineEditorCard(), // PATCH_S36_TIMELINE_EDITOR
-                ],
-                const SizedBox(height: 18),
-                _simpleTopTabs(), // PATCH_S128 + PATCH_S165 + PATCH_S172_NO_LAYER_WRAP
-                const SizedBox(height: 12),
-                _panelCard(), // PATCH_S172_NO_LAYER_WRAP
-                const SizedBox(height: 18),
-                // PATCH_S170_MAGIC_FEATURES: mood / moment / lamp
-                MagicCard(state: state, onToast: _toast), // PATCH_S172_NO_LAYER_WRAP
-                const SizedBox(height: 14),
-                if (!state.hasVideo) _staticDurationRow(),
-                const SizedBox(height: 8),
-                _exportButton(), // PATCH_S165_UI_REFRESH + PATCH_S172_NO_LAYER_WRAP
-                const SizedBox(height: 24),
+                    Icon(t.$2, size: 23, color: col),
+                    const SizedBox(height: 3),
+                    Text(t.$3,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: col)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // The InShot-style "SAVE": compact gold pill in the app bar.
+  Widget _exportPill() {
+    final disabled = _busy;
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: disabled
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact();
+                  _export();
+                },
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [AyatColors.goldBright, AyatColors.gold],
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.movie_creation_outlined,
+                    size: 16, color: AyatColors.ink),
+                SizedBox(width: 6),
+                Text('تصدير',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AyatColors.ink)),
               ],
             ),
           ),
         ),
-      ),
-        ],
       ),
     );
   }
@@ -3606,6 +3780,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   // PATCH_S129_WIRE_AND_SIMPLIFY_UI: case map matches the 5-group bar.
   // النص (1) finally mounts TextEditorPro instead of the old plain panel.
+  // ignore: unused_element
   Widget _panelCard() {
     // PATCH_S165_UI_REFRESH: cross-fade + a small upward slide between tabs.
     // Keyed on tab + mode so switching classic/grouped also animates.
@@ -4319,6 +4494,7 @@ class _HomeScreenState extends State<HomeScreen>
   // defined it. This just restores the old tab strip so the app
   // builds. TODO: replace with the real 5 grouped tabs
   // (آيات/نص/شكل/وسائط/مزيد) described in the PATCH_S128 comment.
+  // ignore: unused_element
   Widget _simpleTopTabs() => _tabChips();
 
   // PATCH_S120_ADVANCED_OPTIONS_CLEANUP: shared header for every optional
@@ -6428,6 +6604,7 @@ class _HomeScreenState extends State<HomeScreen>
 // lives in its own RepaintBoundary and the child is passed through untouched,
 // so animating it never repaints the child (which may be a live video).
 // Static when animations are off or [enabled] is false.
+// ignore: unused_element
 class _Breathing extends StatefulWidget {
   final Widget child;
   final bool enabled;
