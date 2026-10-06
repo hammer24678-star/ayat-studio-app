@@ -86,6 +86,7 @@ class AyatTheme {
 
   static ThemeData get dark => ThemeData(
         useMaterial3: true,
+        splashFactory: InkSparkle.splashFactory, // PATCH_S169_MOTION_FEEL
         brightness: Brightness.dark,
         scaffoldBackgroundColor: AyatColors.ink,
         fontFamily: GoogleFonts.tajawal().fontFamily,

@@ -858,6 +858,7 @@ class _HomeScreenState extends State<HomeScreen>
     });
     if (path == null || !mounted) return;
     HapticFeedback.mediumImpact(); // PATCH_S83_SYNC_QOL
+    showGoldBurst(context); // PATCH_S169_MOTION_FEEL
     // PATCH_S83_SYNC_QOL: the file size answers "will this upload/share OK?"
     // right in the done dialog.
     String sizeNote = '';
@@ -1427,12 +1428,16 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(width: 8),
             Flexible(
-              child: Text(
-                text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 12, color: AyatColors.parchmentDim),
+              child: AnimatedSwitcher( // PATCH_S169_MOTION_FEEL
+                duration: AppMotion.d(AppMotion.medium),
+                child: Text(
+                  text,
+                  key: ValueKey(text),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12, color: AyatColors.parchmentDim),
+                ),
               ),
             ),
           ],
@@ -1519,7 +1524,13 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _statusBusyCard() {
+  // PATCH_S169_MOTION_FEEL: the busy card breathes a gold glow.
+  Widget _statusBusyCard() => PulseGlow(
+      active: _busy,
+      borderRadius: BorderRadius.circular(24),
+      child: _statusBusyCardBody());
+
+  Widget _statusBusyCardBody() {
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1540,12 +1551,11 @@ class _HomeScreenState extends State<HomeScreen>
                     borderRadius: BorderRadius.circular(999), // PATCH_S168
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
+                      child: SmoothProgressBar( // PATCH_S169_MOTION_FEEL
                         value: _busyProgress,
                         minHeight: 9,
                         backgroundColor: AyatColors.surface3,
-                        valueColor:
-                            const AlwaysStoppedAnimation(AyatColors.gold),
+                        color: AyatColors.gold,
                       ),
                     ),
                   ),
@@ -2431,7 +2441,8 @@ class _HomeScreenState extends State<HomeScreen>
                         borderRadius: BorderRadius.circular(22),
                         pressedScale: 0.9,
                         onTap: () => v.isPlaying ? c.pause() : c.play(),
-                        child: Container(
+                        child: AnimatedContainer( // PATCH_S169_MOTION_FEEL
+                          duration: AppMotion.d(AppMotion.medium),
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
@@ -2443,8 +2454,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: AyatColors.gold.withValues(alpha: 0.35),
-                                blurRadius: 12,
+                                color: AyatColors.gold.withValues(
+                                    alpha: v.isPlaying ? 0.6 : 0.35),
+                                blurRadius: v.isPlaying ? 22 : 12,
                                 offset: const Offset(0, 3),
                               ),
                             ],
@@ -3594,7 +3606,11 @@ class _HomeScreenState extends State<HomeScreen>
     // PATCH_S165_UI_REFRESH: cross-fade + a small upward slide between tabs.
     // Keyed on tab + mode so switching classic/grouped also animates.
     return _card(
-      child: AnimatedSwitcher(
+      child: AnimatedSize( // PATCH_S169_MOTION_FEEL: glide the height
+        duration: AppMotion.d(AppMotion.medium),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: AnimatedSwitcher(
         duration: AppMotion.d(AppMotion.medium),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeIn,
@@ -3617,6 +3633,7 @@ class _HomeScreenState extends State<HomeScreen>
           key: ValueKey('${AppSettings.instance.classicTabs}-$_selectedTab'),
           child: _panelBody(),
         ),
+      ),
       ),
     );
   }

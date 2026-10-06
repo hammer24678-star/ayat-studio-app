@@ -33,7 +33,9 @@ class AppMotion {
   /// Slight overshoot, for things that should feel physical (button press).
   static const spring = Curves.easeOutBack;
 
-  /// A page route that cross-fades and lifts, honouring the motion switch.
+  /// A page route: the new page fades, scales up and lifts into place while
+  /// the page underneath recedes (smaller + dimmer). Honours the motion switch.
+  /// PATCH_S169_MOTION_FEEL
   static Route<T> route<T>(Widget page) {
     if (!on) {
       return PageRouteBuilder<T>(
@@ -43,20 +45,35 @@ class AppMotion {
       );
     }
     return PageRouteBuilder<T>(
-      transitionDuration: const Duration(milliseconds: 420),
-      reverseTransitionDuration: const Duration(milliseconds: 280),
+      transitionDuration: const Duration(milliseconds: 460),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
       pageBuilder: (_, __, ___) => page,
-      transitionsBuilder: (_, animation, __, child) {
-        final curved =
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      transitionsBuilder: (_, animation, secondary, child) {
+        final inC = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutQuart,
+            reverseCurve: Curves.easeInCubic);
+        final outC = CurvedAnimation(
+            parent: secondary,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic);
         return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.035),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
+          opacity: Tween<double>(begin: 1.0, end: 0.7).animate(outC),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 1.0, end: 0.95).animate(outC),
+            child: FadeTransition(
+              opacity: inC,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.95, end: 1.0).animate(inC),
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.04),
+                    end: Offset.zero,
+                  ).animate(inC),
+                  child: child,
+                ),
+              ),
+            ),
           ),
         );
       },
@@ -571,4 +588,225 @@ class _SheenPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SheenPainter old) => old.t != t;
+}
+
+
+// PATCH_S169_MOTION_FEEL ---------------------------------------------------
+
+/// A slow gold glow that breathes while [active]. The wrapper is always in the
+/// tree (only the shadow changes) so the child never loses its state.
+class PulseGlow extends StatefulWidget {
+  final Widget child;
+  final bool active;
+  final BorderRadius borderRadius;
+  const PulseGlow({
+    super.key,
+    required this.child,
+    required this.active,
+    this.borderRadius = const BorderRadius.all(Radius.circular(24)),
+  });
+
+  @override
+  State<PulseGlow> createState() => _PulseGlowState();
+}
+
+class _PulseGlowState extends State<PulseGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1500));
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(PulseGlow old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.active && AppMotion.on) {
+      if (!_c.isAnimating) _c.repeat(reverse: true);
+    } else {
+      _c.stop();
+      _c.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      child: widget.child,
+      builder: (context, child) {
+        final live = widget.active && AppMotion.on;
+        final v = Curves.easeInOut.transform(_c.value);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: widget.borderRadius,
+            boxShadow: live
+                ? [
+                    BoxShadow(
+                      color: AyatColors.gold.withValues(alpha: 0.10 + 0.22 * v),
+                      blurRadius: 14 + 14 * v,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+/// LinearProgressIndicator that glides to each new value.
+class SmoothProgressBar extends StatelessWidget {
+  final double? value;
+  final double minHeight;
+  final Color backgroundColor;
+  final Color color;
+  const SmoothProgressBar({
+    super.key,
+    required this.value,
+    this.minHeight = 9,
+    required this.backgroundColor,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double? v) => LinearProgressIndicator(
+          value: v,
+          minHeight: minHeight,
+          backgroundColor: backgroundColor,
+          valueColor: AlwaysStoppedAnimation(color),
+        );
+    final v = value;
+    if (v == null || !AppMotion.on) return bar(v);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: v),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      builder: (_, val, __) => bar(val),
+    );
+  }
+}
+
+/// Ring + gold sparks, played once over the whole screen (e.g. export done).
+void showGoldBurst(BuildContext context) {
+  if (!AppMotion.on) return;
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => _GoldBurst(onDone: () {
+      if (entry.mounted) entry.remove();
+    }),
+  );
+  overlay.insert(entry);
+}
+
+class _GoldBurst extends StatefulWidget {
+  final VoidCallback onDone;
+  const _GoldBurst({required this.onDone});
+
+  @override
+  State<_GoldBurst> createState() => _GoldBurstState();
+}
+
+class _GoldBurstState extends State<_GoldBurst>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1300))
+      ..forward().whenComplete(() {
+        if (mounted) widget.onDone();
+      });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: SizedBox.expand(
+        child: RepaintBoundary(
+          child: CustomPaint(painter: _BurstPainter(_c)),
+        ),
+      ),
+    );
+  }
+}
+
+class _BurstPainter extends CustomPainter {
+  final Animation<double> t;
+  _BurstPainter(this.t) : super(repaint: t);
+
+  static const int _n = 24;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = t.value;
+    if (p <= 0 || p >= 1) return;
+    final e = Curves.easeOutCubic.transform(p);
+    final fade = (1 - p).clamp(0.0, 1.0);
+    final c = Offset(size.width / 2, size.height * 0.42);
+
+    // soft glow
+    canvas.drawCircle(
+      c,
+      40 + 150 * e,
+      Paint()
+        ..shader = RadialGradient(colors: [
+          AyatColors.goldBright.withValues(alpha: 0.28 * fade),
+          Colors.transparent,
+        ]).createShader(Rect.fromCircle(center: c, radius: 40 + 150 * e)),
+    );
+    // expanding ring
+    canvas.drawCircle(
+      c,
+      20 + 140 * e,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1 + 4 * fade
+        ..color = AyatColors.goldBright.withValues(alpha: 0.9 * fade),
+    );
+    // sparks
+    for (var i = 0; i < _n; i++) {
+      final jitter = math.sin(i * 12.9898) * 0.5 + 0.5; // stable 0..1
+      final ang = i * 2 * math.pi / _n + jitter * 0.4;
+      final dist = (70 + 130 * jitter) * e;
+      final pos = c +
+          Offset(math.cos(ang) * dist, math.sin(ang) * dist + 46 * p * p);
+      canvas.drawCircle(
+        pos,
+        0.8 + (1 + 2.6 * jitter) * fade,
+        Paint()
+          ..color = (i.isEven ? AyatColors.goldBright : AyatColors.gold)
+              .withValues(alpha: fade),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BurstPainter old) => old.t != t;
 }
