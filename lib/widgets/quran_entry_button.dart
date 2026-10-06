@@ -139,7 +139,12 @@ class _QuranEntryButtonState extends State<QuranEntryButton>
       onTap: widget.onTap,
       borderRadius: BorderRadius.circular(18),
       pressedScale: 0.98,
-      child: GoldShimmer(period: const Duration(milliseconds: 4200), child: card),
+      // PATCH_S168_EXPORT_BUTTON_FIX: overlay sheen, not a ShaderMask
+      child: GoldSheen(
+        period: const Duration(milliseconds: 4200),
+        borderRadius: BorderRadius.circular(18),
+        child: card,
+      ),
     );
   }
 }

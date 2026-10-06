@@ -485,3 +485,90 @@ class _IrisClipper extends CustomClipper<Rect> {
   @override
   bool shouldReclip(_IrisClipper old) => old.reveal != reveal;
 }
+
+
+// PATCH_S168_EXPORT_BUTTON_FIX
+// The same moving gold highlight as GoldShimmer, drawn as a plain overlay
+// (CustomPainter) instead of a ShaderMask. No offscreen layer, so it cannot be
+// painted at the wrong place when it scrolls. Use for box-shaped children;
+// GoldShimmer stays for text.
+class GoldSheen extends StatefulWidget {
+  final Widget child;
+  final BorderRadius borderRadius;
+  final Duration period;
+  const GoldSheen({
+    super.key,
+    required this.child,
+    this.borderRadius = BorderRadius.zero,
+    this.period = const Duration(milliseconds: 3200),
+  });
+
+  @override
+  State<GoldSheen> createState() => _GoldSheenState();
+}
+
+class _GoldSheenState extends State<GoldSheen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: widget.period);
+    if (AppMotion.on) _c.repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AppMotion.on) return widget.child;
+    return Stack(
+      children: [
+        widget.child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ClipRRect(
+              borderRadius: widget.borderRadius,
+              child: CustomPaint(painter: _SheenPainter(_c)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SheenPainter extends CustomPainter {
+  final Animation<double> t;
+  _SheenPainter(this.t) : super(repaint: t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final p = -0.4 + t.value * 1.8; // same sweep + rest beat as GoldShimmer
+    final rect = Offset.zero & size;
+    final shader = LinearGradient(
+      begin: Alignment.centerRight,
+      end: Alignment.centerLeft,
+      stops: [
+        (p - 0.18).clamp(0.0, 1.0),
+        p.clamp(0.0, 1.0),
+        (p + 0.18).clamp(0.0, 1.0),
+      ],
+      colors: [
+        Colors.transparent,
+        AyatColors.goldBright.withValues(alpha: 0.30),
+        Colors.transparent,
+      ],
+    ).createShader(rect);
+    canvas.drawRect(rect, Paint()..shader = shader);
+  }
+
+  @override
+  bool shouldRepaint(_SheenPainter old) => old.t != t;
+}

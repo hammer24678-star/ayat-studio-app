@@ -1442,24 +1442,25 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // PATCH_S165_UI_REFRESH: the export call-to-action. Gold gradient, glow,
-  // press-in scale and a slow shimmer; dims while a job is running.
+  // press-in scale and a slow sheen; dims while a job is running.
+  // PATCH_S168_EXPORT_BUTTON_FIX: sheen is a plain overlay (GoldSheen), not a
+  // ShaderMask, and the whole button paints in its own RepaintBoundary.
   Widget _exportButton() {
     final disabled = _busy;
-    return AnimatedOpacity(
-      duration: AppMotion.d(AppMotion.fast),
-      opacity: disabled ? 0.5 : 1,
-      child: PressableScale(
-        borderRadius: BorderRadius.circular(20),
-        pressedScale: 0.97,
-        onTap: disabled
-            ? null
-            : () {
-                HapticFeedback.mediumImpact(); // PATCH_S167_APP_POLISH
-                _export();
-              },
-        child: GoldShimmer(
+    return RepaintBoundary(
+      child: AnimatedOpacity(
+        duration: AppMotion.d(AppMotion.fast),
+        opacity: disabled ? 0.5 : 1,
+        child: PressableScale(
+          borderRadius: BorderRadius.circular(20),
+          pressedScale: 0.97,
+          onTap: disabled
+              ? null
+              : () {
+                  HapticFeedback.mediumImpact(); // PATCH_S167_APP_POLISH
+                  _export();
+                },
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 begin: Alignment.topCenter,
@@ -1475,35 +1476,42 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.movie_creation_outlined,
-                    size: 22, color: AyatColors.ink),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('تصدير المقطع',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: AyatColors.ink)),
-                      Text('MP4 — بدون حد للمدة أو الدقة',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xCC050F0D))),
-                    ],
-                  ),
+            child: GoldSheen(
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.movie_creation_outlined,
+                        size: 22, color: AyatColors.ink),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text('تصدير المقطع',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: AyatColors.ink)),
+                          Text('MP4 — بدون حد للمدة أو الدقة',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xCC050F0D))),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1528,7 +1536,8 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Expanded(
                   // PATCH_S167_APP_POLISH: thicker bar with the gold sweep.
-                  child: GoldShimmer(
+                  child: GoldSheen(
+                    borderRadius: BorderRadius.circular(999), // PATCH_S168
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(999),
                       child: LinearProgressIndicator(
