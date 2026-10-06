@@ -45,6 +45,8 @@ import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
 import '../widgets/gold_switch.dart';
 import '../widgets/motion.dart'; // PATCH_S123_MOTION
+import '../widgets/magic_card.dart'; // PATCH_S170
+import '../services/lamp_streak.dart'; // PATCH_S170
 import '../widgets/quran_entry_button.dart'; // PATCH_S123_QURAN_ENTRY
 import '../widgets/stage_preview.dart';
 import '../i18n/app_strings.dart';
@@ -859,6 +861,11 @@ class _HomeScreenState extends State<HomeScreen>
     if (path == null || !mounted) return;
     HapticFeedback.mediumImpact(); // PATCH_S83_SYNC_QOL
     showGoldBurst(context); // PATCH_S169_MOTION_FEEL
+    LampStreak.lightUp().then((info) {
+      // PATCH_S170: light the studio lamp, mark milestones
+      final msg = LampStreak.milestoneMessage(info.streak);
+      if (msg != null && mounted) _toast(msg);
+    });
     // PATCH_S83_SYNC_QOL: the file size answers "will this upload/share OK?"
     // right in the done dialog.
     String sizeNote = '';
@@ -1349,6 +1356,11 @@ class _HomeScreenState extends State<HomeScreen>
                     delay: const Duration(milliseconds: 220),
                     child: _panelCard()),
                 const SizedBox(height: 18),
+                // PATCH_S170_MAGIC_FEATURES: mood / moment / lamp
+                FadeSlideIn(
+                    delay: const Duration(milliseconds: 200),
+                    child: MagicCard(state: state, onToast: _toast)),
+                const SizedBox(height: 14),
                 if (!state.hasVideo) _staticDurationRow(),
                 const SizedBox(height: 8),
                 FadeSlideIn(

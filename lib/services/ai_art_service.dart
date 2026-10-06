@@ -15,6 +15,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'ayah_mood.dart'; // PATCH_S170
 import 'package:path_provider/path_provider.dart';
 
 // PATCH_S80_POLLINATIONS_KEYLESS_FLUX: gen.pollinations.ai/image/ is the
@@ -178,7 +179,9 @@ class AiArtService {
     return '$_styleBase, illustrate this scene fully and specifically: '
         '$scene -- include whatever the scene actually contains (one or '
         'several figures, objects, architecture, setting), not simplified '
-        'down to a lone empty landscape, $_noFacesRule';
+        'down to a lone empty landscape, '
+        '${AyahMood.artHint(ayahArabic)}, ' // PATCH_S170: mood-matched look
+        '$_noFacesRule';
   }
 
   // PATCH_S163_AI_ART_SPEED
