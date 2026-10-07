@@ -53,6 +53,8 @@ import '../i18n/app_strings.dart';
 import '../widgets/first_run_tour.dart';
 import '../widgets/text_editor_pro.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
+import '../widgets/pro_timeline.dart'; // PATCH_S174_PRO_EDITOR
+import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
@@ -103,6 +105,10 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S173_INSHOT_LAYOUT: which bottom tool panel is open (-1 = none).
   // 100 = video, 101 = size, 102 = magic, 0..n-1 = the tab index.
   int _toolOpen = -1;
+  // PATCH_S174_PRO_EDITOR: selected ayah clip on the timeline (-1 = none) and
+  // the playhead markers (session only, like a scratch pad).
+  int _selSeg = -1;
+  final List<double> _markers = [];
   // PATCH_S132_GAUNTLET_LOOP: classic<->grouped have different tab
   // counts (8 vs 5) -- clamp so a stale index can't be out of range.
   int get _safeSelectedTab => _selectedTab.clamp(0, _tabs.length - 1);
@@ -1287,6 +1293,11 @@ class _HomeScreenState extends State<HomeScreen>
         (100, Icons.movie_outlined, 'الفيديو'),
         (101, Icons.aspect_ratio, 'المقاس'),
         for (var i = 0; i < _tabs.length; i++) (i, _tabs[i].$1, _tabs[i].$2),
+        // PATCH_S174_PRO_EDITOR: Resolve-style pages
+        (103, Icons.palette_outlined, 'اللون'),
+        (104, Icons.equalizer, 'الصوت'),
+        (105, Icons.subtitles_outlined, 'النص المفرَّغ'),
+        (106, Icons.ios_share, 'تصدير سريع'),
         (102, Icons.auto_fix_high, 'لمسات'),
       ];
 
@@ -1300,8 +1311,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _studioBody() {
     return LayoutBuilder(builder: (context, c) {
-      final panelH = (c.maxHeight * 0.42).clamp(0.0, 460.0);
+      final panelH = (c.maxHeight * 0.36).clamp(0.0, 420.0);
       final hasStatus = _busy || state.corpusStatus.isNotEmpty;
+      final dockCompact = _toolOpen != -1 || c.maxHeight < 560; // PATCH_S174_PRO_EDITOR
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1323,20 +1335,305 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
           if (_video != null && _video!.value.isInitialized)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _transportBar(),
-            ),
+            _proDock(dockCompact), // PATCH_S174_PRO_EDITOR
           if (!state.hasVideo && _toolOpen == -1)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: _uploadHero(),
             ),
           if (_toolOpen != -1) _toolPanel(panelH),
-          _toolStrip(),
+          _hasSelSeg ? _clipToolStrip() : _toolStrip(), // PATCH_S174_PRO_EDITOR
         ],
       );
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S174_PRO_EDITOR: CapCut / Premiere / Resolve style timeline dock
+  // (transport with timecode + multi-track timeline) and the contextual
+  // clip toolbar that replaces the tool strip while an ayah clip is selected.
+  // ---------------------------------------------------------------------
+
+  final GlobalKey<ProTimelineState> _tlKey = GlobalKey<ProTimelineState>();
+
+  bool get _hasSelSeg => _selSeg >= 0 && _selSeg < state.timeline.length;
+
+  Widget _proDock(bool compact) {
+    final c = _video!;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _proTransport(),
+        ProTimeline(
+          key: _tlKey,
+          state: state,
+          controller: c,
+          selectedSeg: _selSeg,
+          onSelectSeg: (i) => setState(() => _selSeg = i),
+          markers: _markers,
+          compact: compact,
+        ),
+      ],
+    );
+  }
+
+  Widget _tIcon(IconData ic, VoidCallback onTap, String tip,
+      {bool on = false}) {
+    return IconButton(
+      onPressed: onTap,
+      tooltip: tip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 40),
+      icon: Icon(ic,
+          size: 20,
+          color: on ? AyatColors.goldBright : AyatColors.parchmentDim),
+    );
+  }
+
+  Widget _proTransport() {
+    final c = _video!;
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: AyatColors.surface,
+        border: Border(top: BorderSide(color: AyatColors.hairline)),
+      ),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: c,
+          builder: (context, v, _) {
+            final durS = max(0.1, v.duration.inMilliseconds / 1000.0);
+            final posS = (v.position.inMilliseconds / 1000.0)
+                .clamp(0.0, durS)
+                .toDouble();
+            return Row(
+              children: [
+                SizedBox(
+                  width: 84,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_fmtSecFine(posS),
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: AyatColors.goldBright,
+                              fontFeatures: [FontFeature.tabularFigures()])),
+                      Text('/ ${_fmtSecFine(durS)}',
+                          style: const TextStyle(
+                              fontSize: 10,
+                              color: AyatColors.parchmentDim,
+                              fontFeatures: [FontFeature.tabularFigures()])),
+                    ],
+                  ),
+                ),
+                _tIcon(Icons.skip_previous_rounded,
+                    () => _seekToAdjacentAyah(-1), 'الآية السابقة'),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    if (v.isPlaying) {
+                      c.pause();
+                    } else {
+                      c.play();
+                    }
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [AyatColors.goldBright, AyatColors.gold],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AyatColors.gold
+                              .withValues(alpha: v.isPlaying ? 0.55 : 0.3),
+                          blurRadius: v.isPlaying ? 18 : 10,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      v.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      size: 26,
+                      color: AyatColors.ink,
+                    ),
+                  ),
+                ),
+                _tIcon(Icons.skip_next_rounded, () => _seekToAdjacentAyah(1),
+                    'الآية التالية'),
+                const Spacer(),
+                _tIcon(Icons.content_cut, _splitAtPlayhead, 'تقسيم عند المؤشر'),
+                _tIcon(Icons.bookmark_border, _toggleMarker, 'علامة'),
+                _tIcon(Icons.repeat_one, () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _loopAyah = !_loopAyah);
+                  _toast(_loopAyah
+                      ? 'تكرار الآية الحالية مفعّل'
+                      : 'تم إيقاف تكرار الآية');
+                }, 'تكرار الآية', on: _loopAyah),
+                TextButton(
+                  onPressed: _cycleSpeed,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(34, 40),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: Text(
+                    _speedLabel(_playbackSpeed),
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _playbackSpeed == 1.0
+                            ? AyatColors.parchmentDim
+                            : AyatColors.goldBright),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Split the ayah clip under the playhead in two (CapCut's scissors).
+  void _splitAtPlayhead() {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    final t = c.value.position.inMilliseconds / 1000.0;
+    final seg = state.segmentAt(t);
+    if (seg == null) {
+      _toast('ضع المؤشر داخل آية لتقسيمها');
+      return;
+    }
+    final i = state.timeline.indexOf(seg);
+    state.pushHistory();
+    if (state.splitTimelineSegment(i, t)) {
+      HapticFeedback.mediumImpact();
+      setState(() => _selSeg = i + 1);
+    } else {
+      _toast('المؤشر قريب جدًا من حافة الآية');
+    }
+  }
+
+  /// Drop / remove a marker at the playhead (Premiere + Resolve markers).
+  void _toggleMarker() {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    final t = c.value.position.inMilliseconds / 1000.0;
+    final near = _markers.indexWhere((m) => (m - t).abs() < 0.3);
+    setState(() {
+      if (near >= 0) {
+        _markers.removeAt(near);
+      } else {
+        _markers.add(t);
+        _markers.sort();
+      }
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  void _deleteSegWithUndo(int i) {
+    final removed = state.removeTimelineSegment(i);
+    if (removed == null) return;
+    setState(() => _selSeg = -1);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('تم حذف الآية من الخط الزمني',
+            textAlign: TextAlign.center),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'تراجع',
+          textColor: AyatColors.goldBright,
+          onPressed: () => state.insertTimelineSegment(i, removed),
+        ),
+      ));
+  }
+
+  /// CapCut-style contextual toolbar: while an ayah clip is selected the
+  /// bottom strip turns into that clip's actions.
+  Widget _clipToolStrip() {
+    final i = _selSeg;
+    final items = <(IconData, String, VoidCallback, bool)>[
+      (Icons.check_circle_outline, 'تم', () => setState(() => _selSeg = -1),
+          false),
+      (Icons.content_cut, 'تقسيم', _splitAtPlayhead, false),
+      (Icons.tune, 'التوقيت', () => _editSegmentTiming(i), false),
+      (Icons.swap_horiz, 'تغيير الآية', () => _changeSegmentAyahDialog(i),
+          false),
+      if (i + 1 < state.timeline.length)
+        (
+          Icons.call_merge,
+          'دمج',
+          () {
+            state.pushHistory();
+            state.mergeTimelineSegments(i);
+            _toast('تم دمج المقطعين');
+          },
+          false
+        ),
+      (
+        Icons.repeat_one,
+        'تكرار',
+        () {
+          HapticFeedback.selectionClick();
+          setState(() => _loopAyah = !_loopAyah);
+        },
+        _loopAyah
+      ),
+      (Icons.delete_outline, 'حذف', () => _deleteSegWithUndo(i), false),
+    ];
+    return Container(
+      height: 68,
+      decoration: const BoxDecoration(
+        color: AyatColors.ink,
+        border: Border(top: BorderSide(color: AyatColors.hairline)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          itemCount: items.length,
+          itemBuilder: (context, k) {
+            final it = items[k];
+            final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
+            return InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: it.$3,
+              child: SizedBox(
+                width: 76,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(it.$1, size: 23, color: col),
+                    const SizedBox(height: 4),
+                    Text(it.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: col)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Widget _toolPanel(double h) {
@@ -1429,6 +1726,20 @@ class _HomeScreenState extends State<HomeScreen>
         );
       case 101:
         return _ratioToggle();
+      case 103: // PATCH_S174_PRO_EDITOR
+        return ProColorPage(state: state);
+      case 104:
+        return ProAudioMixer(state: state, onPickMusic: _pickMusicBed);
+      case 105:
+        return ProTranscript(
+          state: state,
+          controller: _video,
+          onToast: _toast,
+          onSelectSeg: (i) => setState(() => _selSeg = i),
+        );
+      case 106:
+        return ProExportPresets(
+            state: state, busy: _busy, onExport: _export);
       case 102:
         return MagicCard(state: state, onToast: _toast);
       default:
