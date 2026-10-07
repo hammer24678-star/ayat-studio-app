@@ -1,40 +1,38 @@
-// PATCH_S170_MAGIC_FEATURES
-// PATCH_S177_MOOD_ENGINE
-// Ayah Mood: read a verse's own vocabulary and decide how the video should
-// FEEL. Pure Dart, no network, instant. Works on both plain and Uthmani text
-// (marks and dagger-alef are stripped before matching, so 'ٱلرَّحْمَـٰن' and
-// 'الرحمن' are the same word, and both spellings of the stems are listed).
-import 'package:flutter/material.dart';
+#!/usr/bin/env python3
+"""
+patch_s177_mood_engine.py - Ayat Studio S177 (run from repo root, after S176)
 
-import '../data/studio_presets.dart';
-import 'stage_effects.dart';
+WHY: the S170 "روح الآية" logic matched STEMS INSIDE words, so it misread many
+verses: قليلا read as ليل (night), وعدنا as عدن (Eden), الأنعام (cattle) as نعمة
+(grace), الشاهدين as هدى, يخادعون as دعاء, ملكت أيمانكم as الملك, and so on.
 
-class MoodRecipe {
-  final String id;
-  final String labelAr;
-  final String blurb;
-  final String emoji;
-  final StageEffect effect;
-  final double intensity;
-  final Color textColor;
-  final ColorGrade grade;
-  final int vignette; // 0 = off
-  final String artHint; // appended to AI-art prompts (English, no figures)
-  const MoodRecipe({
-    required this.id,
-    required this.labelAr,
-    required this.blurb,
-    required this.emoji,
-    required this.effect,
-    required this.intensity,
-    required this.textColor,
-    required this.grade,
-    required this.vignette,
-    required this.artHint,
-  });
-}
+NOW: an exact whole-word lexicon. Every accepted word form was taken from the
+real text (your app's Uthmani quran_full.json AND the ArQuran Hafs file) and
+reviewed; nothing is matched by substring. Plus context rules:
+  - "ادعوا من دون الله" / "يدعو إلى" (invitation) no longer count as supplication
+  - the Hady (sacrificial animals) is not read as guidance, الحساب in a legal
+    verse does not force "Day of Reckoning", rain of stones is punishment not rain
+  - a mood needs enough evidence (score >= 1.0); thin verses stay "سكينة"
+  - verse-opening oaths (والفجر، والضحى، والشمس...), end-of-time verbs
+    (انفطرت، كورت، زلزلت...), refuge (أعوذ), seeking help (نستعين) are covered
+Checked on all 6,236 ayat: the app text and the Hafs text give the same mood.
 
-class _Group {
+Only lib/services/ayah_mood.dart changes (the API is the same).
+Idempotent; anchor-checked: nothing is written unless every anchor exists.
+"""
+import os, sys
+
+P = 'lib/services/ayah_mood.dart'
+MARK = 'PATCH_S177_MOOD_ENGINE'
+if not os.path.exists('pubspec.yaml'):
+    sys.exit('Run this from the repo root (pubspec.yaml not found).')
+if not os.path.exists(P):
+    sys.exit('missing ' + P + ' (apply S170 first)')
+src = open(P, encoding='utf-8').read()
+if MARK in src:
+    print('  OK      already applied'); sys.exit(0)
+
+CLASSES = r"""class _Group {
   final double weight;
   final Set<String> forms; // whole normalised words
   final List<String> skipText; // verse contains any of these -> group ignored
@@ -50,152 +48,9 @@ class _Phrase {
   const _Phrase(this.text, this.mood, this.weight);
 }
 
-class AyahMood {
-  static const List<MoodRecipe> all = [
-    MoodRecipe(
-      id: 'dua',
-      labelAr: 'دعاء ومناجاة',
-      blurb: 'ضوء شمعة في العتمة، همسٌ بين العبد وربّه',
-      emoji: '🕯️',
-      effect: StageEffect.candleGlow,
-      intensity: 0.6,
-      textColor: Color(0xFFECE2CB),
-      grade: ColorGrade.warmGold,
-      vignette: 45,
-      artHint:
-          'a single lit lantern glowing in quiet darkness, intimate supplication mood, warm candle light',
-    ),
-    MoodRecipe(
-      id: 'mercy',
-      labelAr: 'رحمة ومغفرة',
-      blurb: 'أشعّة دافئة تتسلّل من بين الغيم',
-      emoji: '🌤️',
-      effect: StageEffect.warmGodRays,
-      intensity: 0.6,
-      textColor: Color(0xFFECC875),
-      grade: ColorGrade.warmGold,
-      vignette: 35,
-      artHint:
-          'warm golden light rays breaking through soft clouds, gentle and merciful mood',
-    ),
-    MoodRecipe(
-      id: 'light',
-      labelAr: 'نور وهداية',
-      blurb: 'شعاعٌ نقيّ يشقّ الظلام',
-      emoji: '✨',
-      effect: StageEffect.rays,
-      intensity: 0.7,
-      textColor: Color(0xFFFFFFFF),
-      grade: ColorGrade.none,
-      vignette: 0,
-      artHint:
-          'radiant beams of pure white-gold light piercing darkness, guidance and clarity',
-    ),
-    MoodRecipe(
-      id: 'majesty',
-      labelAr: 'جلال وعظمة',
-      blurb: 'سماءٌ واسعة تُشعرك بصِغرك أمام العظيم',
-      emoji: '🌌',
-      effect: StageEffect.starfield,
-      intensity: 0.8,
-      textColor: Color(0xFFC9A24B),
-      grade: ColorGrade.nightTeal,
-      vignette: 55,
-      artHint:
-          'vast cosmic scale, glowing sacred geometry above endless stars, awe and majesty',
-    ),
-    MoodRecipe(
-      id: 'patience',
-      labelAr: 'صبر وسكينة',
-      blurb: 'نبضٌ هادئ كنَفَسٍ عميق',
-      emoji: '🌙',
-      effect: StageEffect.breathingGlow,
-      intensity: 0.55,
-      textColor: Color(0xFF8FBBAF),
-      grade: ColorGrade.nightTeal,
-      vignette: 40,
-      artHint:
-          'still moonlit calm water and a quiet horizon, serene patience',
-    ),
-    MoodRecipe(
-      id: 'gratitude',
-      labelAr: 'شكر ونعمة',
-      blurb: 'بريقٌ ذهبيّ متناثر كالنِّعَم',
-      emoji: '🌾',
-      effect: StageEffect.bokeh,
-      intensity: 0.65,
-      textColor: Color(0xFFECC875),
-      grade: ColorGrade.warmGold,
-      vignette: 0,
-      artHint:
-          'abundant blossoms, fruit and golden bokeh light, thankful abundance',
-    ),
-    MoodRecipe(
-      id: 'paradise',
-      labelAr: 'جنّة ونعيم',
-      blurb: 'بتلات تتساقط في حديقة لا تذبل',
-      emoji: '🌿',
-      effect: StageEffect.petals,
-      intensity: 0.6,
-      textColor: Color(0xFFE8D5A8),
-      grade: ColorGrade.none,
-      vignette: 30,
-      artHint:
-          'lush garden with flowing rivers, flowering trees and soft green-gold light',
-    ),
-    MoodRecipe(
-      id: 'reckoning',
-      labelAr: 'يوم الحساب',
-      blurb: 'جمرٌ خافت وأفقٌ مهيب، تذكيرٌ بالمصير',
-      emoji: '⚖️',
-      effect: StageEffect.embers,
-      intensity: 0.7,
-      textColor: Color(0xFFECE2CB),
-      grade: ColorGrade.sepia,
-      vignette: 65,
-      artHint:
-          'dramatic stormy sky with ember glow on the horizon, solemn reminder',
-    ),
-    MoodRecipe(
-      id: 'water',
-      labelAr: 'ماء وحياة',
-      blurb: 'رذاذٌ ناعم يُحيي الأرض بعد موتها',
-      emoji: '🌧️',
-      effect: StageEffect.drizzle,
-      intensity: 0.6,
-      textColor: Color(0xFFA8C5D6),
-      grade: ColorGrade.nightTeal,
-      vignette: 35,
-      artHint: 'rain clouds, a flowing river and sea mist, life-giving water',
-    ),
-    MoodRecipe(
-      id: 'creation',
-      labelAr: 'آيات الكون',
-      blurb: 'نجومٌ تتلألأ فوق الجبال',
-      emoji: '🪐',
-      effect: StageEffect.twinkleStars,
-      intensity: 0.75,
-      textColor: Color(0xFFA8C5D6),
-      grade: ColorGrade.nightTeal,
-      vignette: 45,
-      artHint:
-          'vast night sky with stars, mountains and deep space, wonder of creation',
-    ),
-    MoodRecipe(
-      id: 'calm',
-      labelAr: 'سكينة',
-      blurb: 'وهجٌ ذهبيّ هادئ يتنفّس ببطء',
-      emoji: '🤍',
-      effect: StageEffect.glowPulse,
-      intensity: 0.5,
-      textColor: Color(0xFFECE2CB),
-      grade: ColorGrade.none,
-      vignette: 0,
-      artHint: 'quiet golden glow, minimal and serene',
-    ),
-  ];
+"""
 
-  // PATCH_S177_MOOD_ENGINE: exact whole-word lexicon, built from every word form that really
+LEX = r"""  // PATCH_S177_MOOD_ENGINE: exact whole-word lexicon, built from every word form that really
   // occurs in the Quran (checked against all 6,236 ayat). No substring matching.
   // Order = tie-break priority: specific moods before generic ones.
   static const Map<String, List<_Group>> _lex = {
@@ -564,37 +419,9 @@ class AyahMood {
   // A mood needs at least this much evidence, otherwise the verse stays calm.
   static const double _threshold = 1.0;
 
-  static MoodRecipe byId(String id) =>
-      all.firstWhere((r) => r.id == id, orElse: () => all.last);
+"""
 
-  static String _norm(String s) {
-    final b = StringBuffer();
-    for (final r in s.runes) {
-      if (r == 0x0640) continue; // tatweel
-      if (r >= 0x064B && r <= 0x065F) continue; // harakat
-      if (r == 0x0670) continue; // dagger alef
-      if (r >= 0x06D6 && r <= 0x06ED) continue; // Quranic annotation marks
-      switch (r) {
-        case 0x0622:
-        case 0x0623:
-        case 0x0625:
-        case 0x0671:
-          b.writeCharCode(0x0627); // alef variants -> ا
-        case 0x0649:
-        case 0x0626:
-          b.writeCharCode(0x064A); // ى ئ -> ي
-        case 0x0629:
-          b.writeCharCode(0x0647); // ة -> ه
-        case 0x0624:
-          b.writeCharCode(0x0648); // ؤ -> و
-        default:
-          b.writeCharCode(r);
-      }
-    }
-    return b.toString();
-  }
-
-  static bool _hasPhrase(String t, String p) =>
+ANALYZE = r"""  static bool _hasPhrase(String t, String p) =>
       RegExp('(?:^| )${RegExp.escape(p)}(?= |\$)').hasMatch(t);
 
   /// The mood that best fits [text]; [calm] when the evidence is too thin.
@@ -641,5 +468,40 @@ class AyahMood {
     return byId(best);
   }
 
-  static String artHint(String text) => analyze(text).artHint;
-}
+"""
+
+anchors = ['class _Lex {', 'class AyahMood {',
+           '  // Order = tie-break priority: specific moods before generic ones.',
+           '  static MoodRecipe byId(String id)',
+           '  /// The mood that best fits [text]; [calm] when nothing matches.',
+           '  static String artHint(String text) => analyze(text).artHint;']
+missing = [a for a in anchors if src.count(a) != 1]
+if missing:
+    print('  NOTHING WRITTEN. Anchors missing or not unique:')
+    for m in missing: print('   -', m)
+    sys.exit(1)
+
+i_lex0, i_lex1 = src.index(anchors[0]), src.index(anchors[1])
+i_map0, i_map1 = src.index(anchors[2]), src.index(anchors[3])
+i_an0, i_an1 = src.index(anchors[4]), src.index(anchors[5])
+if not (i_lex0 < i_lex1 < i_map0 < i_map1 < i_an0 < i_an1):
+    sys.exit('  NOTHING WRITTEN. anchors out of order')
+
+new = (src[:i_lex0] + CLASSES + src[i_lex1:i_map0] + LEX + src[i_map1:i_an0]
+       + ANALYZE + src[i_an1:])
+new = new.replace('// PATCH_S170_MAGIC_FEATURES\n',
+                  '// PATCH_S170_MAGIC_FEATURES\n// ' + MARK + '\n', 1)
+
+for a, b in ('{}', '()', '[]'):
+    pass
+import re
+s = re.sub(r"//[^\n]*", '', new)
+s = re.sub(r"'(?:\\.|[^'\\\n])*'", "''", s)
+s = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', s)
+for x, y in ('{}', '()', '[]'):
+    if s.count(x) != s.count(y):
+        sys.exit('  NOTHING WRITTEN. unbalanced %s%s: %d vs %d' % (x, y, s.count(x), s.count(y)))
+
+open(P, 'w', encoding='utf-8').write(new)
+print('  PATCHED', P)
+print('Done. Next: git add -A && git commit -m "S177: exact-word mood engine" && git push')
