@@ -6,12 +6,15 @@
 //
 // Time always runs left to right (the whole widget is forced LTR); only the
 // Arabic labels inside clips are laid out right to left.
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback; // PATCH_S179_AAA
 import 'package:video_player/video_player.dart';
 
 import '../models/studio_state.dart';
+import '../services/thumb_service.dart';
 import '../services/waveform_service.dart';
 import '../theme/ayat_theme.dart';
 
@@ -56,7 +59,7 @@ class _PeakSlot {
 }
 
 class ProTimelineState extends State<ProTimeline> {
-  static const double _gutter = 40;
+  static const double _gutter = 48;
   static const double _rulerH = 24;
   static const double _minPps = 6;
   static const double _maxPps = 400;
@@ -74,6 +77,12 @@ class ProTimelineState extends State<ProTimeline> {
   final _PeakSlot _vid = _PeakSlot();
   final _PeakSlot _rec = _PeakSlot();
   final _PeakSlot _mus = _PeakSlot();
+  // PATCH_S179_AAA
+  bool _snap = true;
+  bool _scrubbing = false;
+  int _lastScrubSeg = -2;
+  String? _thumbPath;
+  ThumbStrip? _thumbs;
 
   // edge-drag bookkeeping
   double _dragBase = 0;
@@ -167,6 +176,48 @@ class ProTimelineState extends State<ProTimeline> {
     });
   }
 
+  // PATCH_S179_AAA
+  void _ensureThumbs() {
+    final path = widget.state.videoPath;
+    if (path == _thumbPath) return;
+    _thumbPath = path;
+    _thumbs = null;
+    if (path == null) return;
+    final hit = ThumbService.cached(path);
+    if (hit != null) {
+      _thumbs = hit;
+      return;
+    }
+    ThumbService.strip(path, _dur).then((t) {
+      if (!mounted || _thumbPath != path) return;
+      setState(() => _thumbs = t);
+    });
+  }
+
+  Widget _thumbRow(double h) {
+    final t = _thumbs!;
+    final tileW = t.step * _pps;
+    return Stack(
+      children: [
+        for (var i = 0; i < t.files.length; i++)
+          Positioned(
+            left: i * tileW,
+            top: 0,
+            width: tileW + 0.5,
+            height: h,
+            child: Image.file(
+              File(t.files[i]),
+              fit: BoxFit.cover,
+              cacheHeight: 72,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.low,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+      ],
+    );
+  }
+
   double _pinchDist() {
     final pts = _ptrs.values.toList();
     if (pts.length < 2) return 0;
@@ -198,6 +249,7 @@ class ProTimelineState extends State<ProTimeline> {
     _ensure(_vid, s.videoPath);
     _ensure(_rec, s.selectedReciterAudio);
     _ensure(_mus, s.musicBedPath);
+    _ensureThumbs();
     final lanes = _lanes();
     final h = _rulerH + lanes.fold<double>(0, (a, l) => a + l.h);
 
@@ -224,12 +276,30 @@ class ProTimelineState extends State<ProTimeline> {
                 children: [
                   SizedBox(
                     height: _rulerH,
-                    child: InkWell(
-                      onTap: fit,
-                      child: const Center(
-                        child: Icon(Icons.fit_screen_outlined,
-                            size: 16, color: AyatColors.parchmentDim),
-                      ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: fit,
+                            child: const Center(
+                              child: Icon(Icons.fit_screen_outlined,
+                                  size: 16, color: AyatColors.parchmentDim),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell( // PATCH_S179_AAA: snap on/off
+                            onTap: () => setState(() => _snap = !_snap),
+                            child: Center(
+                              child: Icon(Icons.align_horizontal_center,
+                                  size: 16,
+                                  color: _snap
+                                      ? AyatColors.goldBright
+                                      : AyatColors.parchmentDim),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   for (final l in lanes) _header(l),
@@ -334,7 +404,23 @@ class ProTimelineState extends State<ProTimeline> {
 
   // ---------------------------------------------------------------- ruler
 
-  void _rulerSeek(double x) => _seekSec(x / _pps);
+  void _rulerSeek(double x) {
+    final t = x / _pps;
+    _seekSec(t);
+    // PATCH_S179_AAA: a tick each time the scrub crosses into another ayah
+    final tl = widget.state.timeline;
+    var idx = -1;
+    for (var i = 0; i < tl.length; i++) {
+      if (t >= tl[i].start && t < tl[i].end) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx != _lastScrubSeg) {
+      if (_lastScrubSeg != -2) HapticFeedback.selectionClick();
+      _lastScrubSeg = idx;
+    }
+  }
 
   void _rulerTap(double x) {
     for (final m in widget.markers) {
@@ -350,8 +436,14 @@ class ProTimelineState extends State<ProTimeline> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (d) => _rulerTap(d.localPosition.dx),
-      onHorizontalDragStart: (d) => _rulerSeek(d.localPosition.dx),
+      onHorizontalDragStart: (d) {
+        setState(() => _scrubbing = true);
+        _lastScrubSeg = -2;
+        _rulerSeek(d.localPosition.dx);
+      },
       onHorizontalDragUpdate: (d) => _rulerSeek(d.localPosition.dx),
+      onHorizontalDragEnd: (_) => setState(() => _scrubbing = false),
+      onHorizontalDragCancel: () => setState(() => _scrubbing = false),
       child: SizedBox(
         height: _rulerH,
         width: w,
@@ -380,8 +472,29 @@ class ProTimelineState extends State<ProTimeline> {
           width: 12,
           child: IgnorePointer(
             child: Stack(
+              clipBehavior: Clip.none,
               alignment: Alignment.topCenter,
               children: [
+                if (_scrubbing) // PATCH_S179_AAA: time bubble while scrubbing
+                  Positioned(
+                    left: 14,
+                    top: 1,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AyatColors.goldBright,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _fmtTick(v.position.inMilliseconds / 1000.0, 0.5),
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: AyatColors.ink),
+                      ),
+                    ),
+                  ),
                 Positioned.fill(
                   child: Center(
                     child: Container(width: 2, color: AyatColors.parchment),
@@ -600,7 +713,7 @@ class ProTimelineState extends State<ProTimeline> {
       0,
       _dur,
     ];
-    final tol = 8 / _pps;
+    final tol = _snap ? 8 / _pps : -1.0;
     for (final x in snaps) {
       if ((x - target).abs() <= tol) {
         target = x;
@@ -647,21 +760,41 @@ class ProTimelineState extends State<ProTimeline> {
             top: 2,
             height: h - 4,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              alignment: Alignment.centerLeft,
+              clipBehavior: Clip.antiAlias, // PATCH_S179_AAA: filmstrip
               decoration: BoxDecoration(
                 color: const Color(0xFF1E4B3F),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: const Color(0x55ECC875)),
               ),
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: AyatColors.parchment),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (_thumbs != null) _thumbRow(h - 4),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0x00000000), Color(0xAA000000)],
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: AyatColors.parchment),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

@@ -56,6 +56,7 @@ import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import '../widgets/pro_timeline.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
+import '../widgets/pro_extras.dart'; // PATCH_S179_AAA
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
@@ -110,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen>
   // the playhead markers (session only, like a scratch pad).
   int _selSeg = -1;
   final List<double> _markers = [];
+  bool _guides = false; // PATCH_S179_AAA
   // PATCH_S132_GAUNTLET_LOOP: classic<->grouped have different tab
   // counts (8 vs 5) -- clamp so a stale index can't be out of range.
   int get _safeSelectedTab => _selectedTab.clamp(0, _tabs.length - 1);
@@ -1358,10 +1360,30 @@ class _HomeScreenState extends State<HomeScreen>
                       liveOverride: _liveOverlay,
                     ),
                   ),
+                  if (_video != null && _video!.value.isInitialized) // PATCH_S179_AAA
+                    PositionedDirectional(
+                      start: 6,
+                      top: 6,
+                      child:
+                          ProNowPlayingChip(state: state, controller: _video!),
+                    ),
+                  if (_guides)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: ProGuidesOverlay(aspect: _frameAspect()),
+                      ),
+                    ),
                   PositionedDirectional(
                     end: 6,
                     bottom: 6,
-                    child: _fullscreenButton(), // PATCH_S175_CAPCUT
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _guidesButton(),
+                        const SizedBox(width: 6),
+                        _fullscreenButton(), // PATCH_S175_CAPCUT
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1455,7 +1477,10 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 SizedBox(
                   width: 84,
-                  child: Column(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _goToTime, // PATCH_S179_AAA
+                    child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1472,9 +1497,19 @@ class _HomeScreenState extends State<HomeScreen>
                               fontFeatures: [FontFeature.tabularFigures()])),
                     ],
                   ),
+                  ),
                 ),
-                _tIcon(Icons.skip_previous_rounded,
-                    () => _seekToAdjacentAyah(-1), 'الآية السابقة'),
+                GestureDetector(
+                  onLongPress: () => _jumpMarker(-1), // PATCH_S179_AAA
+                  child: IconButton(
+                    onPressed: () => _seekToAdjacentAyah(-1),
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 40),
+                    icon: const Icon(Icons.skip_previous_rounded,
+                        size: 20, color: AyatColors.parchmentDim),
+                  ),
+                ),
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
@@ -1512,8 +1547,17 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                 ),
-                _tIcon(Icons.skip_next_rounded, () => _seekToAdjacentAyah(1),
-                    'الآية التالية'),
+                GestureDetector(
+                  onLongPress: () => _jumpMarker(1), // PATCH_S179_AAA
+                  child: IconButton(
+                    onPressed: () => _seekToAdjacentAyah(1),
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 40),
+                    icon: const Icon(Icons.skip_next_rounded,
+                        size: 20, color: AyatColors.parchmentDim),
+                  ),
+                ),
                 const Spacer(),
                 _tIcon(Icons.content_cut, _splitAtPlayhead, 'تقسيم عند المؤشر'),
                 _tIcon(Icons.bookmark_border, _toggleMarker, 'علامة'),
@@ -1726,6 +1770,72 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     )));
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  // PATCH_S179_AAA: type a time and jump (Premiere's timecode box).
+  Future<void> _goToTime() async {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    final dur = c.value.duration.inMilliseconds / 1000.0;
+    final t = await showGoToTimeDialog(context,
+        current: c.value.position.inMilliseconds / 1000.0, max: dur);
+    if (t == null || !mounted) return;
+    await c.seekTo(Duration(milliseconds: (t * 1000).round()));
+  }
+
+  /// Long-press on previous / next in the transport.
+  void _jumpMarker(int dir) {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    if (_markers.isEmpty) {
+      _toast('لا توجد علامات بعد');
+      return;
+    }
+    final t = c.value.position.inMilliseconds / 1000.0;
+    double? target;
+    if (dir > 0) {
+      for (final m in _markers) {
+        if (m > t + 0.05) {
+          target = m;
+          break;
+        }
+      }
+    } else {
+      for (final m in _markers.reversed) {
+        if (m < t - 0.05) {
+          target = m;
+          break;
+        }
+      }
+    }
+    if (target == null) {
+      _toast(dir > 0 ? 'لا علامة بعد المؤشر' : 'لا علامة قبل المؤشر');
+      return;
+    }
+    HapticFeedback.selectionClick();
+    c.seekTo(Duration(milliseconds: (target * 1000).round()));
+  }
+
+  double _frameAspect() {
+    final fs = state.frameSize;
+    return fs.$1 / fs.$2;
+  }
+
+  Widget _guidesButton() {
+    return Material(
+      color: const Color(0x99050F0D),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => setState(() => _guides = !_guides),
+        child: Padding(
+          padding: const EdgeInsets.all(7),
+          child: Icon(Icons.grid_3x3,
+              size: 20,
+              color: _guides ? AyatColors.goldBright : AyatColors.parchment),
+        ),
+      ),
+    );
   }
 
   Widget _toolPanel(double h) {
