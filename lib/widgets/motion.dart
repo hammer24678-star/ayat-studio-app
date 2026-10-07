@@ -757,6 +757,80 @@ class _GoldBurstState extends State<_GoldBurst>
   }
 }
 
+// PATCH_S176_SMOOTH: cross-fade + slide between two states of the same slot
+// (tool pages, toolbars). Keyed child => animated swap. Honours the motion
+// switch via AppMotion.d.
+class SmoothSwap extends StatelessWidget {
+  final Widget child;
+  final Duration duration;
+  final Offset slide; // fraction of the child's size it travels
+  const SmoothSwap({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 280),
+    this.slide = const Offset(0, 0.04),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: AppMotion.d(duration),
+      reverseDuration: AppMotion.d(duration * 0.7),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.passthrough,
+        alignment: AlignmentDirectional.topStart,
+        children: [...previous, if (current != null) current],
+      ),
+      transitionBuilder: (c, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(begin: slide, end: Offset.zero).animate(anim),
+          child: c,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+// PATCH_S176_SMOOTH: a panel that grows from / shrinks into its bottom edge
+// (size + fade) rather than popping in and out of the layout.
+class SmoothReveal extends StatelessWidget {
+  final bool show;
+  final Widget? child; // only built by the caller while shown
+  final Duration duration;
+  const SmoothReveal({
+    super.key,
+    required this.show,
+    this.child,
+    this.duration = const Duration(milliseconds: 340),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: AppMotion.d(duration),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.passthrough,
+        alignment: Alignment.bottomCenter,
+        children: [...previous, if (current != null) current],
+      ),
+      transitionBuilder: (c, anim) => SizeTransition(
+        sizeFactor: anim,
+        axisAlignment: -1,
+        child: FadeTransition(opacity: anim, child: c),
+      ),
+      child: show && child != null
+          ? KeyedSubtree(key: const ValueKey('s176-revealed'), child: child!)
+          : const SizedBox.shrink(key: ValueKey('s176-hidden')),
+    );
+  }
+}
+
 class _BurstPainter extends CustomPainter {
   final Animation<double> t;
   _BurstPainter(this.t) : super(repaint: t);

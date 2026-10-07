@@ -137,6 +137,7 @@ class _HomeScreenState extends State<HomeScreen>
   // appearing was invisible in practice. This lets code scroll back to
   // it instead of just telling the user to do it themselves in a toast.
   final _scrollCtrl = ScrollController();
+  final _stripCtrl = ScrollController(); // PATCH_S176_SMOOTH
   final _customArCtrl = TextEditingController();
   final _customEnCtrl = TextEditingController();
   // PATCH_S143_TEXT_LAYERS: separate from the ayah-matching controllers
@@ -320,6 +321,7 @@ class _HomeScreenState extends State<HomeScreen>
     _reciterPreview?.dispose();
     _liveOverlay.dispose();
     _scrollCtrl.dispose(); // PATCH_S119_TIMELINE_VISIBILITY_AND_ENABLE_FIX
+    _stripCtrl.dispose(); // PATCH_S176_SMOOTH
     _customArCtrl.dispose();
     _customEnCtrl.dispose();
     _newLayerCtrl.dispose(); // PATCH_S143_TEXT_LAYERS
@@ -1309,10 +1311,26 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _openTool(int id) {
     HapticFeedback.selectionClick();
+    final switching = _toolOpen != -1 && _toolOpen != id; // PATCH_S176_SMOOTH
     setState(() {
       _toolOpen = _toolOpen == id ? -1 : id;
       if (id < 100) _selectedTab = id;
     });
+    if (switching && _scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
+    _centerTool(id);
+  }
+
+  // PATCH_S176_SMOOTH: glide the tapped tool to the middle of the strip.
+  void _centerTool(int id) {
+    final idx = _toolList().indexWhere((t) => t.$1 == id);
+    if (idx < 0 || !_stripCtrl.hasClients) return;
+    final pos = _stripCtrl.position;
+    final target =
+        (8 + idx * 76.0 + 38 - pos.viewportDimension / 2)
+            .clamp(0.0, pos.maxScrollExtent);
+    _stripCtrl.animateTo(target,
+        duration: AppMotion.d(const Duration(milliseconds: 420)),
+        curve: Curves.easeOutCubic);
   }
 
   Widget _studioBody() {
@@ -1354,10 +1372,20 @@ class _HomeScreenState extends State<HomeScreen>
           if (!state.hasVideo && _toolOpen == -1)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _uploadHero(),
+              child: FadeSlideIn(child: _uploadHero()), // PATCH_S176_SMOOTH
             ),
-          if (_toolOpen != -1) _toolPanel(panelH),
-          _hasSelSeg ? _clipToolStrip() : _toolStrip(), // PATCH_S174_PRO_EDITOR
+          // PATCH_S176_SMOOTH: the panel glides open/closed
+          SmoothReveal(
+            show: _toolOpen != -1,
+            child: _toolOpen != -1 ? _toolPanel(panelH) : null,
+          ),
+          SmoothSwap( // PATCH_S176_SMOOTH
+            slide: const Offset(0, 0.3),
+            child: KeyedSubtree(
+              key: ValueKey(_hasSelSeg),
+              child: _hasSelSeg ? _clipToolStrip() : _toolStrip(),
+            ),
+          ),
         ],
       );
     });
@@ -1667,8 +1695,10 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _openFullscreen() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
+  Future<void> _openFullscreen() async {
+    HapticFeedback.selectionClick(); // PATCH_S176_SMOOTH
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await Navigator.of(context).push(AppMotion.route<void>(Builder(
       builder: (ctx) => Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
@@ -1694,7 +1724,8 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       ),
-    ));
+    )));
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Widget _toolPanel(double h) {
@@ -1725,8 +1756,12 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(cur.$3,
-                      style: Theme.of(context).textTheme.headlineMedium),
+                  child: SmoothSwap( // PATCH_S176_SMOOTH
+                    slide: const Offset(0.08, 0),
+                    child: Text(cur.$3,
+                        key: ValueKey(cur.$1),
+                        style: Theme.of(context).textTheme.headlineMedium),
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_down,
@@ -1740,7 +1775,12 @@ class _HomeScreenState extends State<HomeScreen>
             child: SingleChildScrollView(
               controller: _scrollCtrl,
               padding: EdgeInsets.fromLTRB(16, 4, 16, 24),
-              child: _toolBody(),
+              child: SmoothSwap( // PATCH_S176_SMOOTH
+                child: KeyedSubtree(
+                  key: ValueKey(_toolOpen),
+                  child: _toolBody(),
+                ),
+              ),
             ),
           ),
         ],
@@ -1847,37 +1887,53 @@ class _HomeScreenState extends State<HomeScreen>
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 8),
+          controller: _stripCtrl, // PATCH_S176_SMOOTH
           itemCount: tools.length,
           itemBuilder: (context, i) {
             final t = tools[i];
             final sel = _toolOpen == t.$1;
             final col = sel ? AyatColors.goldBright : AyatColors.parchmentDim;
-            return InkWell(
+            return PressableScale(
               borderRadius: BorderRadius.circular(14),
+              pressedScale: 0.9, // PATCH_S176_SMOOTH
               onTap: () => _openTool(t.$1),
               child: SizedBox(
                 width: 76,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      width: 22,
+                    AnimatedContainer(
+                      duration: AppMotion.d(AppMotion.medium),
+                      curve: Curves.easeOutCubic,
+                      width: sel ? 22 : 0,
                       height: 3,
                       margin: const EdgeInsets.only(bottom: 5),
                       decoration: BoxDecoration(
-                        color: sel ? AyatColors.goldBright : Colors.transparent,
+                        color: AyatColors.goldBright,
                         borderRadius: BorderRadius.circular(3),
                       ),
                     ),
-                    Icon(t.$2, size: 23, color: col),
+                    AnimatedScale(
+                      scale: sel ? 1.18 : 1.0,
+                      duration: AppMotion.d(AppMotion.medium),
+                      curve: AppMotion.spring,
+                      child: TweenAnimationBuilder<Color?>(
+                        tween: ColorTween(end: col),
+                        duration: AppMotion.d(AppMotion.medium),
+                        builder: (_, c, __) => Icon(t.$2, size: 23, color: c),
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(t.$3,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: col)),
+                    AnimatedDefaultTextStyle(
+                      duration: AppMotion.d(AppMotion.medium),
+                      curve: Curves.easeOutCubic,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: col),
+                      child: Text(t.$3,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                 ),
               ),

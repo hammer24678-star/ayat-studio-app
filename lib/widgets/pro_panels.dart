@@ -15,6 +15,7 @@ import '../models/studio_state.dart';
 import '../services/app_settings.dart';
 import '../theme/ayat_theme.dart';
 import 'gold_switch.dart';
+import 'motion.dart'; // PATCH_S176_SMOOTH
 
 // ------------------------------------------------------------------ shared
 
@@ -748,13 +749,15 @@ class ProExportPresets extends StatelessWidget {
             final on = state.aspectRatio == p.aspect &&
                 state.exportResolution == p.res &&
                 state.exportQuality == p.quality;
-            return GestureDetector(
+            return PressableScale( // PATCH_S176_SMOOTH
               onTap: () => state.update(() {
                 state.aspectRatio = p.aspect;
                 state.exportResolution = p.res;
                 state.exportQuality = p.quality;
               }),
-              child: Container(
+              child: AnimatedContainer(
+                duration: AppMotion.d(AppMotion.medium),
+                curve: Curves.easeOutCubic,
                 margin: const EdgeInsets.only(bottom: 8),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

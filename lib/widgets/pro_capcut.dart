@@ -2,10 +2,12 @@
 // CapCut-style extras: Stickers page + Enhance page (picture sharpen/denoise,
 // voice clean-up). Export frame rate lives in pro_panels.dart (ProExportPresets).
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // PATCH_S176_SMOOTH
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../theme/ayat_theme.dart';
 import 'gold_switch.dart';
+import 'motion.dart';
 
 Widget _ccTitle(BuildContext context, String text) => Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 8),
@@ -71,9 +73,11 @@ class _ProStickersState extends State<ProStickers> {
               runSpacing: 8,
               children: [
                 for (final g in e.value)
-                  InkWell(
+                  PressableScale(
                     borderRadius: BorderRadius.circular(12),
+                    pressedScale: 0.85,
                     onTap: () {
+                      HapticFeedback.lightImpact();
                       st.addTextLayer(TextLayer(
                         text: g,
                         position: _pos,
@@ -129,7 +133,9 @@ class _ProStickersState extends State<ProStickers> {
               for (final c in _colors)
                 GestureDetector(
                   onTap: () => setState(() => _color = c),
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: AppMotion.d(AppMotion.fast),
+                    curve: Curves.easeOut,
                     width: 30,
                     height: 30,
                     decoration: BoxDecoration(
@@ -149,7 +155,10 @@ class _ProStickersState extends State<ProStickers> {
           if (st.textLayers.isNotEmpty) ...[
             _ccTitle(context, 'الطبقات (${st.textLayers.length})'),
             for (var i = 0; i < st.textLayers.length; i++)
-              ListTile(
+              FadeSlideIn(
+                key: ObjectKey(st.textLayers[i]), // PATCH_S176_SMOOTH
+                from: const Offset(0, 8),
+                child: ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
@@ -162,9 +171,13 @@ class _ProStickersState extends State<ProStickers> {
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline,
                       color: AyatColors.parchmentDim),
-                  onPressed: () => st.removeTextLayerAt(i),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    st.removeTextLayerAt(i);
+                  },
                 ),
               ),
+            ),
           ],
         ],
       ),
