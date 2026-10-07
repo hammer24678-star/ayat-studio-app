@@ -795,6 +795,18 @@ class ProExportPresets extends StatelessWidget {
               ),
             );
           }),
+        _proTitle(context, 'معدل الإطارات'), // PATCH_S175_CAPCUT
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final f in const [24, 25, 30, 50, 60])
+              ChoiceChip(
+                label: Text('$f'),
+                selected: state.exportFps == f,
+                onSelected: (_) => state.update(() => state.exportFps = f),
+              ),
+          ],
+        ),
         const SizedBox(height: 4),
         Text('الإطار الحالي: ${fs.$1}×${fs.$2}',
             textAlign: TextAlign.center,

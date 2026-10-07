@@ -249,6 +249,12 @@ class StudioState extends ChangeNotifier {
   double audioVolume = 1.0; // 0.0..2.0, applied to whichever track is exported
   bool audioFadeIn = false;
   bool audioFadeOut = false;
+  // PATCH_S175_CAPCUT: CapCut-style export + clean-up controls
+  int exportFps = 30; // 24 | 25 | 30 | 50 | 60
+  int enhanceSharpen = 0; // 0..100, picture sharpen (export)
+  int enhanceDenoise = 0; // 0..100, picture denoise (export)
+  bool audioDenoise = false; // voice noise reduction (export)
+  bool audioNormalize = false; // loudness normalize (export)
 
   // ---- PATCH_S40_MULTI_BG_CYCLE: cycling 2+ preset backgrounds, export-time only ----
   bool multiBgEnabled = false;

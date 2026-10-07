@@ -55,6 +55,7 @@ import '../widgets/text_editor_pro.dart';
 import '../widgets/timeline_ribbon.dart'; // PATCH_S83_SYNC_QOL
 import '../widgets/pro_timeline.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
+import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
@@ -1298,6 +1299,11 @@ class _HomeScreenState extends State<HomeScreen>
         (104, Icons.equalizer, 'الصوت'),
         (105, Icons.subtitles_outlined, 'النص المفرَّغ'),
         (106, Icons.ios_share, 'تصدير سريع'),
+        (107, Icons.speed, 'السرعة'), // PATCH_S175_CAPCUT
+        (108, Icons.animation, 'الحركة'),
+        (109, Icons.closed_caption_outlined, 'الترجمة'),
+        (110, Icons.emoji_emotions_outlined, 'ملصقات'),
+        (111, Icons.high_quality_outlined, 'تحسين'),
         (102, Icons.auto_fix_high, 'لمسات'),
       ];
 
@@ -1325,12 +1331,21 @@ class _HomeScreenState extends State<HomeScreen>
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Center(
-                child: StagePreview(
-                  state: state,
-                  videoController: _video,
-                  liveOverride: _liveOverlay,
-                ),
+              child: Stack(
+                children: [
+                  Center(
+                    child: StagePreview(
+                      state: state,
+                      videoController: _video,
+                      liveOverride: _liveOverlay,
+                    ),
+                  ),
+                  PositionedDirectional(
+                    end: 6,
+                    bottom: 6,
+                    child: _fullscreenButton(), // PATCH_S175_CAPCUT
+                  ),
+                ],
               ),
             ),
           ),
@@ -1636,6 +1651,52 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // PATCH_S175_CAPCUT: fullscreen preview (the player's corner button).
+  Widget _fullscreenButton() {
+    return Material(
+      color: const Color(0x99050F0D),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: _openFullscreen,
+        child: const Padding(
+          padding: EdgeInsets.all(7),
+          child: Icon(Icons.fullscreen, size: 20, color: AyatColors.parchment),
+        ),
+      ),
+    );
+  }
+
+  void _openFullscreen() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (ctx) => Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Center(
+                child: StagePreview(
+                  state: state,
+                  videoController: _video,
+                  liveOverride: _liveOverlay,
+                ),
+              ),
+              PositionedDirectional(
+                top: 8,
+                end: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.fullscreen_exit,
+                      color: AyatColors.parchment),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ));
+  }
+
   Widget _toolPanel(double h) {
     final tools = _toolList();
     final cur =
@@ -1740,6 +1801,23 @@ class _HomeScreenState extends State<HomeScreen>
       case 106:
         return ProExportPresets(
             state: state, busy: _busy, onExport: _export);
+      case 107: // PATCH_S175_CAPCUT
+        return _speedSection();
+      case 108:
+        return _textTransitionSection();
+      case 109:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _captionSection(),
+            const Divider(height: 32, color: AyatColors.hairline),
+            _subtitleSection(),
+          ],
+        );
+      case 110:
+        return ProStickers(state: state, onToast: _toast);
+      case 111:
+        return ProEnhance(state: state);
       case 102:
         return MagicCard(state: state, onToast: _toast);
       default:

@@ -42,6 +42,7 @@ class ExportService {
   // karaoke.dart (proportional to each part's slice of the recitation).
   static const double fadeMs = 300; // PATCH_S27_FADE_TEXT_ANIMATIONS: fade in/out duration
   static const double titleCardSec = 2.2;
+  static int _fps = 30; // PATCH_S175_CAPCUT: chosen export frame rate
   // PATCH_S126_TEXT_TRANSITIONS: was 6. Six frames per second means a 300ms
   // fade is two or three visible steps -- that IS the chopping. At 24 the
   // ramp is smooth to the eye, and it costs almost nothing extra because
@@ -102,6 +103,7 @@ class ExportService {
     void Function(double fraction)? onProgress,
   }) async {
     _cancelRequested = false; // PATCH_S37_CANCEL_LONG_JOBS
+    _fps = state.exportFps.clamp(24, 60); // PATCH_S175_CAPCUT
     final work = Directory.systemTemp.createTempSync('ayat_export');
     try {
       onStatus?.call('جارٍ تجهيز الخلفية والنصوص…');
@@ -750,11 +752,11 @@ class ExportService {
   // pace with however many frames -t/-loop end up producing). Never applied
   // to the uploaded recitation video itself, only to generated backgrounds.
   static String _staticImageFilterChain(int w, int h, bool kenBurns) {
-    if (!kenBurns) return 'scale=$w:$h,fps=30';
+    if (!kenBurns) return 'scale=$w:$h,fps=$_fps';
     final bigW = (w * 1.28).round();
     final bigH = (h * 1.28).round();
     return 'scale=$bigW:$bigH,'
-        "zoompan=z='min(zoom+0.0007,1.16)':d=1:s=${w}x$h:fps=30";
+        "zoompan=z='min(zoom+0.0007,1.16)':d=1:s=${w}x$h:fps=$_fps";
   }
 
   static String _colorGradeFilter(ColorGrade g) => switch (g) {
@@ -829,6 +831,16 @@ class ExportService {
     // PATCH_S100_FONTS_SPINSTAR_TINT
     if (state.tintColor != null && state.tintIntensity > 0) {
       parts.add(_tintFilter(state.tintColor!, state.tintIntensity));
+    }
+    // PATCH_S175_CAPCUT: CapCut 'Enhance' - denoise / sharpen
+    if (state.enhanceDenoise > 0) {
+      final d = (state.enhanceDenoise / 100 * 6).toStringAsFixed(2);
+      final dt = (state.enhanceDenoise / 100 * 9).toStringAsFixed(2);
+      parts.add('hqdn3d=$d:$d:$dt:$dt');
+    }
+    if (state.enhanceSharpen > 0) {
+      final a = (state.enhanceSharpen / 100 * 1.5).toStringAsFixed(2);
+      parts.add('unsharp=5:5:$a:5:5:0.0');
     }
     if (state.vignetteEnabled) {
       parts.add(_vignetteFilter(state.vignetteIntensity));
@@ -946,7 +958,7 @@ class ExportService {
           .write('-loop 1 -t ${seg.dur.toStringAsFixed(3)} -i "${seg.path}" ');
       final segIdx = idx++;
       final lbl = 'bgseg$i';
-      filters.add('[$segIdx:v]scale=$w:$h,fps=30,format=yuv420p[$lbl]');
+      filters.add('[$segIdx:v]scale=$w:$h,fps=$_fps,format=yuv420p[$lbl]');
       segLabels.add(lbl);
     }
 
@@ -1020,6 +1032,9 @@ class ExportService {
   // _audioFilterChain and the mixing paths so the two can't drift.
   static List<String> _audioFadeFilters(StudioState state, double duration) {
     final parts = <String>[];
+    // PATCH_S175_CAPCUT: voice clean-up before the fades
+    if (state.audioDenoise) parts.add('afftdn=nf=-25');
+    if (state.audioNormalize) parts.add('loudnorm=I=-16:TP=-1.5:LRA=11');
     if (state.audioFadeIn) parts.add('afade=t=in:st=0:d=1.0');
     if (state.audioFadeOut) {
       final st = max(0.0, duration - 1.5);
@@ -1104,11 +1119,11 @@ class ExportService {
             'crop=$w:$h,boxblur=20:2,eq=brightness=-0.08[vbg]');
         filters.add(
             '[vfb]scale=$w:$h:force_original_aspect_ratio=decrease[vfg]');
-        filters.add('[vbg][vfg]overlay=(W-w)/2:(H-h)/2,fps=30[v0]');
+        filters.add('[vbg][vfg]overlay=(W-w)/2:(H-h)/2,fps=$_fps[v0]');
       } else {
         filters.add(
             '[$vIdx:v]$rot${mir}scale=$w:$h:force_original_aspect_ratio=increase,'
-            'crop=$w:$h,fps=30[v0]');
+            'crop=$w:$h,fps=$_fps[v0]');
       }
       if (state.chromaEnabled) {
         // PATCH_S40_MULTI_BG_CYCLE: single bgPng (optionally Ken Burns —
