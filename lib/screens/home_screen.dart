@@ -10,7 +10,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show HapticFeedback, rootBundle; // PATCH_S83_SYNC_QOL tactile feedback + PATCH_S107 curated bg assets
+    show HapticFeedback, SystemChrome, SystemUiMode, rootBundle; // PATCH_S178_FIX + PATCH_S83_SYNC_QOL tactile feedback + PATCH_S107 curated bg assets
 import 'package:path_provider/path_provider.dart'; // PATCH_S64_BG_UPLOAD_PERSIST
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
