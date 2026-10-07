@@ -57,6 +57,7 @@ import '../widgets/pro_timeline.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
 import '../widgets/pro_extras.dart'; // PATCH_S179_AAA
+import '../widgets/pro_transform.dart'; // PATCH_S180_TRANSFORM
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
@@ -1308,6 +1309,7 @@ class _HomeScreenState extends State<HomeScreen>
         (109, Icons.closed_caption_outlined, 'الترجمة'),
         (110, Icons.emoji_emotions_outlined, 'ملصقات'),
         (111, Icons.high_quality_outlined, 'تحسين'),
+        (112, Icons.open_with, 'التحويل'), // PATCH_S180_TRANSFORM
         (102, Icons.auto_fix_high, 'لمسات'),
       ];
 
@@ -1367,6 +1369,8 @@ class _HomeScreenState extends State<HomeScreen>
                       child:
                           ProNowPlayingChip(state: state, controller: _video!),
                     ),
+                  if (_toolOpen == 112 && _video != null && _video!.value.isInitialized) // PATCH_S180_TRANSFORM
+                    Positioned.fill(child: _xformGestureLayer()),
                   if (_guides)
                     Positioned.fill(
                       child: IgnorePointer(
@@ -1838,6 +1842,83 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // PATCH_S180_TRANSFORM: touch transform on the preview (page «التحويل»):
+  // drag = move, pinch = scale, twist = rotate. With keyframes present each
+  // gesture writes a keyframe at the playhead.
+  double _gBaseScale = 1, _gBaseRot = 0, _gBaseX = 0, _gBaseY = 0;
+  Offset _gStart = Offset.zero;
+
+  Widget _xformGestureLayer() {
+    return LayoutBuilder(builder: (context, c) {
+      final aspect = _frameAspect();
+      var pw = c.maxWidth;
+      var ph = pw / aspect;
+      if (ph > c.maxHeight) {
+        ph = c.maxHeight;
+        pw = ph * aspect;
+      }
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onScaleStart: (d) {
+          final vc = _video;
+          if (vc == null) return;
+          vc.pause();
+          final t = vc.value.position.inMilliseconds / 1000.0;
+          final cur = state.videoTransformAt(t);
+          _gBaseScale = cur.scale;
+          _gBaseRot = cur.rot;
+          _gBaseX = cur.x;
+          _gBaseY = cur.y;
+          _gStart = d.focalPoint;
+        },
+        onScaleUpdate: (d) {
+          final vc = _video;
+          if (vc == null) return;
+          final t = vc.value.position.inMilliseconds / 1000.0;
+          final ns = (_gBaseScale * d.scale).clamp(0.3, 2.0).toDouble();
+          final nx = (_gBaseX + (d.focalPoint.dx - _gStart.dx) / pw)
+              .clamp(-0.9, 0.9)
+              .toDouble();
+          final ny = (_gBaseY + (d.focalPoint.dy - _gStart.dy) / ph)
+              .clamp(-0.9, 0.9)
+              .toDouble();
+          var nr = _gBaseRot + d.rotation * 180 / pi;
+          nr = ((nr + 180) % 360) - 180;
+          if (nr.abs() < 2.5) nr = 0; // snap upright
+          if (state.videoKeys.isNotEmpty) {
+            state.setKeyAt(t, scale: ns, x: nx, y: ny, rot: nr);
+          } else {
+            state.update(() {
+              state.videoScale = ns;
+              state.videoPosX = nx;
+              state.videoPosY = ny;
+              state.videoRot = nr;
+            });
+          }
+        },
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: IgnorePointer(
+            child: Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xB3050F0D),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0x55ECC875)),
+              ),
+              child: const Text('اسحب · قرّب · لُفّ',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AyatColors.parchment)),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
   Widget _toolPanel(double h) {
     final tools = _toolList();
     final cur =
@@ -1968,6 +2049,8 @@ class _HomeScreenState extends State<HomeScreen>
         return ProStickers(state: state, onToast: _toast);
       case 111:
         return ProEnhance(state: state);
+      case 112: // PATCH_S180_TRANSFORM
+        return ProTransformPage(state: state, controller: _video);
       case 102:
         return MagicCard(state: state, onToast: _toast);
       default:

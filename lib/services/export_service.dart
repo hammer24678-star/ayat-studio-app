@@ -32,6 +32,7 @@ import 'package:path_provider/path_provider.dart';
 import '../data/studio_presets.dart';
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../models/studio_state.dart';
+import '../models/video_transform.dart'; // PATCH_S180_TRANSFORM
 import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
@@ -1030,6 +1031,68 @@ class ExportService {
 
   // PATCH_S123_AUDIO_MIX: the fades, as bare filter names. Shared by
   // _audioFilterChain and the mixing paths so the two can't drift.
+  // PATCH_S180_TRANSFORM: keyframe track -> one ffmpeg expression of the
+  // frame time [tv]. Same smoothstep (or linear) maths as
+  // StudioState.videoTransformAt, so the export matches the preview.
+  static String _kfExpr(List<({double t, double v})> pts, bool ease, String tv) {
+    String f(double v) => v.toStringAsFixed(4);
+    if (pts.length == 1) return f(pts.first.v);
+    var e = f(pts.last.v);
+    for (var i = pts.length - 2; i >= 0; i--) {
+      final a = pts[i];
+      final b = pts[i + 1];
+      final dt = (b.t - a.t) < 0.001 ? 0.001 : (b.t - a.t);
+      final p =
+          'clip(($tv-${a.t.toStringAsFixed(3)})/${dt.toStringAsFixed(3)},0,1)';
+      final s = ease ? '($p*$p*(3-2*$p))' : p;
+      e = 'if(lt($tv,${b.t.toStringAsFixed(3)}),${f(a.v)}+(${f(b.v - a.v)})*$s,$e)';
+    }
+    return e;
+  }
+
+  /// One filter that scales, rotates and moves the video layer on a
+  /// full-frame canvas (ffmpeg `perspective`, corners mapped from the
+  /// transform): fixed frame size, so it stays fast even when animated.
+  /// Order = scale, then rotate, then move -- same as the preview.
+  static String _xformFilter(StudioState st, double clipStart) {
+    String f(double v) => v.toStringAsFixed(4);
+    final keys = st.videoKeys;
+    final animated = keys.length >= 2;
+    final tv = '(in/$_fps)'; // frame time in seconds, relative to the clip
+    double sv = st.videoScale, xv = st.videoPosX, yv = st.videoPosY, rv = st.videoRot;
+    if (keys.length == 1) {
+      sv = keys.first.scale;
+      xv = keys.first.x;
+      yv = keys.first.y;
+      rv = keys.first.rot;
+    }
+    List<({double t, double v})> track(double Function(VideoKey) g) =>
+        [for (final k in keys) (t: k.t - clipStart, v: g(k))];
+    final sE = animated ? _kfExpr(track((k) => k.scale), st.videoKeyEase, tv) : f(sv);
+    final xE = animated ? _kfExpr(track((k) => k.x), st.videoKeyEase, tv) : f(xv);
+    final yE = animated ? _kfExpr(track((k) => k.y), st.videoKeyEase, tv) : f(yv);
+    final rE = animated ? _kfExpr(track((k) => k.rot), st.videoKeyEase, tv) : f(rv);
+    String corner(int sx, int sy, bool isX) {
+      final pre = 'st(0,$sE);st(1,($rE)*PI/180);st(2,cos(ld(1)));st(3,sin(ld(1)));';
+      final body = isX
+          ? 'W/2+($xE)*W+ld(0)*(($sx)*W/2*ld(2)-($sy)*H/2*ld(3))'
+          : 'H/2+($yE)*H+ld(0)*(($sx)*W/2*ld(3)+($sy)*H/2*ld(2))';
+      return "'$pre$body'";
+    }
+
+    const cx = [-1, 1, -1, 1];
+    const cy = [-1, -1, 1, 1];
+    final p = StringBuffer();
+    for (var i = 0; i < 4; i++) {
+      p.write('x$i=${corner(cx[i], cy[i], true)}:y$i=${corner(cx[i], cy[i], false)}:');
+    }
+    final op = st.videoOpacity < 0.999
+        ? ',colorchannelmixer=aa=${f(st.videoOpacity)}'
+        : '';
+    return 'format=rgba$op,perspective=${p}sense=destination:'
+        'eval=${animated ? 'frame' : 'init'}:interpolation=linear';
+  }
+
   static List<String> _audioFadeFilters(StudioState state, double duration) {
     final parts = <String>[];
     // PATCH_S175_CAPCUT: voice clean-up before the fades
@@ -1125,7 +1188,7 @@ class ExportService {
             '[$vIdx:v]$rot${mir}scale=$w:$h:force_original_aspect_ratio=increase,'
             'crop=$w:$h,fps=$_fps[v0]');
       }
-      if (state.chromaEnabled) {
+      if (state.chromaEnabled || state.hasVideoTransform) { // PATCH_S180_TRANSFORM
         // PATCH_S40_MULTI_BG_CYCLE: single bgPng (optionally Ken Burns —
         // PATCH_S38_VIDEO_EFFECTS) or the cycling multi-bg chain, either way
         // one [bgv] label to composite the keyed foreground onto.
@@ -1156,7 +1219,15 @@ class ExportService {
             .toStringAsFixed(3);
         final blend =
             (state.chromaSoftness / 300).clamp(0.02, 0.30).toStringAsFixed(3);
-        filters.add('[v0]chromakey=0x$keyHex:$sim:$blend[fg]');
+        // PATCH_S180_TRANSFORM: free transform / keyframes of the video layer.
+        // Order: chroma key (if on) -> transform -> composite over the background.
+        final xf = state.hasVideoTransform ? _xformFilter(state, clipStart) : null;
+        if (state.chromaEnabled) {
+          filters.add('[v0]chromakey=0x$keyHex:$sim:$blend[${xf == null ? 'fg' : 'fgk'}]');
+        }
+        if (xf != null) {
+          filters.add('[${state.chromaEnabled ? 'fgk' : 'v0'}]$xf[fg]');
+        }
         filters.add('[$bgLabel][fg]overlay=shortest=1[base]');
         base = 'base';
       } else {

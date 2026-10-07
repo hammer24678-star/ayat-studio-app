@@ -21,6 +21,7 @@ import '../i18n/app_strings.dart';
 import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
+import 'pro_transform.dart'; // PATCH_S180_TRANSFORM
 import 'color_picker_dialog.dart' show showAyatColorPicker; // PATCH_S145
 
 /// What the overlay is currently showing. During auto-sync playback the
@@ -459,7 +460,10 @@ class _StagePreviewState extends State<StagePreview>
                   // PATCH_S85_VIDEO_ADJUST: optional live blur of the video
                   // layer only — text/particles above stay sharp, matching
                   // the export's gblur placement.
-                  ImageFiltered(
+                  VideoXformLayer( // PATCH_S180_TRANSFORM
+                    state: state,
+                    controller: controller,
+                    child: ImageFiltered(
                     imageFilter: state.videoBlur > 0.05
                         ? ui.ImageFilter.blur(
                             sigmaX: state.videoBlur * scale,
@@ -483,7 +487,7 @@ class _StagePreviewState extends State<StagePreview>
                       ),
                     ),
                   ),
-                  ), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered
+                  )), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered + VideoXformLayer
                 // PATCH_S34_STAGE_EFFECTS: particles over the video/background,
                 // under the ayah text so the words stay readable.
                 if (state.effect != StageEffect.none)

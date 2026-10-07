@@ -815,6 +815,27 @@ class ProTimelineState extends State<ProTimeline> {
               height: h - 4,
               child: Container(color: const Color(0xAA050F0D)),
             ),
+          // PATCH_S180_TRANSFORM: keyframe diamonds
+          for (final k in s.videoKeys)
+            Positioned(
+              left: k.t * _pps - 6,
+              top: (h - 4) / 2 - 3,
+              width: 12,
+              height: 12,
+              child: GestureDetector(
+                onTap: () => _seekSec(k.t),
+                child: Transform.rotate(
+                  angle: 0.7853981633974483,
+                  child: Container(
+                    margin: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: AyatColors.goldBright,
+                      border: Border.all(color: AyatColors.ink, width: 1),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (canTrim) ...[
             _trimHandle(h, ts, true, dur),
             _trimHandle(h, te, false, dur),

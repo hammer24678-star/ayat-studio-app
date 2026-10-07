@@ -6,6 +6,7 @@ import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/whisper_service.dart'; // PATCH_S43_MODEL_SIZE_PICKER
 import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
+import 'video_transform.dart'; // PATCH_S180_TRANSFORM
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -255,6 +256,100 @@ class StudioState extends ChangeNotifier {
   int enhanceDenoise = 0; // 0..100, picture denoise (export)
   bool audioDenoise = false; // voice noise reduction (export)
   bool audioNormalize = false; // loudness normalize (export)
+  // ---- PATCH_S180_TRANSFORM: free transform + keyframes of the video layer ----
+  double videoScale = 1.0; // 0.3..2.0 (used when there are no keyframes)
+  double videoPosX = 0.0; // -0.9..0.9 of the frame width
+  double videoPosY = 0.0; // -0.9..0.9 of the frame height
+  double videoRot = 0.0; // degrees, -180..180
+  double videoOpacity = 1.0; // 0..1, one value for the whole clip
+  List<VideoKey> videoKeys = []; // sorted by time; 2+ = animated
+  bool videoKeyEase = true; // smoothstep between keys (false = linear)
+
+  bool get hasVideoTransform =>
+      hasVideo &&
+      (videoKeys.isNotEmpty ||
+          (videoScale - 1).abs() > 0.001 ||
+          videoPosX.abs() > 0.001 ||
+          videoPosY.abs() > 0.001 ||
+          videoRot.abs() > 0.05 ||
+          videoOpacity < 0.999);
+
+  VideoXform videoTransformAt(double t) => evalVideoXform(
+        keys: videoKeys,
+        ease: videoKeyEase,
+        scale: videoScale,
+        x: videoPosX,
+        y: videoPosY,
+        rot: videoRot,
+        opacity: videoOpacity,
+        t: t,
+      );
+
+  /// The part of the source video that gets exported (same rules as the exporter).
+  (double, double) videoClipRange() {
+    final ts = trimStart;
+    final te = trimEnd;
+    if (ts != null && te != null) return (ts, te);
+    if (manualTrimSet) {
+      final end = trimManualEnd < 0
+          ? videoDurationSec
+          : (trimManualEnd < videoDurationSec ? trimManualEnd : videoDurationSec);
+      return (trimManualStart, end);
+    }
+    return (0.0, videoDurationSec);
+  }
+
+  /// Write a keyframe at [t]; anything not given keeps its current value.
+  void setKeyAt(double t, {double? scale, double? x, double? y, double? rot}) {
+    pushHistory();
+    final tt = (t * 1000).round() / 1000.0;
+    final cur = videoTransformAt(tt);
+    final k = VideoKey(tt,
+        scale: scale ?? cur.scale, x: x ?? cur.x, y: y ?? cur.y, rot: rot ?? cur.rot);
+    videoKeys.removeWhere((e) => (e.t - tt).abs() < 0.05);
+    videoKeys.add(k);
+    videoKeys.sort((a, b) => a.t.compareTo(b.t));
+    notifyListeners();
+  }
+
+  /// True when a keyframe sits within [tol] seconds of [t].
+  bool hasKeyNear(double t, [double tol = 0.12]) =>
+      videoKeys.any((e) => (e.t - t).abs() <= tol);
+
+  void removeKeyNear(double t, [double tol = 0.12]) {
+    if (!hasKeyNear(t, tol)) return;
+    pushHistory();
+    videoKeys.removeWhere((e) => (e.t - t).abs() <= tol);
+    notifyListeners();
+  }
+
+  void clearVideoKeys() {
+    if (videoKeys.isEmpty) return;
+    pushHistory();
+    videoKeys = [];
+    notifyListeners();
+  }
+
+  void applyCameraMove(CameraMove m) {
+    final (a, b) = videoClipRange();
+    if (b - a < 0.2) return;
+    pushHistory();
+    final (k0, k1) = cameraMoveKeys(m, a, b);
+    videoKeys = [k0, k1];
+    notifyListeners();
+  }
+
+  void resetVideoTransform() {
+    pushHistory();
+    videoScale = 1.0;
+    videoPosX = 0.0;
+    videoPosY = 0.0;
+    videoRot = 0.0;
+    videoOpacity = 1.0;
+    videoKeys = [];
+    notifyListeners();
+  }
+
 
   // ---- PATCH_S40_MULTI_BG_CYCLE: cycling 2+ preset backgrounds, export-time only ----
   bool multiBgEnabled = false;
@@ -877,6 +972,13 @@ class StudioState extends ChangeNotifier {
     // PATCH_S54_PRO_EXPORT_CONTROLS: rotation/mirror are per-clip fixes.
     videoRotationQuarterTurns = 0;
     videoMirror = false;
+    // PATCH_S180_TRANSFORM: the transform is per clip too.
+    videoScale = 1.0;
+    videoPosX = 0.0;
+    videoPosY = 0.0;
+    videoRot = 0.0;
+    videoOpacity = 1.0;
+    videoKeys = [];
     notifyListeners();
   }
 
@@ -1137,6 +1239,10 @@ class StudioState extends ChangeNotifier {
         'videoFit': videoFit,
         'videoRotationQuarterTurns': videoRotationQuarterTurns,
         'videoMirror': videoMirror,
+        // PATCH_S180_TRANSFORM
+        'videoXform': <double>[videoScale, videoPosX, videoPosY, videoRot, videoOpacity],
+        'videoKeys': [for (final k in videoKeys) k.copy()],
+        'videoKeyEase': videoKeyEase,
         'showIntro': showIntro,
         'showOutro': showOutro,
         'outroText': outroText,
@@ -1234,6 +1340,15 @@ class StudioState extends ChangeNotifier {
     videoFit = s['videoFit'] as VideoFitMode;
     videoRotationQuarterTurns = s['videoRotationQuarterTurns'] as int;
     videoMirror = s['videoMirror'] as bool;
+    // PATCH_S180_TRANSFORM
+    final vx = s['videoXform'] as List<double>;
+    videoScale = vx[0];
+    videoPosX = vx[1];
+    videoPosY = vx[2];
+    videoRot = vx[3];
+    videoOpacity = vx[4];
+    videoKeys = [for (final k in (s['videoKeys'] as List).cast<VideoKey>()) k.copy()];
+    videoKeyEase = s['videoKeyEase'] as bool;
     showIntro = s['showIntro'] as bool;
     showOutro = s['showOutro'] as bool;
     outroText = s['outroText'] as String;
