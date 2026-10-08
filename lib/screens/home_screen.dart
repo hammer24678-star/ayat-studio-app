@@ -1785,9 +1785,13 @@ class _HomeScreenState extends State<HomeScreen>
           itemBuilder: (context, k) {
             final it = items[k];
             final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
-            return InkWell(
+            return PressableScale( // PATCH_S186_SMOOTH_CONTROL
               borderRadius: BorderRadius.circular(14),
-              onTap: it.$3,
+              pressedScale: 0.9,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                it.$3();
+              },
               child: SizedBox(
                 width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
                 child: Column(
@@ -1840,9 +1844,13 @@ class _HomeScreenState extends State<HomeScreen>
           itemBuilder: (context, k) {
             final it = items[k];
             final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
-            return InkWell(
+            return PressableScale( // PATCH_S186_SMOOTH_CONTROL
               borderRadius: BorderRadius.circular(14),
-              onTap: it.$3,
+              pressedScale: 0.9,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                it.$3();
+              },
               child: SizedBox(
                 width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
                 child: Column(
@@ -1878,6 +1886,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.animation, 'الحركة', () => _openToolFromClip(108), _toolOpen == 108),
         (Icons.closed_caption_outlined, 'الترجمة', () => _openToolFromClip(109), _toolOpen == 109),
         (Icons.record_voice_over_outlined, 'القارئ', () => _openToolFromClip(129), _toolOpen == 129),
+        (Icons.tune, 'ضبط', _openTextTuneSheet, false), // PATCH_S186_SMOOTH_CONTROL
       ];
 
   void _trimSeg(int i, {required bool head}) {
@@ -2336,6 +2345,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       (Icons.text_decrease, 'أصغر', () => _nudgeTextSize(-0.1), false),
       (Icons.text_increase, 'أكبر', () => _nudgeTextSize(0.1), false),
+      (Icons.tune, 'ضبط', _openTextTuneSheet, false), // PATCH_S186_SMOOTH_CONTROL
       (Icons.font_download_outlined, 'الخط', _openFontSheet, false),
       (Icons.vertical_align_center, 'الموضع', _cycleTextPos, false),
       // PATCH_S184_PRO_MAIN: the whole look of the text, from the bar
@@ -2356,6 +2366,131 @@ class _HomeScreenState extends State<HomeScreen>
       ],
       (Icons.auto_awesome, 'الروح', _applyRuhNow, false),
     ];
+  }
+
+  // PATCH_S186_SMOOTH_CONTROL: live fine-tune of the text, every value on a slider.
+  Widget _tuneSlider(String label, String shown, double value, double min,
+      double max, void Function(double) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AyatColors.parchment)),
+            ),
+            Text(shown,
+                style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    color: AyatColors.goldBright)),
+          ],
+        ),
+        Slider(
+          value: value.clamp(min, max).toDouble(),
+          min: min,
+          max: max,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  void _openTextTuneSheet() {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AyatColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SafeArea(
+        child: ListenableBuilder(
+          listenable: state,
+          builder: (context, _) => ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.62),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('ضبط النص',
+                      style: Theme.of(ctx).textTheme.headlineMedium),
+                  const SizedBox(height: 6),
+                  _tuneSlider(
+                      'الحجم',
+                      '${(state.textUserScale * 100).round()}٪',
+                      state.textUserScale,
+                      0.4,
+                      3.0,
+                      (v) => state.update(() => state.textUserScale = v)),
+                  _tuneSlider(
+                      'تباعد الأحرف',
+                      state.letterSpacing.toStringAsFixed(1),
+                      state.letterSpacing,
+                      0,
+                      12,
+                      (v) => state.update(() => state.letterSpacing = v)),
+                  _tuneSlider(
+                      'ارتفاع السطر',
+                      state.lineHeightMultiplier.toStringAsFixed(2),
+                      state.lineHeightMultiplier,
+                      1.0,
+                      2.4,
+                      (v) => state.update(() => state.lineHeightMultiplier = v)),
+                  _tuneSlider(
+                      'الشفافية',
+                      '${(state.overallOpacity * 100).round()}٪',
+                      state.overallOpacity,
+                      0.1,
+                      1.0,
+                      (v) => state.update(() => state.overallOpacity = v)),
+                  _tuneSlider(
+                      'مدة الانتقال',
+                      '${state.textTransitionMs} م.ث',
+                      state.textTransitionMs.toDouble(),
+                      100,
+                      2000,
+                      (v) => state
+                          .update(() => state.textTransitionMs = v.round())),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            state.update(() => state.textOffset = Offset.zero);
+                          },
+                          icon: const Icon(Icons.center_focus_strong, size: 18),
+                          label: const Text('إعادة الموضع'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            state.update(() => state.textUserScale = 1.0);
+                          },
+                          icon: const Icon(Icons.restart_alt, size: 18),
+                          label: const Text('إعادة الحجم'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _nudgeTextSize(double d) {
