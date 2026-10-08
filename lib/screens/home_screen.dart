@@ -10,7 +10,7 @@ import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show HapticFeedback, SystemChrome, SystemUiMode, rootBundle; // PATCH_S178_FIX + PATCH_S83_SYNC_QOL tactile feedback + PATCH_S107 curated bg assets
+    show HapticFeedback, SystemChrome, SystemNavigator, SystemUiMode, rootBundle; // PATCH_S178_FIX + PATCH_S83_SYNC_QOL tactile feedback + PATCH_S107 curated bg assets
 import 'package:path_provider/path_provider.dart'; // PATCH_S64_BG_UPLOAD_PERSIST
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
@@ -1187,12 +1187,51 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // ---- PATCH_S191_FEEL: back does the gentle thing first ----------------
+  DateTime _lastBack = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onBack(bool didPop, Object? result) {
+    if (didPop) return;
+    if (_toolOpen != -1) {
+      setState(() => _toolOpen = -1);
+      return;
+    }
+    if (_hasSelSeg ||
+        _hasSelCue ||
+        _hasSelMain ||
+        state.stageTextSelected ||
+        state.hasPipSel) {
+      state.clearStageSelection();
+      state.selectPip(-1);
+      setState(() {
+        _selSeg = -1;
+        _selCue = -1;
+        _selMain = false;
+      });
+      return;
+    }
+    final now = DateTime.now();
+    if (state.hasVideo &&
+        now.difference(_lastBack) > const Duration(seconds: 2)) {
+      _lastBack = now;
+      _toast('اضغط رجوع مرة أخرى للخروج');
+      return;
+    }
+    SystemNavigator.pop();
+  }
+
   void _showInfo() => showAyatInfoDialog(context);
 
   // ------------------------------------------------------------------ build
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: _onBack, // PATCH_S191_FEEL
+        child: _studioScaffold(context),
+      );
+
+  Widget _studioScaffold(BuildContext context) {
     return Scaffold(
       backgroundColor: AyatColors.ink,
       // PATCH_S165_UI_REFRESH: transparent bar, shimmering wordmark, gold
@@ -1228,12 +1267,12 @@ class _HomeScreenState extends State<HomeScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  onPressed: state.canUndo ? state.undoStep : null,
+                  onPressed: state.canUndo ? () { HapticFeedback.selectionClick(); state.undoStep(); } : null, // PATCH_S191_FEEL
                   icon: const Icon(Icons.undo),
                   tooltip: _t('studio.undo'),
                 ),
                 IconButton(
-                  onPressed: state.canRedo ? state.redoStep : null,
+                  onPressed: state.canRedo ? () { HapticFeedback.selectionClick(); state.redoStep(); } : null, // PATCH_S191_FEEL
                   icon: const Icon(Icons.redo),
                   tooltip: _t('studio.redo'),
                 ),

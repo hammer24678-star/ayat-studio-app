@@ -9,6 +9,7 @@ import 'dart:math'; // PATCH_S58_LIVE_EFFECTS_PREVIEW
 import 'dart:ui' as ui; // PATCH_S60_FIX_POINTMODE
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback; // PATCH_S191_FEEL
 import 'package:video_player/video_player.dart';
 
 import '../data/studio_presets.dart';
@@ -99,6 +100,10 @@ class _StagePreviewState extends State<StagePreview>
   // frame.
   final ValueNotifier<int> _grainSeed = ValueNotifier(0);
   Timer? _grainTimer;
+  // PATCH_S191_FEEL
+  final ValueNotifier<_TextLive?> _textLive = ValueNotifier<_TextLive?>(null);
+  Offset _rawOff = Offset.zero;
+  bool _snapX = false, _snapY = false, _snapS = false;
 
   // PATCH_S34_PLAYER_CONTROLS_TRIM: transient ▶/⏸ flash after tapping the video.
   IconData? _tapFlashIcon;
@@ -112,6 +117,7 @@ class _StagePreviewState extends State<StagePreview>
     _grainTimer?.cancel(); // PATCH_S58_LIVE_EFFECTS_PREVIEW
     _grainSeed.dispose(); // PATCH_S58_LIVE_EFFECTS_PREVIEW
     _tapFlashTimer?.cancel();
+    _textLive.dispose(); // PATCH_S191_FEEL
     super.dispose();
   }
 
@@ -1105,12 +1111,40 @@ class _StagePreviewState extends State<StagePreview>
           }
         }
       },
-      onScaleStart: (_) => gestureStartUserScale = state.textUserScale,
+      onScaleStart: (_) {
+        gestureStartUserScale = state.textUserScale;
+        _rawOff = state.textOffset;
+        _snapX = _snapY = _snapS = false;
+        _textLive.value = _TextLive(state.textOffset, state.textUserScale);
+      },
       onScaleUpdate: (details) {
+        // PATCH_S191_FEEL: no per-frame state change. The finger moves a live
+        // copy; centre / preset line / 100% size magnet with a tick.
+        _rawOff += details.focalPointDelta / (scale <= 0 ? 1.0 : scale);
+        final tol = 8 / (scale <= 0 ? 1.0 : scale);
+        var ox = _rawOff.dx, oy = _rawOff.dy;
+        final sx = ox.abs() < tol, sy = oy.abs() < tol;
+        if (sx) ox = 0;
+        if (sy) oy = 0;
+        var s = (gestureStartUserScale * details.scale).clamp(0.4, 3.0).toDouble();
+        final ss = (s - 1.0).abs() < 0.04;
+        if (ss) s = 1.0;
+        if ((sx && !_snapX) || (sy && !_snapY) || (ss && !_snapS)) {
+          HapticFeedback.selectionClick();
+        }
+        _snapX = sx;
+        _snapY = sy;
+        _snapS = ss;
+        _textLive.value = _TextLive(Offset(ox, oy), s);
+      },
+      onScaleEnd: (_) {
+        final l = _textLive.value;
+        _textLive.value = null;
+        if (l == null) return;
+        if (l.offset == state.textOffset && l.scale == state.textUserScale) return;
         state.update(() {
-          state.textOffset += details.focalPointDelta / scale;
-          state.textUserScale =
-              (gestureStartUserScale * details.scale).clamp(0.4, 3.0); // PATCH_S183_TEXT_BAR
+          state.textOffset = l.offset;
+          state.textUserScale = l.scale;
         });
       },
       // PATCH_S133_STAGE_TEXT_SELECT_EDIT: double-tap now opens the text
@@ -1128,11 +1162,21 @@ class _StagePreviewState extends State<StagePreview>
           });
         }
       },
-      child: Transform.translate(
-        offset: Offset(
-            state.textOffset.dx * scale, state.textOffset.dy * scale),
-        child: Align(
-          alignment: Alignment(0, alignY),
+      // PATCH_S191_FEEL: while a finger is down only this builder repaints
+      // (live offset / size); the change is committed once, on lift.
+      child: ValueListenableBuilder<_TextLive?>(
+        valueListenable: _textLive,
+        builder: (context, liveT, inner) {
+          final off = liveT?.offset ?? state.textOffset;
+          final k = liveT == null ? 1.0 : liveT.scale / state.textUserScale;
+          return Transform.translate(
+            offset: Offset(off.dx * scale, off.dy * scale),
+            child: Align(
+              alignment: Alignment(0, alignY),
+              child: Transform.scale(scale: k, child: inner),
+            ),
+          );
+        },
           // PATCH_S133_STAGE_TEXT_SELECT_EDIT: dashed gold selection box +
           // corner handles, reusing SelectionBoxPainter as-is (already
           // themed with AyatColors) -- CustomPaint's foregroundPainter
@@ -1171,7 +1215,6 @@ class _StagePreviewState extends State<StagePreview>
               ),
             ),
           ),
-        ),
       ),
     );
   }
@@ -1184,6 +1227,13 @@ class _StagePreviewState extends State<StagePreview>
 // carries the current motion down to it, and because _MotionScopeBuilder
 // depends on the scope, only the typewriter transitions actually rebuild the
 // overlay per frame; everything else just re-wraps an unchanged subtree.
+// PATCH_S191_FEEL: the text's position / size while a finger is on it.
+class _TextLive {
+  final Offset offset;
+  final double scale;
+  const _TextLive(this.offset, this.scale);
+}
+
 class _MotionScope extends InheritedWidget {
   final TextMotion motion;
   const _MotionScope({required this.motion, required super.child});
