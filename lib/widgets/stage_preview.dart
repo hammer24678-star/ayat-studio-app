@@ -22,6 +22,7 @@ import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
 import 'pro_transform.dart'; // PATCH_S180_TRANSFORM
+import '../services/ruh_touch.dart'; // PATCH_S181_CLIPTOUCH
 import 'color_picker_dialog.dart' show showAyatColorPicker; // PATCH_S145
 
 /// What the overlay is currently showing. During auto-sync playback the
@@ -1090,6 +1091,11 @@ class _StagePreviewState extends State<StagePreview>
           state.clearStageSelection();
         } else {
           state.selectStageText(liveSegment);
+          // PATCH_S181_CLIPTOUCH: touching the text lets its روح dress the stage
+          if (state.autoRuhOnTouch) {
+            RuhTouch.apply(
+                context, state, liveSegment?.displayText ?? state.ayahText);
+          }
         }
       },
       onScaleStart: (_) => gestureStartUserScale = state.textUserScale,

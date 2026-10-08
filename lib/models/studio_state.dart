@@ -222,24 +222,24 @@ class StudioState extends ChangeNotifier {
   bool muteAudio = false;
 
   // ---- PATCH_S127_MUSIC_BED ------------------------------------------
-  /// An optional background music / ambience track, mixed UNDER whatever
+  /// An optional background audio / ambience track, mixed UNDER whatever
   /// audio the export already has (the recitation, the clip's own sound, or
   /// both). Separate from [originalAudioMix], which only rebalances the two
   /// tracks that were already there.
   ///
   /// A bed shorter than the clip is looped rather than leaving silence, and
   /// a longer one is cut to length, so its duration never has to match.
-  String? musicBedPath;
+  String? ambienceBedPath;
 
   /// 0..1, how loud the bed sits under everything else. The default is
   /// deliberately quiet: this is meant to sit behind a recitation.
-  double musicBedVolume = 0.18;
+  double ambienceBedVolume = 0.18;
 
   /// Ease the bed in and out rather than starting and stopping it dead.
-  bool musicBedFade = true;
+  bool ambienceBedFade = true;
 
-  bool get hasMusicBed =>
-      !muteAudio && musicBedPath != null && musicBedVolume > 0.005;
+  bool get hasAmbienceBed =>
+      !muteAudio && ambienceBedPath != null && ambienceBedVolume > 0.005;
 
   // ---- PATCH_S54_PRO_EXPORT_CONTROLS ----
   VideoFitMode videoFit = VideoFitMode.source;
@@ -408,6 +408,62 @@ class StudioState extends ChangeNotifier {
     textTimeCues = next;
     notifyListeners();
   }
+
+  // PATCH_S181_CLIPTOUCH: shaping text blocks on the timeline.
+  /// Moves one or both edges of a text block (seconds). The block never gets
+  /// shorter than 0.3 s and never starts before 0.
+  void setTextCueWindow(int index, {double? start, double? end}) {
+    if (index < 0 || index >= textTimeCues.length) return;
+    final c = textTimeCues[index];
+    var s = start ?? c.start;
+    var e = end ?? c.end;
+    if (s < 0) s = 0;
+    if (e - s < 0.3) {
+      if (start != null) {
+        s = e - 0.3;
+      } else {
+        e = s + 0.3;
+      }
+    }
+    if (s < 0) {
+      s = 0;
+      e = 0.3;
+    }
+    c.start = s;
+    c.end = e;
+    notifyListeners();
+  }
+
+  /// Splits a text block in two at [atSec]. False when the point is too close
+  /// to an edge (or outside the block).
+  bool splitTextCueAt(int index, double atSec) {
+    if (index < 0 || index >= textTimeCues.length) return false;
+    final c = textTimeCues[index];
+    if (atSec < c.start + 0.3 || atSec > c.end - 0.3) return false;
+    final second = TextTimeCue(
+        text: c.text, translation: c.translation, start: atSec, end: c.end);
+    c.end = atSec;
+    final next = [...textTimeCues]..insert(index + 1, second);
+    textTimeCues = next;
+    notifyListeners();
+    return true;
+  }
+
+  /// A copy of the block right after it (same length), nudged to start where
+  /// the original ends.
+  void duplicateTextCue(int index) {
+    if (index < 0 || index >= textTimeCues.length) return;
+    final c = textTimeCues[index];
+    final len = c.end - c.start;
+    final copy = TextTimeCue(
+        text: c.text,
+        translation: c.translation,
+        start: c.end,
+        end: c.end + len);
+    final next = [...textTimeCues]..insert(index + 1, copy);
+    textTimeCues = next;
+    notifyListeners();
+  }
   // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: word index (into
   // state.ayahText.split(RegExp(r'\s+'))) -> the color that word is
   // drawn in instead of the normal text color. Was a Set<int> that only
@@ -516,6 +572,9 @@ class StudioState extends ChangeNotifier {
     const Color(0xFF8A6B3F), const Color(0xFF5C4033), const Color(0xFF000000)];
   List<String> unifiedTexts = const [];
   bool stageTextSelected = false;
+  // PATCH_S181_CLIPTOUCH: touching the text on the stage dresses the stage in
+  // its روح (Ayah Mood) by itself. Switch lives in the روح card.
+  bool autoRuhOnTouch = true;
   // PATCH_S133_STAGE_TEXT_SELECT_EDIT: which TimelineSegment the selection
   // box on the stage is currently around -- null while stageTextSelected
   // is showing the statically-picked ayah (no auto-sync timeline playing,
@@ -1257,12 +1316,12 @@ class StudioState extends ChangeNotifier {
         'originalAudioMix': originalAudioMix,
         'muteAudio': muteAudio,
         // PATCH_S127_MUSIC_BED
-        'musicBedPath': musicBedPath,
-        'musicBedVolume': musicBedVolume,
-        'musicBedFade': musicBedFade,
+        'ambienceBedPath': ambienceBedPath,
+        'ambienceBedVolume': ambienceBedVolume,
+        'ambienceBedFade': ambienceBedFade,
         // PATCH_S162_CUE_GATE_AND_UNDO_FIX: these were never added when
         // each feature landed (S129/S143/S145/S160), unlike same-vintage
-        // watermark/music-bed fields just above -- removing a committed
+        // watermark/ambience-bed fields just above -- removing a committed
         // text-time-cue and hitting Undo did not bring it back, and
         // editing a caption/word-color/transition choice was not
         // undoable at all. Lists/maps are copied by value here, same
@@ -1360,9 +1419,9 @@ class StudioState extends ChangeNotifier {
     watermarkScale = s['watermarkScale'] as double;
     originalAudioMix = s['originalAudioMix'] as double;
     muteAudio = s['muteAudio'] as bool;
-    musicBedPath = s['musicBedPath'] as String?;
-    musicBedVolume = s['musicBedVolume'] as double;
-    musicBedFade = s['musicBedFade'] as bool;
+    ambienceBedPath = s['ambienceBedPath'] as String?;
+    ambienceBedVolume = s['ambienceBedVolume'] as double;
+    ambienceBedFade = s['ambienceBedFade'] as bool;
     // PATCH_S162_CUE_GATE_AND_UNDO_FIX: restore the fields captured above.
     textTimeCues = (s['textTimeCues'] as List).cast<TextTimeCue>();
     textTimeStartOverride = s['textTimeStartOverride'] as double?;

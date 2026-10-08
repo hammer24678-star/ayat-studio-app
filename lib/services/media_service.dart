@@ -145,6 +145,123 @@ class MediaService {
     return outPath;
   }
 
+  // PATCH_S181_CLIPTOUCH: appends a VIDEO or a PICTURE after the current clip.
+  // Same idea as S79 / S125: render "clip + new part" to one file so everything
+  // downstream keeps seeing a single source. Unlike mergeVideos it also works
+  // when the current clip is audio-only (a black picture stands in for it), when
+  // either side has no audio (silence stands in), and for still pictures.
+  static Future<bool> _hasStream(String path, String type,
+      {required bool fallback}) async {
+    try {
+      final session = await FFprobeKit.getMediaInformation(path);
+      final info = session.getMediaInformation();
+      if (info == null) return fallback;
+      return info.getStreams().any((s) => s.getType() == type);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  static Future<String> appendClip(
+    String basePath,
+    String addPath, {
+    required double baseDurationSec,
+    required bool baseHasVideo,
+    required bool addIsImage,
+    double imageSec = 5,
+    int width = 1080,
+    int height = 1920,
+  }) async {
+    if (!File(basePath).existsSync()) {
+      throw Exception('تعذّر الوصول إلى المقطع الحالي — قد يكون تم حذفه أو نقله.\n$basePath');
+    }
+    if (!File(addPath).existsSync()) {
+      throw Exception('تعذّر الوصول إلى الملف المضاف — قد يكون مسارًا غير مباشر (SAF) أو تم حذفه.\n$addPath');
+    }
+    final baseDur = baseDurationSec > 0.1
+        ? baseDurationSec
+        : ((await probedDurationSec(basePath)) ?? 1.0);
+    final addDur =
+        addIsImage ? imageSec : ((await probedDurationSec(addPath)) ?? 5.0);
+    final baseHasAudio = await _hasStream(basePath, 'audio', fallback: true);
+    final addHasAudio = addIsImage
+        ? false
+        : await _hasStream(addPath, 'audio', fallback: true);
+    final addHasVideo = addIsImage
+        ? true
+        : await _hasStream(addPath, 'video', fallback: true);
+
+    final dir = await getTemporaryDirectory();
+    final outPath =
+        '${dir.path}/appended_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final inputs = StringBuffer('-y ');
+    final filters = <String>[];
+    var next = 0;
+    int addInput(String args) {
+      inputs.write('$args ');
+      return next++;
+    }
+
+    String d(double v) => v.toStringAsFixed(3);
+
+    (String, String) part(
+      String tag,
+      String path, {
+      required bool image,
+      required bool hasV,
+      required bool hasA,
+      required double dur,
+    }) {
+      var fileIdx = -1;
+      var vSrc = '';
+      if (image) {
+        fileIdx = addInput('-loop 1 -framerate 30 -t ${d(dur)} -i "$path"');
+        vSrc = '[$fileIdx:v]';
+      } else {
+        fileIdx = addInput('-i "$path"');
+        if (hasV) vSrc = '[$fileIdx:v]';
+      }
+      if (vSrc.isEmpty) {
+        final b = addInput(
+            '-f lavfi -t ${d(dur)} -i "color=c=black:s=${width}x$height:r=30"');
+        vSrc = '[$b:v]';
+      }
+      String aSrc;
+      if (!image && hasA) {
+        aSrc = '[$fileIdx:a]';
+      } else {
+        final s = addInput(
+            '-f lavfi -t ${d(dur)} -i "anullsrc=r=44100:cl=stereo"');
+        aSrc = '[$s:a]';
+      }
+      filters.add('${vSrc}scale=$width:$height:force_original_aspect_ratio=decrease,'
+          'pad=$width:$height:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p,'
+          'tpad=stop_mode=clone:stop_duration=${d(dur)},'
+          'trim=duration=${d(dur)},setpts=PTS-STARTPTS[v$tag]');
+      filters.add('${aSrc}aresample=44100,aformat=channel_layouts=stereo,'
+          'apad,atrim=duration=${d(dur)},asetpts=PTS-STARTPTS[a$tag]');
+      return ('[v$tag]', '[a$tag]');
+    }
+
+    final a = part('0', basePath,
+        image: false, hasV: baseHasVideo, hasA: baseHasAudio, dur: baseDur);
+    final b = part('1', addPath,
+        image: addIsImage, hasV: addHasVideo, hasA: addHasAudio, dur: addDur);
+    filters.add('${a.$1}${a.$2}${b.$1}${b.$2}concat=n=2:v=1:a=1[outv][outa]');
+    final cmd = '$inputs-filter_complex "${filters.join(';')}" '
+        '-map "[outv]" -map "[outa]" -c:v libx264 -preset ultrafast -crf 23 '
+        '-pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart "$outPath"';
+    final session = await FFmpegKit.execute(cmd);
+    final rc = await session.getReturnCode();
+    if (!ReturnCode.isSuccess(rc)) {
+      final rawLog = (await session.getOutput()) ?? '';
+      final log =
+          rawLog.length > 900 ? rawLog.substring(rawLog.length - 900) : rawLog;
+      throw Exception('تعذّرت الإضافة (ffmpeg rc=$rc)\n$log');
+    }
+    return outPath;
+  }
+
   // PATCH_S125_SEQUENCE: S79's merge took exactly two clips, whole, butted
   // end to end. This is the general case -- N clips, each with its own trim,
   // joined either with a hard cut or a real transition.

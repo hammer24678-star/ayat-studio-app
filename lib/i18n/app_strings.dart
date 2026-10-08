@@ -1163,14 +1163,14 @@ const Map<String, List<String>> _table = {
     'Lebih lama berarti lebih tenang dan halus. Animasi dirender pada {} bingkai per detik saat ekspor, jadi tidak ada patah-patah.',
     'زیادہ دورانیہ زیادہ پرسکون اور ہموار ہوتا ہے۔ ایکسپورٹ کے وقت حرکت {} فریم فی سیکنڈ پر بنائی جاتی ہے، اس لیے کوئی جھٹکا نہیں آتا۔',
   ],
-  'home.backgroundMusicAmbience': [
-    'خلفية موسيقية / أجواء',
-    'Background music / ambience',
-    'Musique de fond / ambiance',
-    'Musik latar / suasana',
-    'پس منظر موسیقی / ماحول',
+  'home.backgroundAudioAmbience': [
+    'خلفية صوتية / أجواء',
+    'Background audio / ambience',
+    'Audio de fond / ambiance',
+    'Audio latar / suasana',
+    'پس منظر آڈیو / ماحول',
   ],
-  'home.bgMusicLoopNote': [
+  'home.bgAudioLoopNote': [
     'مسار صوتي هادئ يُمزج تحت التلاوة وصوت المقطع. يُكرَّر تلقائيًا إذا كان أقصر من الفيديو ويُقصّ إذا كان أطول، فلا حاجة لمطابقة المدة.',
     'A quiet audio track mixed under the recitation and the clip\'s own sound. It loops automatically if shorter than the video and is trimmed if longer, so there\'s no need to match the duration.',
     'Une piste audio douce mixée sous la récitation et le son du clip. Elle boucle automatiquement si elle est plus courte que la vidéo et est coupée si elle est plus longue — inutile d\'ajuster la durée.',

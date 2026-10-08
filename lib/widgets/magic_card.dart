@@ -11,6 +11,7 @@ import '../services/lamp_streak.dart';
 import '../services/stage_effects.dart';
 import '../theme/ayat_theme.dart';
 import 'motion.dart';
+import 'gold_switch.dart'; // PATCH_S181_CLIPTOUCH
 
 class _Moment {
   final String title;
@@ -261,6 +262,14 @@ class _MagicCardState extends State<MagicCard> {
                 applied ? null : () => _apply(r)),
             _ghostButton('فاجئني', Icons.casino_outlined, () => _surprise(r)),
           ]),
+          const SizedBox(height: 10),
+          // PATCH_S181_CLIPTOUCH: touching text on the stage applies its روح
+          ToggleRow(
+            label: 'تطبيق الروح تلقائيًا عند لمس النص',
+            value: widget.state.autoRuhOnTouch,
+            onChanged: (v) =>
+                widget.state.update(() => widget.state.autoRuhOnTouch = v),
+          ),
         ],
       ),
     );

@@ -300,15 +300,20 @@ class SettingsService {
       // level and the fade always come back, the file only if it still
       // exists. A vanished input would fail the export outright, and doing
       // that silently on the next launch is worse than losing the choice.
-      state.musicBedVolume =
-          (read<double>('musicBedVolume') ?? state.musicBedVolume)
+      state.ambienceBedVolume =
+          (read<double>('ambienceBedVolume') ??
+              read<double>('musicBedVolume') ?? // legacy saved name
+              state.ambienceBedVolume)
               .clamp(0.0, 1.0);
-      state.musicBedFade = read<bool>('musicBedFade') ?? state.musicBedFade;
-      final savedBed = read<String>('musicBedPath');
+      state.ambienceBedFade = read<bool>('ambienceBedFade') ??
+          read<bool>('musicBedFade') ?? // legacy saved name
+          state.ambienceBedFade;
+      final savedBed = read<String>('ambienceBedPath') ??
+          read<String>('musicBedPath'); // legacy saved name
       if (savedBed != null &&
           savedBed.isNotEmpty &&
           File(savedBed).existsSync()) {
-        state.musicBedPath = savedBed;
+        state.ambienceBedPath = savedBed;
       }
       // PATCH_S82_CUSTOM_BG_LIBRARY: restore the full uploaded-background
       // library, uncapped. Paths whose file no longer exists on disk (app
@@ -428,9 +433,9 @@ class SettingsService {
       // are remembered. The PATH is remembered too, but restore() only
       // reinstates it if the file is still there -- an uploaded track can be
       // gone by the next launch, and a missing input fails the whole export.
-      p.setString('${_prefix}musicBedPath', state.musicBedPath ?? ''),
-      p.setDouble('${_prefix}musicBedVolume', state.musicBedVolume),
-      p.setBool('${_prefix}musicBedFade', state.musicBedFade),
+      p.setString('${_prefix}ambienceBedPath', state.ambienceBedPath ?? ''),
+      p.setDouble('${_prefix}ambienceBedVolume', state.ambienceBedVolume),
+      p.setBool('${_prefix}ambienceBedFade', state.ambienceBedFade),
       // PATCH_S125_CUSTOM_ASPECT + PATCH_S125_SUBTITLES
       p.setInt('${_prefix}customAspectW', state.customAspectW),
       p.setInt('${_prefix}customAspectH', state.customAspectH),

@@ -1,7 +1,7 @@
 // PATCH_S174_PRO_EDITOR
 // Multi-track timeline in the style of CapCut / Premiere Pro / DaVinci Resolve:
 // time ruler, a playhead that follows playback, one lane per kind of media
-// (text cues, ayah clips, video, original audio, reciter audio, music bed),
+// (text cues, ayah clips, video, original audio, reciter audio, ambience bed),
 // real audio waveforms, trim handles with snapping, markers, pinch-to-zoom.
 //
 // Time always runs left to right (the whole widget is forced LTR); only the
@@ -32,6 +32,14 @@ class ProTimeline extends StatefulWidget {
   /// Fewer lanes / shorter lanes while a tool panel is open.
   final bool compact;
 
+  // PATCH_S181_CLIPTOUCH: text blocks and the main clip are selectable too, and
+  // the gold "+" at the end of the clip adds a video / picture.
+  final int selectedCue;
+  final ValueChanged<int>? onSelectCue;
+  final bool selectedMain;
+  final ValueChanged<bool>? onSelectMain;
+  final VoidCallback? onAddMedia;
+
   const ProTimeline({
     super.key,
     required this.state,
@@ -40,6 +48,11 @@ class ProTimeline extends StatefulWidget {
     required this.onSelectSeg,
     required this.markers,
     this.compact = false,
+    this.selectedCue = -1, // PATCH_S181_CLIPTOUCH
+    this.onSelectCue,
+    this.selectedMain = false,
+    this.onSelectMain,
+    this.onAddMedia,
   });
 
   @override
@@ -76,7 +89,7 @@ class ProTimelineState extends State<ProTimeline> {
   final Set<String> _locked = {};
   final _PeakSlot _vid = _PeakSlot();
   final _PeakSlot _rec = _PeakSlot();
-  final _PeakSlot _mus = _PeakSlot();
+  final _PeakSlot _amb = _PeakSlot();
   // PATCH_S179_AAA
   bool _snap = true;
   bool _scrubbing = false;
@@ -134,6 +147,33 @@ class ProTimelineState extends State<ProTimeline> {
   void _seekSec(double sec) {
     final ms = (sec.clamp(0.0, _dur) * 1000).round();
     widget.controller.seekTo(Duration(milliseconds: ms));
+  }
+
+  // PATCH_S181_CLIPTOUCH: zoom so [a, b] (seconds) fills most of the view and
+  // centre it - the toolbar's تكبير button, and the automatic zoom that runs
+  // when a clip too narrow to grab gets selected.
+  void zoomToRange(double a, double b) => _zoomTo(a, b, fill: 0.78, force: true);
+
+  void _zoomIfNarrow(double a, double b) {
+    if ((b - a) * _pps >= 90) return;
+    _zoomTo(a, b, fill: 0.5, force: false);
+  }
+
+  void _zoomTo(double a, double b, {required double fill, required bool force}) {
+    final span = b - a;
+    if (span <= 0.05) return;
+    final target = ((_viewW * fill) / span).clamp(_minPps, _maxPps).toDouble();
+    if (!force && target <= _pps) return;
+    _setPps(target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final mid = (a + b) / 2 * _pps;
+      _scroll.animateTo(
+        (mid - _viewW / 2).clamp(0.0, _scroll.position.maxScrollExtent).toDouble(),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void zoomBy(double factor) => _setPps(_pps * factor);
@@ -231,15 +271,15 @@ class ProTimelineState extends State<ProTimeline> {
     final c = widget.compact;
     return [
       if (!c && s.textTimeCues.isNotEmpty)
-        const _LaneSpec('text', Icons.title, 26),
-      const _LaneSpec('ayah', Icons.menu_book_outlined, 36),
+        const _LaneSpec('text', Icons.title, 32), // PATCH_S181_CLIPTOUCH
+      _LaneSpec('ayah', Icons.menu_book_outlined, c ? 36 : 44),
       _LaneSpec('video', Icons.movie_outlined, c ? 30 : 40),
       _LaneSpec('audio',
           s.muteAudio ? Icons.volume_off : Icons.volume_up_outlined, c ? 26 : 34),
       if (!c && s.selectedReciterAudio != null)
         const _LaneSpec('reciter', Icons.graphic_eq, 30),
-      if (!c && s.musicBedPath != null)
-        const _LaneSpec('music', Icons.music_note_outlined, 26),
+      if (!c && s.ambienceBedPath != null)
+        const _LaneSpec('ambience', Icons.waves, 26),
     ];
   }
 
@@ -248,7 +288,7 @@ class ProTimelineState extends State<ProTimeline> {
     final s = widget.state;
     _ensure(_vid, s.videoPath);
     _ensure(_rec, s.selectedReciterAudio);
-    _ensure(_mus, s.musicBedPath);
+    _ensure(_amb, s.ambienceBedPath);
     _ensureThumbs();
     final lanes = _lanes();
     final h = _rulerH + lanes.fold<double>(0, (a, l) => a + l.h);
@@ -452,6 +492,8 @@ class ProTimelineState extends State<ProTimeline> {
             pps: _pps,
             dur: _dur,
             markers: List<double>.of(widget.markers),
+            scroll: _scroll, // PATCH_S181_CLIPTOUCH
+            viewW: _viewW,
           ),
         ),
       ),
@@ -525,9 +567,10 @@ class ProTimelineState extends State<ProTimeline> {
       'ayah' => _ayahLane(l.h, w),
       'video' => _videoLane(l.h, w),
       'audio' => _waveLane(l.h, w, _vid, const Color(0xFF6FA8DC),
-          widget.state.muteAudio),
+          widget.state.muteAudio,
+          main: true), // PATCH_S181_CLIPTOUCH
       'reciter' => _waveLane(l.h, w, _rec, AyatColors.gold, false),
-      _ => _waveLane(l.h, w, _mus, const Color(0xFF8BC48A), false, loop: true),
+      _ => _waveLane(l.h, w, _amb, const Color(0xFF8BC48A), false, loop: true),
     };
     return Container(
       height: l.h,
@@ -539,41 +582,141 @@ class ProTimelineState extends State<ProTimeline> {
     );
   }
 
+  // PATCH_S181_CLIPTOUCH: text blocks show their text, can be selected, and
+  // their edges are dragged with the finger.
   Widget _textLane(double h, double w) {
     final cues = widget.state.textTimeCues;
-    return Stack(
-      children: [
-        for (final cue in cues)
-          Positioned(
-            left: cue.start * _pps,
-            width: math.max(4.0, (cue.end - cue.start) * _pps - 1),
-            top: 2,
-            height: h - 4,
-            child: GestureDetector(
-              onTapUp: (d) => _seekSec(cue.start + 0.03),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: (d) {
+        widget.onSelectSeg(-1);
+        _seekSec(d.localPosition.dx / _pps);
+      },
+      child: Stack(
+        children: [
+          for (var i = 0; i < cues.length; i++) _cueClip(i, h),
+        ],
+      ),
+    );
+  }
+
+  Widget _cueClip(int i, double h) {
+    final cues = widget.state.textTimeCues;
+    if (i >= cues.length) return const SizedBox.shrink();
+    final cue = cues[i];
+    final sel = widget.selectedCue == i;
+    final w = math.max(6.0, (cue.end - cue.start) * _pps - 1);
+    return Positioned(
+      left: cue.start * _pps,
+      width: w,
+      top: 2,
+      height: h - 4,
+      child: GestureDetector(
+        onTapUp: (d) {
+          widget.onSelectSeg(-1);
+          widget.onSelectCue?.call(sel ? -1 : i);
+          _seekSec(cue.start + d.localPosition.dx / _pps);
+          if (!sel) _zoomIfNarrow(cue.start, cue.end);
+          HapticFeedback.selectionClick();
+        },
+        child: Stack(
+          children: [
+            Positioned.fill(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: EdgeInsets.symmetric(horizontal: sel ? 24 : 6),
                 alignment: Alignment.centerLeft,
                 decoration: BoxDecoration(
                   color: const Color(0xFF2C6B5A),
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0x66ECC875)),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: sel
+                        ? AyatColors.goldBright
+                        : const Color(0x66ECC875),
+                    width: sel ? 2 : 1,
+                  ),
                 ),
-                child: Text(
-                  cue.text,
-                  maxLines: 1,
-                  overflow: TextOverflow.clip,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: AyatColors.parchment),
+                child: ClipRect(
+                  child: Text(
+                    cue.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    textDirection: TextDirection.rtl,
+                    style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AyatColors.parchment),
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+            if (sel) ...[
+              _cueHandle(i, true, w),
+              _cueHandle(i, false, w),
+            ],
+          ],
+        ),
+      ),
     );
+  }
+
+  double _cueBase = 0;
+  double _cueAccum = 0;
+
+  Widget _cueHandle(int i, bool isStart, double clipW) {
+    return Positioned(
+      left: isStart ? 0 : null,
+      right: isStart ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: _handleW(clipW),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) {
+          final cues = widget.state.textTimeCues;
+          if (i >= cues.length) return;
+          widget.state.pushHistory();
+          _cueBase = isStart ? cues[i].start : cues[i].end;
+          _cueAccum = 0;
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragUpdate: (d) {
+          _cueAccum += d.delta.dx;
+          _moveCueEdge(i, isStart);
+        },
+        child: _handleBody(isStart),
+      ),
+    );
+  }
+
+  void _moveCueEdge(int i, bool isStart) {
+    final cues = widget.state.textTimeCues;
+    if (i < 0 || i >= cues.length) return;
+    final cue = cues[i];
+    var target = _cueBase + _cueAccum / _pps;
+    final snaps = <double>[
+      widget.controller.value.position.inMilliseconds / 1000.0,
+      ...widget.markers,
+      for (var k = 0; k < cues.length; k++)
+        if (k != i) ...[cues[k].start, cues[k].end],
+      for (final s in widget.state.timeline) ...[s.start, s.end],
+      0,
+      _dur,
+    ];
+    final tol = _snap ? 8 / _pps : -1.0;
+    for (final x in snaps) {
+      if ((x - target).abs() <= tol) {
+        target = x;
+        break;
+      }
+    }
+    target = target.clamp(0.0, _dur).toDouble();
+    if (isStart) {
+      if ((target - cue.start).abs() < 0.001) return;
+      widget.state.setTextCueWindow(i, start: target);
+    } else {
+      if ((target - cue.end).abs() < 0.001) return;
+      widget.state.setTextCueWindow(i, end: target);
+    }
   }
 
   Widget _ayahLane(double h, double w) {
@@ -608,6 +751,9 @@ class ProTimelineState extends State<ProTimeline> {
     );
   }
 
+  // PATCH_S181_CLIPTOUCH: ayah blocks - taller, the text is easy to read, the
+  // selected one wears big gold edge handles, and a clip too narrow to grab
+  // zooms itself in first.
   Widget _segClip(int i, double h, bool locked) {
     final s = widget.state.timeline[i];
     final sel = widget.selectedSeg == i;
@@ -615,6 +761,7 @@ class ProTimelineState extends State<ProTimeline> {
     final alpha = s.inferred
         ? 0.30
         : (0.35 + 0.55 * s.confidence.clamp(0.0, 1.0)).toDouble();
+    final showHandles = sel && !locked;
     return Positioned(
       left: s.start * _pps,
       width: w,
@@ -624,12 +771,16 @@ class ProTimelineState extends State<ProTimeline> {
         onTapUp: (d) {
           widget.onSelectSeg(sel ? -1 : i);
           _seekSec(s.start + d.localPosition.dx / _pps);
+          if (!sel) {
+            _zoomIfNarrow(s.start, s.end);
+            HapticFeedback.selectionClick();
+          }
         },
         child: Stack(
           children: [
             Positioned.fill(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: EdgeInsets.symmetric(horizontal: showHandles ? 24 : 6),
                 alignment: Alignment.centerLeft,
                 decoration: BoxDecoration(
                   color: AyatColors.gold.withValues(alpha: alpha),
@@ -648,14 +799,14 @@ class ProTimelineState extends State<ProTimeline> {
                     overflow: TextOverflow.clip,
                     textDirection: TextDirection.rtl,
                     style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                         color: AyatColors.ink),
                   ),
                 ),
               ),
             ),
-            if (sel && !locked) ...[
+            if (showHandles) ...[
               _edgeHandle(i, true, w),
               _edgeHandle(i, false, w),
             ],
@@ -665,14 +816,39 @@ class ProTimelineState extends State<ProTimeline> {
     );
   }
 
+  /// Width of an edge handle: big enough for a thumb, never wider than half
+  /// the clip.
+  double _handleW(double clipW) =>
+      math.min(clipW / 2, math.min(28.0, math.max(16.0, clipW / 2.5)));
+
+  Widget _handleBody(bool isStart) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AyatColors.goldBright,
+        borderRadius: isStart
+            ? const BorderRadius.horizontal(left: Radius.circular(6))
+            : const BorderRadius.horizontal(right: Radius.circular(6)),
+      ),
+      child: Center(
+        child: Container(
+          width: 3,
+          height: 18,
+          decoration: BoxDecoration(
+            color: AyatColors.ink,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _edgeHandle(int i, bool isStart, double clipW) {
-    final hw = math.min(16.0, clipW / 3);
     return Positioned(
       left: isStart ? 0 : null,
       right: isStart ? null : 0,
       top: 0,
       bottom: 0,
-      width: hw,
+      width: _handleW(clipW),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onHorizontalDragStart: (_) {
@@ -680,22 +856,13 @@ class ProTimelineState extends State<ProTimeline> {
           if (i >= tl.length) return;
           _dragBase = isStart ? tl[i].start : tl[i].end;
           _dragAccum = 0;
+          HapticFeedback.selectionClick();
         },
         onHorizontalDragUpdate: (d) {
           _dragAccum += d.delta.dx;
           _moveEdge(i, isStart);
         },
-        child: Container(
-          decoration: BoxDecoration(
-            color: AyatColors.goldBright,
-            borderRadius: isStart
-                ? const BorderRadius.horizontal(left: Radius.circular(6))
-                : const BorderRadius.horizontal(right: Radius.circular(6)),
-          ),
-          child: Center(
-            child: Container(width: 2, height: 12, color: AyatColors.ink),
-          ),
-        ),
+        child: _handleBody(isStart),
       ),
     );
   }
@@ -750,6 +917,7 @@ class ProTimelineState extends State<ProTimeline> {
       behavior: HitTestBehavior.opaque,
       onTapUp: (d) {
         widget.onSelectSeg(-1);
+        widget.onSelectMain?.call(true); // PATCH_S181_CLIPTOUCH
         _seekSec(d.localPosition.dx / _pps);
       },
       child: Stack(
@@ -764,7 +932,9 @@ class ProTimelineState extends State<ProTimeline> {
               decoration: BoxDecoration(
                 color: const Color(0xFF1E4B3F),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0x55ECC875)),
+                border: widget.selectedMain // PATCH_S181_CLIPTOUCH
+                    ? Border.all(color: AyatColors.goldBright, width: 2)
+                    : Border.all(color: const Color(0x55ECC875)),
               ),
               child: Stack(
                 fit: StackFit.expand,
@@ -798,6 +968,28 @@ class ProTimelineState extends State<ProTimeline> {
               ),
             ),
           ),
+          // PATCH_S181_CLIPTOUCH: the gold "+" after the clip adds a video / picture
+          if (widget.onAddMedia != null)
+            Positioned(
+              left: dur * _pps + 10,
+              top: (h - 4) / 2 - 12,
+              width: 28,
+              height: 28,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onAddMedia!();
+                },
+                child: Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AyatColors.goldBright,
+                  ),
+                  child: const Icon(Icons.add, size: 18, color: AyatColors.ink),
+                ),
+              ),
+            ),
           // dim whatever the export will cut away
           if (ts > 0.01)
             Positioned(
@@ -847,8 +1039,8 @@ class ProTimelineState extends State<ProTimeline> {
 
   Widget _trimHandle(double h, double at, bool isStart, double dur) {
     return Positioned(
-      left: at * _pps - (isStart ? 0 : 14),
-      width: 14,
+      left: at * _pps - (isStart ? 0 : 22), // PATCH_S181_CLIPTOUCH
+      width: 22,
       top: 2,
       height: h - 4,
       child: GestureDetector(
@@ -888,7 +1080,7 @@ class ProTimelineState extends State<ProTimeline> {
   }
 
   Widget _waveLane(double h, double w, _PeakSlot slot, Color color, bool dim,
-      {bool loop = false}) {
+      {bool loop = false, bool main = false}) {
     final peaks = slot.peaks;
     final dur = _dur;
     final clipSec = (peaks == null || loop)
@@ -898,6 +1090,7 @@ class ProTimelineState extends State<ProTimeline> {
       behavior: HitTestBehavior.opaque,
       onTapUp: (d) {
         widget.onSelectSeg(-1);
+        if (main) widget.onSelectMain?.call(true); // PATCH_S181_CLIPTOUCH
         _seekSec(d.localPosition.dx / _pps);
       },
       child: Stack(
@@ -919,6 +1112,8 @@ class ProTimelineState extends State<ProTimeline> {
                     pps: _pps,
                     loop: loop,
                     color: color.withValues(alpha: dim ? 0.30 : 0.95),
+                    scroll: _scroll, // PATCH_S181_CLIPTOUCH
+                    viewW: _viewW,
                   ),
                   size: Size.infinite,
                 ),
@@ -944,7 +1139,15 @@ class _RulerPainter extends CustomPainter {
   final double pps;
   final double dur;
   final List<double> markers;
-  _RulerPainter({required this.pps, required this.dur, required this.markers});
+  final ScrollController scroll; // PATCH_S181_CLIPTOUCH: paint only what is on screen
+  final double viewW;
+  _RulerPainter({
+    required this.pps,
+    required this.dur,
+    required this.markers,
+    required this.scroll,
+    required this.viewW,
+  }) : super(repaint: scroll);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -966,25 +1169,27 @@ class _RulerPainter extends CustomPainter {
       ..color = const Color(0x559C9280)
       ..strokeWidth = 1;
     final n = (dur / step).ceil() + 1;
-    if (n <= 3000) {
-      for (var k = 0; k <= n; k++) {
-        final t = k * step;
-        final x = t * pps;
-        canvas.drawLine(Offset(x, size.height - 10), Offset(x, size.height), major);
-        for (var j = 1; j < 4; j++) {
-          final xm = x + step * pps * j / 4;
-          canvas.drawLine(
-              Offset(xm, size.height - 5), Offset(xm, size.height), minor);
-        }
-        final tp = TextPainter(
-          text: TextSpan(
-            text: _fmtTick(t, step),
-            style: const TextStyle(fontSize: 9, color: AyatColors.parchmentDim),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas, Offset(x + 3, 2));
+    final off = scroll.hasClients ? scroll.offset : 0.0;
+    final span = step * pps;
+    final firstK = math.max(0, ((off - 80) / span).floor());
+    final lastK = math.min(n, ((off + viewW + 80) / span).ceil());
+    for (var k = firstK; k <= lastK; k++) {
+      final t = k * step;
+      final x = t * pps;
+      canvas.drawLine(Offset(x, size.height - 10), Offset(x, size.height), major);
+      for (var j = 1; j < 4; j++) {
+        final xm = x + step * pps * j / 4;
+        canvas.drawLine(
+            Offset(xm, size.height - 5), Offset(xm, size.height), minor);
       }
+      final tp = TextPainter(
+        text: TextSpan(
+          text: _fmtTick(t, step),
+          style: const TextStyle(fontSize: 9, color: AyatColors.parchmentDim),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(x + 3, 2));
     }
     final mk = Paint()..color = AyatColors.goldBright;
     for (final m in markers) {
@@ -1002,7 +1207,10 @@ class _RulerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RulerPainter old) =>
-      old.pps != pps || old.dur != dur || old.markers.join(',') != markers.join(',');
+      old.pps != pps ||
+      old.dur != dur ||
+      old.viewW != viewW ||
+      old.markers.join(',') != markers.join(',');
 }
 
 class _WavePainter extends CustomPainter {
@@ -1010,11 +1218,16 @@ class _WavePainter extends CustomPainter {
   final double pps;
   final bool loop;
   final Color color;
-  _WavePainter(
-      {required this.peaks,
-      required this.pps,
-      required this.loop,
-      required this.color});
+  final ScrollController scroll; // PATCH_S181_CLIPTOUCH: paint only what is on screen
+  final double viewW;
+  _WavePainter({
+    required this.peaks,
+    required this.pps,
+    required this.loop,
+    required this.color,
+    required this.scroll,
+    required this.viewW,
+  }) : super(repaint: scroll);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1028,7 +1241,10 @@ class _WavePainter extends CustomPainter {
       return;
     }
     final per = WaveformService.peaksPerSec;
-    for (double x = 0; x < size.width; x += 2) {
+    final off = scroll.hasClients ? scroll.offset : 0.0;
+    final from = (math.max(0.0, off - 40) / 2).floor() * 2.0;
+    final to = math.min(size.width, off + viewW + 40);
+    for (double x = from; x < to; x += 2) {
       final a = (x / pps * per).floor();
       final b = math.max(a + 1, ((x + 2) / pps * per).ceil());
       if (!loop && a >= p.length) break;
@@ -1048,5 +1264,6 @@ class _WavePainter extends CustomPainter {
       old.peaks != peaks ||
       old.pps != pps ||
       old.loop != loop ||
-      old.color != color;
+      old.color != color ||
+      old.viewW != viewW;
 }

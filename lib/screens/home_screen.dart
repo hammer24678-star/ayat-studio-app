@@ -111,6 +111,9 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S174_PRO_EDITOR: selected ayah clip on the timeline (-1 = none) and
   // the playhead markers (session only, like a scratch pad).
   int _selSeg = -1;
+  int _selCue = -1; // PATCH_S181_CLIPTOUCH: selected text block on the timeline
+  bool _selMain = false; // PATCH_S181_CLIPTOUCH: the main clip is selected
+  bool _ayahAdvOpen = false; // PATCH_S181_CLIPTOUCH: آيات tab "advanced" fold
   final List<double> _markers = [];
   bool _guides = false; // PATCH_S179_AAA
   // PATCH_S132_GAUNTLET_LOOP: classic<->grouped have different tab
@@ -1408,8 +1411,8 @@ class _HomeScreenState extends State<HomeScreen>
           SmoothSwap( // PATCH_S176_SMOOTH
             slide: const Offset(0, 0.3),
             child: KeyedSubtree(
-              key: ValueKey(_hasSelSeg),
-              child: _hasSelSeg ? _clipToolStrip() : _toolStrip(),
+              key: ValueKey(_hasAnySel), // PATCH_S181_CLIPTOUCH
+              child: _hasAnySel ? _clipToolStrip() : _toolStrip(),
             ),
           ),
         ],
@@ -1426,6 +1429,10 @@ class _HomeScreenState extends State<HomeScreen>
   final GlobalKey<ProTimelineState> _tlKey = GlobalKey<ProTimelineState>();
 
   bool get _hasSelSeg => _selSeg >= 0 && _selSeg < state.timeline.length;
+  // PATCH_S181_CLIPTOUCH
+  bool get _hasSelCue => _selCue >= 0 && _selCue < state.textTimeCues.length;
+  bool get _hasSelMain => _selMain && _video != null && _video!.value.isInitialized;
+  bool get _hasAnySel => _hasSelSeg || _hasSelCue || _hasSelMain;
 
   Widget _proDock(bool compact) {
     final c = _video!;
@@ -1438,7 +1445,28 @@ class _HomeScreenState extends State<HomeScreen>
           state: state,
           controller: c,
           selectedSeg: _selSeg,
-          onSelectSeg: (i) => setState(() => _selSeg = i),
+          // PATCH_S181_CLIPTOUCH: any selection change on the ayah lane first
+          // clears the other kinds; text / main selections set theirs after it.
+          onSelectSeg: (i) => setState(() {
+            _selSeg = i;
+            _selCue = -1;
+            _selMain = false;
+          }),
+          selectedCue: _hasSelCue ? _selCue : -1,
+          onSelectCue: (i) => setState(() {
+            _selCue = i;
+            _selSeg = -1;
+            _selMain = false;
+          }),
+          selectedMain: _hasSelMain,
+          onSelectMain: (v) => setState(() {
+            _selMain = v;
+            if (v) {
+              _selSeg = -1;
+              _selCue = -1;
+            }
+          }),
+          onAddMedia: _addMediaSheet,
           markers: _markers,
           compact: compact,
         ),
@@ -1602,8 +1630,23 @@ class _HomeScreenState extends State<HomeScreen>
     if (c == null || !c.value.isInitialized) return;
     final t = c.value.position.inMilliseconds / 1000.0;
     final seg = state.segmentAt(t);
+    // PATCH_S181_CLIPTOUCH: a selected text block is split in preference to
+    // whatever ayah happens to sit under the playhead.
+    if (_hasSelCue) {
+      final sc = state.textTimeCues[_selCue];
+      if (t > sc.start + 0.3 && t < sc.end - 0.3) {
+        _cueSplit(_selCue);
+        return;
+      }
+    }
     if (seg == null) {
-      _toast('ضع المؤشر داخل آية لتقسيمها');
+      final ci = state.textTimeCues
+          .indexWhere((c) => t > c.start + 0.3 && t < c.end - 0.3);
+      if (ci >= 0) {
+        _cueSplit(ci);
+        return;
+      }
+      _toast('ضع المؤشر داخل آية أو نص لتقسيمه');
       return;
     }
     final i = state.timeline.indexOf(seg);
@@ -1655,11 +1698,14 @@ class _HomeScreenState extends State<HomeScreen>
   /// CapCut-style contextual toolbar: while an ayah clip is selected the
   /// bottom strip turns into that clip's actions.
   Widget _clipToolStrip() {
+    // PATCH_S181_CLIPTOUCH: text blocks and the main clip have their own bars
+    if (!_hasSelSeg) return _clipBar(_hasSelCue ? _cueItems() : _mainItems());
     final i = _selSeg;
     final items = <(IconData, String, VoidCallback, bool)>[
       (Icons.check_circle_outline, 'تم', () => setState(() => _selSeg = -1),
           false),
       (Icons.content_cut, 'تقسيم', _splitAtPlayhead, false),
+      ..._segExtraItems(i), // PATCH_S181_CLIPTOUCH
       (Icons.tune, 'التوقيت', () => _editSegmentTiming(i), false),
       (Icons.swap_horiz, 'تغيير الآية', () => _changeSegmentAyahDialog(i),
           false),
@@ -1722,6 +1768,486 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S181_CLIPTOUCH: touchable clips (ayah blocks, text blocks, the main
+  // clip), trim-to-playhead, transitions, zoom, add video / picture, and the
+  // folded "advanced" card of the آيات tab.
+  // ---------------------------------------------------------------------
+
+  double get _playheadSec {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return 0;
+    return c.value.position.inMilliseconds / 1000.0;
+  }
+
+  Widget _clipBar(List<(IconData, String, VoidCallback, bool)> items) {
+    return Container(
+      height: 68,
+      decoration: const BoxDecoration(
+        color: AyatColors.ink,
+        border: Border(top: BorderSide(color: AyatColors.hairline)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          itemCount: items.length,
+          itemBuilder: (context, k) {
+            final it = items[k];
+            final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
+            return InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: it.$3,
+              child: SizedBox(
+                width: 76,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(it.$1, size: 23, color: col),
+                    const SizedBox(height: 4),
+                    Text(it.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: col)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Extra actions for a selected ayah block (placed after «تقسيم»).
+  List<(IconData, String, VoidCallback, bool)> _segExtraItems(int i) => [
+        (Icons.first_page, 'قص البداية', () => _trimSeg(i, head: true), false),
+        (Icons.last_page, 'قص النهاية', () => _trimSeg(i, head: false), false),
+        (Icons.animation, 'انتقال', _openTransitionSheet, false),
+        (Icons.zoom_in, 'تكبير', _zoomToSelection, false),
+      ];
+
+  void _trimSeg(int i, {required bool head}) {
+    if (i < 0 || i >= state.timeline.length) return;
+    final seg = state.timeline[i];
+    final t = _playheadSec;
+    if (t <= seg.start + 0.3 || t >= seg.end - 0.3) {
+      _toast('ضع المؤشر داخل الآية المحددة ثم اقصّ');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    if (head) {
+      state.nudgeTimelineSegment(i, startDelta: t - seg.start);
+    } else {
+      state.nudgeTimelineSegment(i, endDelta: t - seg.end);
+    }
+  }
+
+  // ---- text blocks --------------------------------------------------------
+
+  List<(IconData, String, VoidCallback, bool)> _cueItems() {
+    final i = _selCue;
+    return [
+      (Icons.check_circle_outline, 'تم', () => setState(() => _selCue = -1), false),
+      (Icons.content_cut, 'تقسيم', () => _cueSplit(i), false),
+      (Icons.first_page, 'قص البداية', () => _cueTrim(i, head: true), false),
+      (Icons.last_page, 'قص النهاية', () => _cueTrim(i, head: false), false),
+      (Icons.animation, 'انتقال', _openTransitionSheet, false),
+      (Icons.edit_outlined, 'تعديل النص', () => _cueEditText(i), false),
+      (Icons.zoom_in, 'تكبير', _zoomToSelection, false),
+      (Icons.content_copy, 'نسخ', () => _cueDuplicate(i), false),
+      (Icons.delete_outline, 'حذف', () => _cueDelete(i), false),
+    ];
+  }
+
+  void _cueSplit(int i) {
+    if (i < 0 || i >= state.textTimeCues.length) return;
+    final t = _playheadSec;
+    state.pushHistory();
+    if (state.splitTextCueAt(i, t)) {
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _selCue = i + 1;
+        _selSeg = -1;
+        _selMain = false;
+      });
+    } else {
+      _toast('ضع المؤشر داخل النص المحدد ثم قسّم');
+    }
+  }
+
+  void _cueTrim(int i, {required bool head}) {
+    if (i < 0 || i >= state.textTimeCues.length) return;
+    final c = state.textTimeCues[i];
+    final t = _playheadSec;
+    if (t <= c.start + 0.3 || t >= c.end - 0.3) {
+      _toast('ضع المؤشر داخل النص المحدد ثم اقصّ');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    state.pushHistory();
+    state.setTextCueWindow(i, start: head ? t : null, end: head ? null : t);
+  }
+
+  void _cueDuplicate(int i) {
+    if (i < 0 || i >= state.textTimeCues.length) return;
+    state.pushHistory();
+    state.duplicateTextCue(i);
+    HapticFeedback.selectionClick();
+    setState(() => _selCue = i + 1);
+  }
+
+  void _cueDelete(int i) {
+    if (i < 0 || i >= state.textTimeCues.length) return;
+    state.pushHistory();
+    state.removeTextTimeCueAt(i);
+    setState(() => _selCue = -1);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('تم حذف النص من الخط الزمني',
+            textAlign: TextAlign.center),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'تراجع',
+          textColor: AyatColors.goldBright,
+          onPressed: state.undoStep,
+        ),
+      ));
+  }
+
+  Future<void> _cueEditText(int i) async {
+    if (i < 0 || i >= state.textTimeCues.length) return;
+    final cue = state.textTimeCues[i];
+    final ctrl = TextEditingController(text: cue.text);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AyatColors.surface,
+        title: const Text('تعديل النص'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 4,
+          textAlign: TextAlign.right,
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+              child: const Text('حفظ')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null || result.trim().isEmpty) return;
+    state.update(() => cue.text = result.trim());
+  }
+
+  // ---- the main clip ------------------------------------------------------
+
+  List<(IconData, String, VoidCallback, bool)> _mainItems() => [
+        (Icons.check_circle_outline, 'تم', () => setState(() => _selMain = false), false),
+        (Icons.first_page, 'قص البداية', () => _trimMain(head: true), false),
+        (Icons.last_page, 'قص النهاية', () => _trimMain(head: false), false),
+        (
+          Icons.restart_alt,
+          'إعادة القص',
+          _trimMainReset,
+          state.manualTrimSet || state.trimFromIndex >= 0
+        ),
+        (Icons.add_photo_alternate_outlined, 'إضافة', _addMediaSheet, false),
+        (Icons.animation, 'انتقال', _openTransitionSheet, false),
+        (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
+        (Icons.speed, 'السرعة', () => _openToolFromClip(107), false),
+        (Icons.fit_screen_outlined, 'ملاءمة', () => _tlKey.currentState?.fit(), false),
+      ];
+
+  void _openToolFromClip(int id) {
+    setState(() => _selMain = false);
+    if (_toolOpen != id) _openTool(id);
+  }
+
+  void _trimMain({required bool head}) {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    final dur = c.value.duration.inMilliseconds / 1000.0;
+    final t = _playheadSec;
+    final end = state.trimManualEnd < 0 ? dur : min(state.trimManualEnd, dur);
+    final start = min(state.trimManualStart, end);
+    if (head ? t >= end - 0.5 : t <= start + 0.5) {
+      _toast('ضع المؤشر داخل المقطع المحدد ثم اقصّ');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    state.update(() {
+      state.trimFromIndex = -1;
+      state.trimToIndex = -1;
+      if (head) {
+        state.trimManualStart = max(0.0, t);
+        state.trimManualEnd = end;
+      } else {
+        state.trimManualStart = start;
+        state.trimManualEnd = min(t, dur);
+      }
+    });
+  }
+
+  void _trimMainReset() {
+    HapticFeedback.selectionClick();
+    state.update(() {
+      state.trimFromIndex = -1;
+      state.trimToIndex = -1;
+      state.trimManualStart = 0;
+      state.trimManualEnd = -1;
+    });
+  }
+
+  void _zoomToSelection() {
+    double? a;
+    double? b;
+    if (_hasSelSeg) {
+      a = state.timeline[_selSeg].start;
+      b = state.timeline[_selSeg].end;
+    } else if (_hasSelCue) {
+      a = state.textTimeCues[_selCue].start;
+      b = state.textTimeCues[_selCue].end;
+    } else if (_hasSelMain) {
+      a = 0;
+      b = max(0.5, state.videoDurationSec);
+    }
+    if (a == null || b == null) return;
+    _tlKey.currentState?.zoomToRange(a, b);
+  }
+
+  // ---- transitions --------------------------------------------------------
+
+  /// Quick access to the entrance / exit style from any selected clip. The
+  /// style is one setting for all text (that is how the exporter works), and
+  /// the sheet says so.
+  void _openTransitionSheet() {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AyatColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SafeArea(
+        child: ListenableBuilder(
+          listenable: state,
+          builder: (context, _) => ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.72),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('الانتقال يُطبَّق على ظهور كل نص واختفائه',
+                      style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                          color: AyatColors.goldBright,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 10),
+                  _textTransitionSection(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---- add a video / a picture --------------------------------------------
+
+  Future<void> _addMediaSheet() async {
+    if (!state.hasVideo) {
+      _toast('ارفع ملفًا أولًا');
+      return;
+    }
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AyatColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('إضافة بعد نهاية المقطع',
+                  style: Theme.of(ctx).textTheme.headlineMedium),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.movie_outlined,
+                    color: AyatColors.goldBright),
+                title: const Text('فيديو'),
+                onTap: () => Navigator.pop(ctx, 'video'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.image_outlined,
+                    color: AyatColors.goldBright),
+                title: const Text('صورة'),
+                onTap: () => Navigator.pop(ctx, 'image'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    final res = await FilePicker.platform
+        .pickFiles(type: choice == 'image' ? FileType.image : FileType.video);
+    final path = res?.files.single.path;
+    if (path == null || !mounted) return;
+    var sec = 5.0;
+    if (choice == 'image') {
+      final s = await _askImageSeconds();
+      if (s == null || !mounted) return;
+      sec = s;
+    }
+    await _appendMedia(path, isImage: choice == 'image', imageSec: sec);
+  }
+
+  Future<double?> _askImageSeconds() {
+    var sel = 5;
+    return showDialog<double>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          backgroundColor: AyatColors.surface,
+          title: const Text('مدة ظهور الصورة'),
+          content: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final s in const [3, 5, 8, 10, 15])
+                ChoiceChip(
+                  label: Text('$s ث'),
+                  selected: sel == s,
+                  onSelected: (_) => setD(() => sel = s),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, sel.toDouble()),
+                child: const Text('إضافة')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Renders "current clip + the new video / picture" into one file (the same
+  /// pre-pass idea as S79 / S125), so auto-sync, text and export still see a
+  /// single source. The new part goes AFTER the current clip, so everything
+  /// already detected stays exactly where it was.
+  Future<void> _appendMedia(String addPath,
+      {required bool isImage, required double imageSec}) async {
+    final basePath = state.videoPath;
+    if (basePath == null) return;
+    final keepTimeline = List<TimelineSegment>.of(state.timeline);
+    final keepActive = state.timelineActive;
+    final keepFrom = state.trimFromIndex;
+    final keepTo = state.trimToIndex;
+    final keepStart = state.trimManualStart;
+    final keepEnd = state.trimManualEnd;
+    final keepDetected = state.detectedAudioDurationSec;
+    final cur = _video;
+    final baseDur = (cur != null && cur.value.isInitialized)
+        ? cur.value.duration.inMilliseconds / 1000.0
+        : state.videoDurationSec;
+    final baseHasVideo =
+        cur != null && cur.value.isInitialized && cur.value.size.width > 0;
+    final (fw, fh) = state.frameSize;
+    final merged = await _withBusy(() async {
+      _setBusyStatus(isImage ? 'جارٍ إضافة الصورة…' : 'جارٍ إضافة الفيديو…');
+      return MediaService.appendClip(
+        basePath,
+        addPath,
+        baseDurationSec: baseDur,
+        baseHasVideo: baseHasVideo,
+        addIsImage: isImage,
+        imageSec: imageSec,
+        width: fw,
+        height: fh,
+      );
+    });
+    if (merged == null || !mounted) return;
+    await _video?.dispose();
+    _liveOverlay.value = null;
+    final controller = VideoPlayerController.file(File(merged));
+    _video = controller;
+    state.setVideo(merged);
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.play();
+      state.update(() {
+        state.videoDurationSec =
+            controller.value.duration.inMilliseconds / 1000.0;
+        if (keepTimeline.isNotEmpty) {
+          state.timeline = keepTimeline;
+          state.timelineActive = keepActive;
+        }
+        state.trimFromIndex = keepFrom;
+        state.trimToIndex = keepTo;
+        state.trimManualStart = keepStart;
+        // A tail that was cut off would hide what was just added.
+        state.trimManualEnd = -1;
+        state.detectedAudioDurationSec = keepDetected;
+      });
+    } catch (_) {
+      // the player refusing the file must not lose the render
+    }
+    if (mounted) setState(() {});
+    _toast(isImage ? 'أُضيفت الصورة ✓' : 'أُضيف الفيديو ✓');
+  }
+
+  // ---- آيات tab: the folded "advanced" card -----------------------------------
+
+  Widget _advancedFold(Widget child) {
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      decoration: BoxDecoration(
+        color: AyatColors.surface2.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AyatColors.hairline),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: const PageStorageKey<String>('ayah_advanced_fold'),
+          initiallyExpanded: _ayahAdvOpen,
+          onExpansionChanged: (v) => _ayahAdvOpen = v,
+          leading: const Icon(Icons.tune, color: AyatColors.goldBright),
+          title: const Text('خيارات متقدمة',
+              style: TextStyle(
+                  fontWeight: FontWeight.w800, color: AyatColors.parchment)),
+          subtitle: const Text(
+              'جزء من آية · توقيت النص · المعالج · بطاقات البسملة والخاتمة',
+              style: TextStyle(fontSize: 11.5, color: AyatColors.parchmentDim)),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [child],
         ),
       ),
     );
@@ -2021,7 +2547,7 @@ class _HomeScreenState extends State<HomeScreen>
       case 103: // PATCH_S174_PRO_EDITOR
         return ProColorPage(state: state);
       case 104:
-        return ProAudioMixer(state: state, onPickMusic: _pickMusicBed);
+        return ProAudioMixer(state: state, onPickAmbience: _pickAmbienceBed);
       case 105:
         return ProTranscript(
           state: state,
@@ -4639,7 +5165,7 @@ class _HomeScreenState extends State<HomeScreen>
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const Divider(height: 32, color: AyatColors.hairline),
-        _musicBedSection(),
+        _ambienceBedSection(),
         const Divider(height: 32, color: AyatColors.hairline),
         _speedSection(),
         const Divider(height: 32, color: AyatColors.hairline),
@@ -4746,13 +5272,13 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S127_MUSIC_BED: an ambience/nasheed track UNDER everything else.
   // Distinct from the reciter mix above, which only rebalances the two tracks
   // that were already in the clip.
-  Widget _musicBedSection() {
-    final path = state.musicBedPath;
+  Widget _ambienceBedSection() {
+    final path = state.ambienceBedPath;
     final name = path == null ? null : path.split(Platform.pathSeparator).last;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('خلفية موسيقية / أجواء',
+        Text('خلفية صوتية / أجواء',
             style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 4),
         Text(
@@ -4765,16 +5291,16 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _pickMusicBed,
-                icon: const Icon(Icons.library_music_outlined),
+                onPressed: _pickAmbienceBed,
+                icon: const Icon(Icons.graphic_eq),
                 label: Text(path == null ? 'اختيار ملف صوتي' : 'تغيير الملف'),
               ),
             ),
             if (path != null) ...[
               const SizedBox(width: 8),
               IconButton(
-                tooltip: 'إزالة الخلفية الموسيقية',
-                onPressed: () => state.update(() => state.musicBedPath = null),
+                tooltip: 'إزالة الخلفية الصوتية',
+                onPressed: () => state.update(() => state.ambienceBedPath = null),
                 icon: const Icon(Icons.close),
               ),
             ],
@@ -4791,18 +5317,18 @@ class _HomeScreenState extends State<HomeScreen>
                   ?.copyWith(color: AyatColors.gold)),
           const SizedBox(height: 10),
           _fieldLabel(
-              'مستوى الخلفية: ${(state.musicBedVolume * 100).round()}٪'),
+              'مستوى الخلفية: ${(state.ambienceBedVolume * 100).round()}٪'),
           Slider(
-            value: state.musicBedVolume,
+            value: state.ambienceBedVolume,
             min: 0.0,
             max: 1.0,
             divisions: 20,
-            onChanged: (v) => state.update(() => state.musicBedVolume = v),
+            onChanged: (v) => state.update(() => state.ambienceBedVolume = v),
           ),
           ToggleRow(
             label: 'دخول وخروج تدريجي للخلفية',
-            value: state.musicBedFade,
-            onChanged: (v) => state.update(() => state.musicBedFade = v),
+            value: state.ambienceBedFade,
+            onChanged: (v) => state.update(() => state.ambienceBedFade = v),
           ),
           if (state.muteAudio)
             Text('الصوت مكتوم بالكامل حاليًا — أوقف الكتم لتسمع الخلفية.',
@@ -4812,12 +5338,12 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _pickMusicBed() async {
+  Future<void> _pickAmbienceBed() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.audio);
     final path = res?.files.single.path;
     if (path == null) return;
-    state.update(() => state.musicBedPath = path);
-    _toast('تمت إضافة خلفية موسيقية ✓');
+    state.update(() => state.ambienceBedPath = path);
+    _toast('تمت إضافة خلفية صوتية ✓');
   }
 
   // PATCH_S125_SPEED: constant-rate speed change, applied to the finished
@@ -6247,6 +6773,10 @@ class _HomeScreenState extends State<HomeScreen>
             });
           },
         ),
+        // PATCH_S181_CLIPTOUCH: everything below is folded away; nothing was removed
+        _advancedFold(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
         if (_partialSourceAyah != null) _partialAyahSection(),
         // PATCH_S109_TEXT_TIMING_RED_WORDS_CAPTION / PATCH_S146_FINISH_WORDCOLORS
         _manualTimingSection(),
@@ -6288,7 +6818,7 @@ class _HomeScreenState extends State<HomeScreen>
             _sectionHeader(
               'بطاقات افتتاحية وختامية',
               'تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — '
-              'لا تُدمجان أبدًا فوق الفيديو أو أي موسيقى. عطّلي أيًا منهما '
+              'لا تُدمجان أبدًا فوق الفيديو أو أي خلفية صوتية. عطّلي أيًا منهما '
               'إن لم ترغبي بها، ويمكنك تخصيص نص الخاتمة بعد تفعيلها.',
             ),
             ToggleRow(
@@ -6310,6 +6840,8 @@ class _HomeScreenState extends State<HomeScreen>
               ),
           ],
         )),
+          ],
+        )), // PATCH_S181_CLIPTOUCH: closes the advanced fold
       ],
     );
   }

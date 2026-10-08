@@ -1332,7 +1332,7 @@ class ExportService {
     // apart -- the speed patch already had to sniff `audioMap.startsWith`.
     // It is now carried as what it actually is: either a raw input stream or
     // a filtergraph label, plus the chain still to apply. Both the speed
-    // retime and the music bed operate on that, and the two command
+    // retime and the ambience bed operate on that, and the two command
     // fragments are assembled once, at the end.
     String? aStream; // e.g. '0:a' -- a raw input, not yet in the graph
     String? aLabel; // e.g. 'aout' -- already produced by a filter chain
@@ -1460,7 +1460,7 @@ class ExportService {
     // being pitched along with the picture. It is looped to cover the whole
     // export and cut to length, so the user never has to find a track that
     // happens to match the duration.
-    if (state.hasMusicBed) {
+    if (state.hasAmbienceBed) {
       // Whatever the audio is at this point has to be a graph label before it
       // can be an amix input.
       if (aLabel == null) {
@@ -1470,11 +1470,11 @@ class ExportService {
         aLabel = 'abase';
       }
       inputs.write('-stream_loop -1 -t ${outDuration.toStringAsFixed(3)} '
-          '-i "${state.musicBedPath}" ');
+          '-i "${state.ambienceBedPath}" ');
       final bedIdx = idx++;
-      final bedVol = state.musicBedVolume.clamp(0.0, 1.0).toStringAsFixed(3);
+      final bedVol = state.ambienceBedVolume.clamp(0.0, 1.0).toStringAsFixed(3);
       final bedParts = <String>['volume=$bedVol', 'aresample=44100'];
-      if (state.musicBedFade) {
+      if (state.ambienceBedFade) {
         // A bed that starts and stops dead is the giveaway that it was pasted
         // on; 1.2s either end is enough to read as intentional.
         bedParts.add('afade=t=in:st=0:d=1.2');

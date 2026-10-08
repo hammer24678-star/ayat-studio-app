@@ -817,7 +817,7 @@
           <div class="switch" id="outroSwitch"></div>
         </div>
         <input type="text" id="outroTextInput" placeholder="نص الخاتمة" value="صدق الله العظيم" style="display:none; margin-top:8px;">
-        <p class="hint">تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — لا تُدمجان أبدًا فوق الفيديو أو أي موسيقى.</p>
+        <p class="hint">تظهر البسملة والخاتمة كشاشتين مستقلتين قبل/بعد المقطع فقط — لا تُدمجان أبدًا فوق الفيديو أو أي خلفية صوتية.</p>
       </div>
     </div>
 
@@ -2043,7 +2043,7 @@ $("sizeRange").oninput = (e)=>{ $("ayahText").style.fontSize = e.target.value + 
 $("sizeRangeT").oninput = (e)=>{ $("translationText").style.fontSize = e.target.value + "px"; };
 
 // Bismillah intro / outro title cards — independent screens shown before/after
-// the main clip only. They are never composited under the video, music, or
+// the main clip only. They are never composited under the video, an ambience track, or
 // any other visual, by design (see drawTitleCard / renderFrame export logic).
 $("introSwitch").setAttribute("role","switch");
 $("introSwitch").tabIndex = 0;

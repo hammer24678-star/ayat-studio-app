@@ -264,9 +264,9 @@ class ProColorPage extends StatelessWidget {
 
 class ProAudioMixer extends StatelessWidget {
   final StudioState state;
-  final VoidCallback onPickMusic;
+  final VoidCallback onPickAmbience;
   const ProAudioMixer(
-      {super.key, required this.state, required this.onPickMusic});
+      {super.key, required this.state, required this.onPickAmbience});
 
   static String _db(double v) {
     if (v <= 0.001) return '-∞ dB';
@@ -343,7 +343,7 @@ class ProAudioMixer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasReciter = state.selectedReciterAudio != null;
-    final hasMusic = state.musicBedPath != null;
+    final hasAmbience = state.ambienceBedPath != null;
     final muted = state.muteAudio;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -378,18 +378,18 @@ class ProAudioMixer extends StatelessWidget {
                   onChanged: (v) =>
                       state.update(() => state.originalAudioMix = v),
                 ),
-              if (hasMusic)
+              if (hasAmbience)
                 _strip(
                   context,
-                  label: 'الخلفية الموسيقية',
-                  readout: '${(state.musicBedVolume * 100).round()}٪',
-                  value: state.musicBedVolume,
+                  label: 'الخلفية الصوتية',
+                  readout: '${(state.ambienceBedVolume * 100).round()}٪',
+                  value: state.ambienceBedVolume,
                   min: 0,
                   max: 1,
                   accent: const Color(0xFF8BC48A),
                   dim: muted,
                   onChanged: (v) =>
-                      state.update(() => state.musicBedVolume = v),
+                      state.update(() => state.ambienceBedVolume = v),
                 ),
               Expanded(
                 child: GestureDetector(
@@ -440,27 +440,27 @@ class ProAudioMixer extends StatelessWidget {
           value: state.audioFadeOut,
           onChanged: (v) => state.update(() => state.audioFadeOut = v),
         ),
-        if (hasMusic)
+        if (hasAmbience)
           ToggleRow(
             label: 'دخول وخروج تدريجي للخلفية',
-            value: state.musicBedFade,
-            onChanged: (v) => state.update(() => state.musicBedFade = v),
+            value: state.ambienceBedFade,
+            onChanged: (v) => state.update(() => state.ambienceBedFade = v),
           ),
         const SizedBox(height: 6),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: onPickMusic,
-                icon: const Icon(Icons.library_music_outlined, size: 18),
-                label: Text(hasMusic ? 'تغيير الخلفية' : 'إضافة خلفية موسيقية'),
+                onPressed: onPickAmbience,
+                icon: const Icon(Icons.graphic_eq, size: 18),
+                label: Text(hasAmbience ? 'تغيير الخلفية' : 'إضافة خلفية صوتية'),
               ),
             ),
-            if (hasMusic) ...[
+            if (hasAmbience) ...[
               const SizedBox(width: 8),
               IconButton(
                 tooltip: 'إزالة الخلفية',
-                onPressed: () => state.update(() => state.musicBedPath = null),
+                onPressed: () => state.update(() => state.ambienceBedPath = null),
                 icon: const Icon(Icons.close),
               ),
             ],
