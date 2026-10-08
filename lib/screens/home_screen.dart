@@ -58,6 +58,8 @@ import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
 import '../widgets/pro_extras.dart'; // PATCH_S179_AAA
 import '../widgets/pro_transform.dart'; // PATCH_S180_TRANSFORM
+import '../widgets/pro_pip.dart'; // PATCH_S188_PIP
+import '../models/pip_clip.dart'; // PATCH_S188_PIP
 import '../services/ruh_touch.dart'; // PATCH_S183_TEXT_BAR
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
@@ -1321,6 +1323,7 @@ class _HomeScreenState extends State<HomeScreen>
         (108, Icons.animation, 'الحركة'),
         (109, Icons.closed_caption_outlined, 'الترجمة'),
         (110, Icons.emoji_emotions_outlined, 'ملصقات'),
+        (113, Icons.picture_in_picture_alt_outlined, 'PIP'), // PATCH_S188_PIP
         (127, Icons.wallpaper, 'الخلفية'),
         (128, Icons.layers_outlined, 'كروما'),
         (130, Icons.auto_awesome_outlined, 'تأثيرات'),
@@ -1465,7 +1468,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _hasSelCue => _selCue >= 0 && _selCue < state.textTimeCues.length;
   bool get _hasSelMain => _selMain && _video != null && _video!.value.isInitialized;
   bool get _hasAnySel =>
-      _hasSelSeg || _hasSelCue || _hasSelMain || state.stageTextSelected; // PATCH_S183_TEXT_BAR
+      _hasSelSeg || _hasSelCue || _hasSelMain || state.stageTextSelected || state.hasPipSel; // PATCH_S183_TEXT_BAR + PATCH_S188_PIP
 
   Widget _proDock(bool compact) {
     final c = _video!;
@@ -1482,6 +1485,7 @@ class _HomeScreenState extends State<HomeScreen>
           // clears the other kinds; text / main selections set theirs after it.
           onSelectSeg: (i) {
             state.clearStageSelection(); // PATCH_S183_TEXT_BAR
+            if (i >= 0) state.selectPip(-1); // PATCH_S188_PIP
             setState(() {
               _selSeg = i;
               _selCue = -1;
@@ -1489,19 +1493,25 @@ class _HomeScreenState extends State<HomeScreen>
             });
           },
           selectedCue: _hasSelCue ? _selCue : -1,
-          onSelectCue: (i) => setState(() {
-            _selCue = i;
-            _selSeg = -1;
-            _selMain = false;
-          }),
-          selectedMain: _hasSelMain,
-          onSelectMain: (v) => setState(() {
-            _selMain = v;
-            if (v) {
+          onSelectCue: (i) {
+            if (i >= 0) state.selectPip(-1); // PATCH_S188_PIP
+            setState(() {
+              _selCue = i;
               _selSeg = -1;
-              _selCue = -1;
-            }
-          }),
+              _selMain = false;
+            });
+          },
+          selectedMain: _hasSelMain,
+          onSelectMain: (v) {
+            if (v) state.selectPip(-1); // PATCH_S188_PIP
+            setState(() {
+              _selMain = v;
+              if (v) {
+                _selSeg = -1;
+                _selCue = -1;
+              }
+            });
+          },
           onAddMedia: _addMediaSheet,
           onAutoSync: _busy ? null : _autoSync, // PATCH_S182_WHISPER_MAIN
           markers: _markers,
@@ -1738,6 +1748,7 @@ class _HomeScreenState extends State<HomeScreen>
     // PATCH_S181_CLIPTOUCH: text blocks and the main clip have their own bars
     // PATCH_S183_TEXT_BAR: the text on the stage / its block on the timeline has a text bar
     if (state.stageTextSelected && !_hasSelSeg) return _clipBar(_textItems());
+    if (state.hasPipSel && !_hasSelSeg) return _clipBar(_pipItems()); // PATCH_S188_PIP
     if (!_hasSelSeg) return _clipBar(_hasSelCue ? _cueItems() : _mainItems());
     final i = _selSeg;
     final items = <(IconData, String, VoidCallback, bool)>[
@@ -2031,6 +2042,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.add_photo_alternate_outlined, 'إضافة', _addMediaSheet, false),
         (Icons.animation, 'انتقال', _openTransitionSheet, false),
         (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
+        (Icons.picture_in_picture_alt_outlined, 'PIP', () => _openToolFromClip(113), _toolOpen == 113), // PATCH_S188_PIP
         (Icons.speed, 'السرعة', () => _openToolFromClip(107), _toolOpen == 107),
         // PATCH_S184_PRO_MAIN: every tool of the main clip, one tap away
         (Icons.palette_outlined, 'اللون', () => _openToolFromClip(103), _toolOpen == 103),
@@ -2138,6 +2150,135 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ---- add a video / a picture --------------------------------------------
+
+  // ---------------------------------------------------------------------
+  // PATCH_S188_PIP: a little video / picture floating over the main clip.
+  // ---------------------------------------------------------------------
+
+  Future<void> _addPip({required bool image}) async {
+    final main = _video;
+    if (!state.hasVideo || main == null || !main.value.isInitialized) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    final res = await FilePicker.platform
+        .pickFiles(type: image ? FileType.image : FileType.video);
+    final path = res?.files.single.path;
+    if (path == null || !mounted) return;
+    var aspect = 9 / 16;
+    var mediaDur = 0.0;
+    try {
+      if (image) {
+        final bytes = await File(path).readAsBytes();
+        final img = await decodeImageFromList(bytes);
+        aspect = img.width / img.height;
+        img.dispose();
+      } else {
+        final probe = VideoPlayerController.file(File(path));
+        try {
+          await probe.initialize();
+          aspect = probe.value.size.width / probe.value.size.height;
+          mediaDur = probe.value.duration.inMilliseconds / 1000.0;
+        } finally {
+          await probe.dispose();
+        }
+      }
+    } catch (_) {
+      _toast('تعذّر فتح الملف');
+      return;
+    }
+    if (!aspect.isFinite || aspect <= 0.05) {
+      _toast('هذا الملف لا يحتوي على صورة');
+      return;
+    }
+    if (!mounted) return;
+    final total = main.value.duration.inMilliseconds / 1000.0;
+    final want = image ? 4.0 : (mediaDur > 0.5 ? mediaDur : 4.0);
+    var start = _playheadSec;
+    var end = start + want;
+    if (end > total) {
+      end = total;
+      start = (total - want) < 0 ? 0.0 : (total - want);
+    }
+    if (end - start < 0.5) {
+      _toast('المقطع الأساسي قصير جدًّا');
+      return;
+    }
+    state.addPip(PipClip(
+      path: path,
+      isImage: image,
+      aspect: aspect,
+      mediaDur: mediaDur,
+      start: start,
+      end: end,
+      width: aspect < 0.8 ? 0.36 : 0.5,
+    ));
+    HapticFeedback.mediumImpact();
+    if (_toolOpen != 113) _openTool(113);
+    _toast(image ? 'أُضيفت الصورة' : 'أُضيف الفيديو');
+  }
+
+  List<(IconData, String, VoidCallback, bool)> _pipItems() {
+    final i = state.pipSel;
+    return [
+      (
+        Icons.check_circle_outline,
+        'تم',
+        () {
+          state.selectPip(-1);
+          setState(() => _toolOpen = -1);
+        },
+        false
+      ),
+      (Icons.tune, 'الخصائص', () => _openToolFromClip(113), _toolOpen == 113),
+      (Icons.content_cut, 'تقسيم', () => _pipSplit(i), false),
+      (Icons.first_page, 'قص البداية', () => _pipTrim(i, head: true), false),
+      (Icons.last_page, 'قص النهاية', () => _pipTrim(i, head: false), false),
+      (Icons.flip_to_front, 'للأمام', () => state.movePipLayer(i, 1), false),
+      (Icons.flip_to_back, 'للخلف', () => state.movePipLayer(i, -1), false),
+      (Icons.content_copy, 'نسخ', () => state.duplicatePipAt(i), false),
+      (Icons.delete_outline, 'حذف', () => _pipDelete(i), false),
+    ];
+  }
+
+  void _pipSplit(int i) {
+    if (state.splitPipAt(i, _playheadSec)) {
+      HapticFeedback.mediumImpact();
+    } else {
+      _toast('ضع المؤشر داخل المقطع الصغير ثم قسّم');
+    }
+  }
+
+  void _pipTrim(int i, {required bool head}) {
+    if (i < 0 || i >= state.pipClips.length) return;
+    final c = state.pipClips[i];
+    final t = _playheadSec;
+    if (t <= c.start + 0.3 || t >= c.end - 0.3) {
+      _toast('ضع المؤشر داخل المقطع الصغير ثم اقصّ');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    state.pushHistory();
+    state.setPipWindow(i, start: head ? t : null, end: head ? null : t);
+  }
+
+  void _pipDelete(int i) {
+    if (i < 0 || i >= state.pipClips.length) return;
+    HapticFeedback.mediumImpact();
+    state.removePipAt(i);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('تم حذف المقطع الصغير', textAlign: TextAlign.center),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'تراجع',
+          textColor: AyatColors.goldBright,
+          onPressed: state.undoStep,
+        ),
+      ));
+  }
 
   Future<void> _addMediaSheet() async {
     if (!state.hasVideo) {
@@ -2959,6 +3100,14 @@ class _HomeScreenState extends State<HomeScreen>
         return ProEnhance(state: state);
       case 112: // PATCH_S180_TRANSFORM
         return ProTransformPage(state: state, controller: _video);
+      case 113: // PATCH_S188_PIP
+        return ProPipPage(
+          state: state,
+          controller: _video,
+          onAddVideo: () => _addPip(image: false),
+          onAddImage: () => _addPip(image: true),
+          onToast: _toast,
+        );
       case 102:
         return MagicCard(state: state, onToast: _toast);
       // PATCH_S184_PRO_MAIN: the old tab sections, one tool each

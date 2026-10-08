@@ -22,6 +22,7 @@ import '../services/app_settings.dart';
 import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
 import 'pro_transform.dart'; // PATCH_S180_TRANSFORM
+import 'pro_pip.dart'; // PATCH_S188_PIP
 import '../services/ruh_touch.dart'; // PATCH_S181_CLIPTOUCH
 import 'color_picker_dialog.dart' show showAyatColorPicker; // PATCH_S145
 
@@ -489,6 +490,12 @@ class _StagePreviewState extends State<StagePreview>
                     ),
                   ),
                   )), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered + VideoXformLayer
+                // PATCH_S188_PIP: the little clips float above the video (and its blur),
+                // under the particles and the text - same order as the export.
+                if (state.pipClips.isNotEmpty)
+                  Positioned.fill(
+                    child: PipLayer(state: state, main: controller),
+                  ),
                 // PATCH_S34_STAGE_EFFECTS: particles over the video/background,
                 // under the ayah text so the words stay readable.
                 if (state.effect != StageEffect.none)

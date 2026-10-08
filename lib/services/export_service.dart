@@ -36,6 +36,7 @@ import '../models/video_transform.dart'; // PATCH_S180_TRANSFORM
 import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
+import 'pip_export.dart'; // PATCH_S188_PIP
 import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 
 class ExportService {
@@ -402,6 +403,9 @@ class ExportService {
       onStatus?.call('جارٍ التصدير الفعلي…');
       final mainMp4 = '${work.path}/main.mp4';
       final reciterPath = state.selectedReciterAudio;
+      // PATCH_S188_PIP: check the little clips' files and draw their shape masks
+      final pipPrep = await PipExport.prepare(
+          state, work.path, w, h, clipStart, duration);
       final cmd = buildMainCommand(
         state: state,
         w: w,
@@ -419,6 +423,7 @@ class ExportService {
         videoHasAudio: videoHasAudio,
         videoHasVideoStream: videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
         outPath: mainMp4,
+        pip: pipPrep, // PATCH_S188_PIP
       );
       await _run(cmd, duration, (f) => onProgress?.call(f * 0.8));
 
@@ -1154,6 +1159,7 @@ class ExportService {
     required bool videoHasAudio,
     required bool videoHasVideoStream, // PATCH_S23_AUDIO_ONLY_UPLOAD_FIX
     required String outPath,
+    PipExportPrep? pip, // PATCH_S188_PIP
   }) {
     final inputs = StringBuffer('-y ');
     final filters = <String>[];
@@ -1272,6 +1278,26 @@ class ExportService {
 
     // PATCH_S34_STAGE_EFFECTS: particle loop over the video/background,
     // under the ayah text — same z-order as the live preview.
+    // PATCH_S188_PIP: picture-in-picture clips sit above the video (and its blur),
+    // under the particles and the text - the same order as the live preview.
+    if (state.pipClips.isNotEmpty) {
+      final r = PipExport.append(
+        inputs: inputs,
+        filters: filters,
+        idx: idx,
+        base: base,
+        st: state,
+        w: w,
+        h: h,
+        clipStart: clipStart,
+        duration: duration,
+        fps: _fps,
+        prep: pip,
+      );
+      base = r.base;
+      idx = r.idx;
+    }
+
     if (effectSeqPattern != null) {
       inputs.write(
           '-framerate ${StageEffects.exportFps} -stream_loop -1 -start_number 0 -i "$effectSeqPattern" ');

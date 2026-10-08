@@ -14,6 +14,7 @@ import 'package:flutter/services.dart' show HapticFeedback; // PATCH_S179_AAA
 import 'package:flutter/scheduler.dart' show Ticker; // PATCH_S187_SMOOTH_PLAYHEAD
 import 'package:video_player/video_player.dart';
 
+import '../models/pip_clip.dart'; // PATCH_S188_PIP
 import '../models/studio_state.dart';
 import '../services/thumb_service.dart';
 import '../services/waveform_service.dart';
@@ -325,6 +326,8 @@ class ProTimelineState extends State<ProTimeline>
     final s = widget.state;
     final c = widget.compact;
     return [
+      if (s.pipClips.isNotEmpty) // PATCH_S188_PIP
+        _LaneSpec('pip', Icons.picture_in_picture_alt_outlined, c ? 28 : 36),
       if (s.textTimeCues.isNotEmpty ||
           (s.hasAyah && !(s.timelineActive && s.timeline.isNotEmpty)))
         _LaneSpec('text', Icons.title, c ? 26 : 32), // PATCH_S183_TEXT_BAR
@@ -620,6 +623,7 @@ class ProTimelineState extends State<ProTimeline>
 
   Widget _laneBody(_LaneSpec l, double w) {
     final child = switch (l.id) {
+      'pip' => _pipLane(l.h, w), // PATCH_S188_PIP
       'text' => _textLane(l.h, w),
       'ayah' => _ayahLane(l.h, w),
       'video' => _videoLane(l.h, w),
@@ -637,6 +641,214 @@ class ProTimelineState extends State<ProTimeline>
       ),
       child: child,
     );
+  }
+
+  // ---- PATCH_S188_PIP: the lane of the little clips -------------------------
+  // tap = select, drag a selected clip = move it, the two gold edges = trim.
+  Widget _pipLane(double h, double w) {
+    final clips = widget.state.pipClips;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: (d) {
+        widget.state.selectPip(-1);
+        _seekSec(d.localPosition.dx / _pps);
+      },
+      child: Stack(
+        children: [
+          for (var i = 0; i < clips.length; i++) _pipClip(i, h),
+        ],
+      ),
+    );
+  }
+
+  double _pipBase = 0;
+  double _pipAccum = 0;
+  bool _pipSnapped = false;
+
+  List<double> _pipSnapPoints(int skip) => <double>[
+        widget.controller.value.position.inMilliseconds / 1000.0,
+        ...widget.markers,
+        for (var k = 0; k < widget.state.pipClips.length; k++)
+          if (k != skip) ...[
+            widget.state.pipClips[k].start,
+            widget.state.pipClips[k].end
+          ],
+        for (final s in widget.state.timeline) ...[s.start, s.end],
+        for (final q in widget.state.textTimeCues) ...[q.start, q.end],
+        0,
+        _dur,
+      ];
+
+  Widget _pipClip(int i, double h) {
+    final clips = widget.state.pipClips;
+    if (i >= clips.length) return const SizedBox.shrink();
+    final c = clips[i];
+    final sel = widget.state.pipSel == i;
+    final w = math.max(10.0, (c.end - c.start) * _pps - 1);
+    return Positioned(
+      left: c.start * _pps,
+      width: w,
+      top: 2,
+      height: h - 4,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (d) {
+          widget.onSelectSeg(-1);
+          widget.onSelectCue?.call(-1);
+          widget.onSelectMain?.call(false);
+          widget.state.selectPip(sel ? -1 : i);
+          _seekSec(c.start + d.localPosition.dx / _pps);
+          if (!sel) _zoomIfNarrow(c.start, c.end);
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragStart: sel
+            ? (_) {
+                widget.state.pushHistory();
+                _pipBase = c.start;
+                _pipAccum = 0;
+                _pipSnapped = false;
+                HapticFeedback.selectionClick();
+              }
+            : null,
+        onHorizontalDragUpdate: sel
+            ? (d) {
+                _pipAccum += d.delta.dx;
+                _movePip(i);
+              }
+            : null,
+        child: Stack(
+          children: [
+            Positioned.fill(child: _pipBody(c, i, sel)),
+            if (sel) ...[
+              _pipHandle(i, true, w),
+              _pipHandle(i, false, w),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pipBody(PipClip c, int i, bool sel) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      padding: EdgeInsets.symmetric(horizontal: sel ? 24 : 6),
+      alignment: Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: const Color(0xFF4A3D7A),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: sel ? AyatColors.goldBright : const Color(0x66C9B8FF),
+          width: sel ? 2 : 1,
+        ),
+        image: c.isImage
+            ? DecorationImage(
+                image: ResizeImage(FileImage(File(c.path)), width: 160),
+                fit: BoxFit.cover,
+                opacity: 0.45,
+              )
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(c.isImage ? Icons.image_outlined : Icons.movie_outlined,
+              size: 13, color: AyatColors.parchment),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              'PIP ${i + 1}',
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AyatColors.parchment),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pipHandle(int i, bool isStart, double clipW) {
+    return Positioned(
+      left: isStart ? 0 : null,
+      right: isStart ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: _handleW(clipW),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) {
+          final clips = widget.state.pipClips;
+          if (i >= clips.length) return;
+          widget.state.pushHistory();
+          _pipBase = isStart ? clips[i].start : clips[i].end;
+          _pipAccum = 0;
+          _pipSnapped = false;
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragUpdate: (d) {
+          _pipAccum += d.delta.dx;
+          _movePipEdge(i, isStart);
+        },
+        child: _handleBody(isStart),
+      ),
+    );
+  }
+
+  void _movePip(int i) {
+    final clips = widget.state.pipClips;
+    if (i < 0 || i >= clips.length) return;
+    final c = clips[i];
+    final len = c.end - c.start;
+    var s = _pipBase + _pipAccum / _pps;
+    final tol = _snap ? 8 / _pps : -1.0;
+    var hit = false;
+    for (final x in _pipSnapPoints(i)) {
+      if ((x - s).abs() <= tol) {
+        s = x;
+        hit = true;
+        break;
+      }
+      if ((x - (s + len)).abs() <= tol) {
+        s = x - len;
+        hit = true;
+        break;
+      }
+    }
+    if (hit && !_pipSnapped) HapticFeedback.selectionClick();
+    _pipSnapped = hit;
+    s = s.clamp(0.0, math.max(0.0, _dur - len)).toDouble();
+    if ((s - c.start).abs() < 0.001) return;
+    widget.state.movePipTo(i, s);
+  }
+
+  void _movePipEdge(int i, bool isStart) {
+    final clips = widget.state.pipClips;
+    if (i < 0 || i >= clips.length) return;
+    final c = clips[i];
+    var target = _pipBase + _pipAccum / _pps;
+    final tol = _snap ? 8 / _pps : -1.0;
+    var hit = false;
+    for (final x in _pipSnapPoints(i)) {
+      if ((x - target).abs() <= tol) {
+        target = x;
+        hit = true;
+        break;
+      }
+    }
+    if (hit && !_pipSnapped) HapticFeedback.selectionClick();
+    _pipSnapped = hit;
+    target = target.clamp(0.0, _dur).toDouble();
+    if (isStart) {
+      if ((target - c.start).abs() < 0.001) return;
+      widget.state.setPipWindow(i, start: target);
+    } else {
+      if ((target - c.end).abs() < 0.001) return;
+      widget.state.setPipWindow(i, end: target);
+    }
   }
 
   // PATCH_S181_CLIPTOUCH: text blocks show their text, can be selected, and

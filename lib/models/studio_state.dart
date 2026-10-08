@@ -7,6 +7,7 @@ import '../services/whisper_service.dart'; // PATCH_S43_MODEL_SIZE_PICKER
 import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'video_transform.dart'; // PATCH_S180_TRANSFORM
+import 'pip_clip.dart'; // PATCH_S188_PIP
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -264,6 +265,117 @@ class StudioState extends ChangeNotifier {
   double videoOpacity = 1.0; // 0..1, one value for the whole clip
   List<VideoKey> videoKeys = []; // sorted by time; 2+ = animated
   bool videoKeyEase = true; // smoothstep between keys (false = linear)
+
+  // ---- PATCH_S188_PIP: picture-in-picture clips -------------------------
+  List<PipClip> pipClips = []; // layer order: last = on top
+  int pipSel = -1; // selection only, not part of undo
+
+  bool get hasPipSel => pipSel >= 0 && pipSel < pipClips.length;
+  PipClip? get selectedPip => hasPipSel ? pipClips[pipSel] : null;
+
+  void selectPip(int i) {
+    final v = (i >= 0 && i < pipClips.length) ? i : -1;
+    if (v == pipSel) return;
+    pipSel = v;
+    if (v >= 0) stageTextSelected = false;
+    notifyListeners();
+  }
+
+  void addPip(PipClip c) {
+    pushHistory();
+    pipClips = [...pipClips, c];
+    pipSel = pipClips.length - 1;
+    stageTextSelected = false;
+    notifyListeners();
+  }
+
+  void removePipAt(int i) {
+    if (i < 0 || i >= pipClips.length) return;
+    pushHistory();
+    pipClips = [...pipClips]..removeAt(i);
+    pipSel = -1;
+    notifyListeners();
+  }
+
+  void duplicatePipAt(int i) {
+    if (i < 0 || i >= pipClips.length) return;
+    pushHistory();
+    final d = pipClips[i].duplicate();
+    d.cx = (d.cx + 0.06).clamp(0.0, 1.0).toDouble();
+    d.cy = (d.cy + 0.06).clamp(0.0, 1.0).toDouble();
+    pipClips = [...pipClips]..insert(i + 1, d);
+    pipSel = i + 1;
+    notifyListeners();
+  }
+
+  /// Moves one or both edges (seconds). Trimming the start keeps the picture
+  /// in step (the part of the media that plays moves with it).
+  void setPipWindow(int i, {double? start, double? end}) {
+    if (i < 0 || i >= pipClips.length) return;
+    final c = pipClips[i];
+    var s = start ?? c.start;
+    var e = end ?? c.end;
+    if (s < 0) s = 0;
+    if (e - s < kPipMinLen) {
+      if (start != null) {
+        s = e - kPipMinLen;
+      } else {
+        e = s + kPipMinLen;
+      }
+    }
+    if (s < 0) {
+      s = 0;
+      e = kPipMinLen;
+    }
+    if (start != null && !c.isImage) {
+      final ni = c.srcIn + (s - c.start);
+      c.srcIn = ni < 0 ? 0.0 : ni;
+    }
+    c.start = s;
+    c.end = e;
+    notifyListeners();
+  }
+
+  /// Slides the whole clip so it starts at [s] (length unchanged).
+  void movePipTo(int i, double s) {
+    if (i < 0 || i >= pipClips.length) return;
+    final c = pipClips[i];
+    final len = c.end - c.start;
+    c.start = s < 0 ? 0.0 : s;
+    c.end = c.start + len;
+    notifyListeners();
+  }
+
+  /// Cuts a clip in two at [t]. False when [t] is too close to an edge.
+  bool splitPipAt(int i, double t) {
+    if (i < 0 || i >= pipClips.length) return false;
+    final c = pipClips[i];
+    if (t <= c.start + kPipMinLen || t >= c.end - kPipMinLen) return false;
+    pushHistory();
+    final second = c.duplicate();
+    second.start = t;
+    second.end = c.end;
+    second.srcIn = c.isImage ? 0.0 : c.srcIn + (t - c.start);
+    c.end = t;
+    pipClips = [...pipClips]..insert(i + 1, second);
+    pipSel = i + 1;
+    notifyListeners();
+    return true;
+  }
+
+  /// [dir] +1 = one layer closer to the front, -1 = one layer back.
+  void movePipLayer(int i, int dir) {
+    final j = i + dir;
+    if (i < 0 || i >= pipClips.length || j < 0 || j >= pipClips.length) return;
+    pushHistory();
+    final next = [...pipClips];
+    final tmp = next[i];
+    next[i] = next[j];
+    next[j] = tmp;
+    pipClips = next;
+    pipSel = j;
+    notifyListeners();
+  }
 
   bool get hasVideoTransform =>
       hasVideo &&
@@ -1331,6 +1443,8 @@ class StudioState extends ChangeNotifier {
         'videoXform': <double>[videoScale, videoPosX, videoPosY, videoRot, videoOpacity],
         'videoKeys': [for (final k in videoKeys) k.copy()],
         'videoKeyEase': videoKeyEase,
+        'pipClips': [for (final c in pipClips) c.copy()], // PATCH_S188_PIP
+        'pipSel': pipSel,
         'showIntro': showIntro,
         'showOutro': showOutro,
         'outroText': outroText,
@@ -1437,6 +1551,10 @@ class StudioState extends ChangeNotifier {
     videoOpacity = vx[4];
     videoKeys = [for (final k in (s['videoKeys'] as List).cast<VideoKey>()) k.copy()];
     videoKeyEase = s['videoKeyEase'] as bool;
+    // PATCH_S188_PIP
+    pipClips = [for (final c in (s['pipClips'] as List).cast<PipClip>()) c.copy()];
+    pipSel = s['pipSel'] as int;
+    if (pipSel >= pipClips.length) pipSel = -1;
     showIntro = s['showIntro'] as bool;
     showOutro = s['showOutro'] as bool;
     outroText = s['outroText'] as String;
