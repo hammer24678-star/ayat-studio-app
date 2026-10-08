@@ -19,6 +19,7 @@ import '../data/quran_repository.dart';
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
+import '../widgets/quran_text_sheet.dart'; // PATCH_S189_QURAN_TYPE
 import '../services/ai_art_service.dart'; // PATCH_S73C_FIX_MISSING_IMPORT: restores the import
 // dropped somewhere in S73/S73b's edits -- AiArtService.apiKey is used
 // below (Pollinations API key field) but the class was left unimported,
@@ -1993,34 +1994,57 @@ class _HomeScreenState extends State<HomeScreen>
       ));
   }
 
+  // PATCH_S189_QURAN_TYPE: typing a text, the Quran finishes it.
+  Future<void> _addQuranText() async {
+    final main = _video;
+    if (!state.hasVideo || main == null || !main.value.isInitialized) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    final r = await showQuranTextSheet(context,
+        ayaat: state.ayaat, title: 'نص جديد');
+    if (r == null || !mounted) return;
+    final total = main.value.duration.inMilliseconds / 1000.0;
+    var s = _playheadSec;
+    var e = s + 4.0;
+    if (e > total) {
+      e = total;
+      s = max(0.0, total - 4.0);
+    }
+    if (e - s < 0.3) {
+      _toast('المقطع الأساسي قصير جدًّا');
+      return;
+    }
+    state.update(() {
+      state.textTimeCues = [
+        ...state.textTimeCues,
+        TextTimeCue(
+            text: r.text, translation: r.translation, start: s, end: e),
+      ];
+    });
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _selCue = state.textTimeCues.length - 1;
+      _selSeg = -1;
+      _selMain = false;
+    });
+    _toast('أُضيف النص');
+  }
+
   Future<void> _cueEditText(int i) async {
     if (i < 0 || i >= state.textTimeCues.length) return;
     final cue = state.textTimeCues[i];
-    final ctrl = TextEditingController(text: cue.text);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AyatColors.surface,
-        title: const Text('تعديل النص'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLines: 4,
-          textAlign: TextAlign.right,
-          textDirection: TextDirection.rtl,
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('حفظ')),
-        ],
-      ),
-    );
-    ctrl.dispose();
-    if (result == null || result.trim().isEmpty) return;
-    state.update(() => cue.text = result.trim());
+    final r = await showQuranTextSheet(context,
+        ayaat: state.ayaat,
+        title: 'تعديل النص',
+        initial: cue.text,
+        initialTranslation: cue.translation);
+    if (r == null || !mounted) return;
+    if (i >= state.textTimeCues.length) return;
+    state.update(() {
+      cue.text = r.text;
+      cue.translation = r.translation;
+    });
   }
 
   // ---- the main clip ------------------------------------------------------
@@ -2030,6 +2054,7 @@ class _HomeScreenState extends State<HomeScreen>
         // PATCH_S182_WHISPER_MAIN: Whisper on the main screen
         (Icons.auto_awesome, 'مزامنة تلقائية', () { if (!_busy) _autoSync(); }, state.timelineActive),
         (Icons.manage_search, 'تعرّف من الصوت', () { if (!_busy) _detectFromVideo(); }, false),
+        (Icons.spellcheck, 'كتابة بالقرآن', _addQuranText, false), // PATCH_S189_QURAN_TYPE
         (Icons.hearing, 'دقة التعرّف', () { if (!_busy) _showModelSizePicker(); }, false),
         (Icons.first_page, 'قص البداية', () => _trimMain(head: true), false),
         (Icons.last_page, 'قص النهاية', () => _trimMain(head: false), false),
