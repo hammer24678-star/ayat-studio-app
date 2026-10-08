@@ -20,6 +20,7 @@ import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
 import '../widgets/quran_text_sheet.dart'; // PATCH_S189_QURAN_TYPE
+import '../widgets/nudge_sheet.dart'; // PATCH_S190_COMFORT
 import '../services/ai_art_service.dart'; // PATCH_S73C_FIX_MISSING_IMPORT: restores the import
 // dropped somewhere in S73/S73b's edits -- AiArtService.apiKey is used
 // below (Pollinations API key field) but the class was left unimported,
@@ -1535,6 +1536,122 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ---- PATCH_S190_COMFORT ----------------------------------------------
+  // Newest-wins seeking for jogging, and the fine-nudge sheet.
+  bool _seekBusyH = false;
+  int? _seekPendH;
+
+  void _seekCoalesced(int ms) {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    if (_seekBusyH) {
+      _seekPendH = ms;
+      return;
+    }
+    _seekBusyH = true;
+    c.seekTo(Duration(milliseconds: ms)).catchError((_) {}).whenComplete(() {
+      _seekBusyH = false;
+      final p = _seekPendH;
+      _seekPendH = null;
+      if (p != null && mounted) _seekCoalesced(p);
+    });
+  }
+
+  double _jogAcc = 0;
+  int _jogBaseMs = 0;
+  int _jogLastSec = -1;
+
+  void _jogStart() {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    if (c.value.isPlaying) c.pause();
+    _jogAcc = 0;
+    _jogBaseMs = c.value.position.inMilliseconds;
+    _jogLastSec = _jogBaseMs ~/ 1000;
+    HapticFeedback.selectionClick();
+  }
+
+  // Drag the time readout: one frame per ~5 px, a tick every second crossed.
+  void _jogUpdate(double dx) {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return;
+    _jogAcc += dx;
+    final fps = state.exportFps.clamp(24, 60);
+    final frames = (_jogAcc / 5.0).round();
+    final total = c.value.duration.inMilliseconds;
+    final ms = (_jogBaseMs + (frames * 1000 / fps).round()).clamp(0, total);
+    if (ms ~/ 1000 != _jogLastSec) {
+      _jogLastSec = ms ~/ 1000;
+      HapticFeedback.selectionClick();
+    }
+    _seekCoalesced(ms);
+  }
+
+  Future<void> _openNudgeSheet() async {
+    final isSeg = _hasSelSeg;
+    final isCue = !isSeg && _hasSelCue;
+    final isPip = !isSeg && !isCue && state.hasPipSel;
+    if (!isSeg && !isCue && !isPip) return;
+    final si = _selSeg, ci = _selCue, pi = state.pipSel;
+    final total = (_video?.value.duration.inMilliseconds ?? 0) / 1000.0;
+    final fps = state.exportFps.clamp(24, 60);
+
+    (double, double) range() {
+      if (isSeg && si < state.timeline.length) {
+        return (state.timeline[si].start, state.timeline[si].end);
+      }
+      if (isCue && ci < state.textTimeCues.length) {
+        return (state.textTimeCues[ci].start, state.textTimeCues[ci].end);
+      }
+      if (isPip && pi < state.pipClips.length) {
+        return (state.pipClips[pi].start, state.pipClips[pi].end);
+      }
+      return (0.0, 0.0);
+    }
+
+    void nudge(int mode, double d) {
+      final (s0, e0) = range();
+      if (e0 <= s0) return;
+      // keep the whole block inside the clip when moving it
+      var dd = d;
+      if (mode == 2) {
+        if (s0 + dd < 0) dd = -s0;
+        if (total > 0 && e0 + dd > total) dd = total - e0;
+      }
+      if (mode == 1 && total > 0 && e0 + dd > total) dd = total - e0;
+      if (dd == 0) return;
+      if (isSeg) {
+        state.nudgeTimelineSegment(si,
+            startDelta: mode == 0 ? dd : 0, endDelta: mode == 1 ? dd : 0);
+      } else if (isCue) {
+        state.pushHistory();
+        state.setTextCueWindow(ci,
+            start: mode == 1 ? null : s0 + dd, end: mode == 0 ? null : e0 + dd);
+      } else {
+        state.pushHistory();
+        if (mode == 2) {
+          state.movePipTo(pi, s0 + dd);
+        } else {
+          state.setPipWindow(pi,
+              start: mode == 0 ? s0 + dd : null,
+              end: mode == 1 ? e0 + dd : null);
+        }
+      }
+      final (s1, e1) = range();
+      final at = mode == 1 ? max(s1, e1 - 0.05) : s1;
+      _seekCoalesced((at * 1000).round());
+    }
+
+    await showNudgeSheet(
+      context,
+      title: isSeg ? 'إزاحة دقيقة — آية' : (isCue ? 'إزاحة دقيقة — نص' : 'إزاحة دقيقة — PIP'),
+      canMove: !isSeg,
+      frame: 1.0 / fps,
+      range: range,
+      onNudge: nudge,
+    );
+  }
+
   Widget _proTransport() {
     final c = _video!;
     return Container(
@@ -1560,6 +1677,8 @@ class _HomeScreenState extends State<HomeScreen>
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _goToTime, // PATCH_S179_AAA
+                    onHorizontalDragStart: (_) => _jogStart(), // PATCH_S190_COMFORT
+                    onHorizontalDragUpdate: (d) => _jogUpdate(d.delta.dx),
                     child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1758,6 +1877,7 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.content_cut, 'تقسيم', _splitAtPlayhead, false),
       ..._segExtraItems(i), // PATCH_S181_CLIPTOUCH
       (Icons.tune, 'التوقيت', () => _editSegmentTiming(i), false),
+      (Icons.straighten, 'إزاحة دقيقة', _openNudgeSheet, false), // PATCH_S190_COMFORT
       (Icons.swap_horiz, 'تغيير الآية', () => _changeSegmentAyahDialog(i),
           false),
       if (i + 1 < state.timeline.length)
@@ -1928,6 +2048,7 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.last_page, 'قص النهاية', () => _cueTrim(i, head: false), false),
       (Icons.animation, 'انتقال', _openTransitionSheet, false),
       (Icons.edit_outlined, 'تعديل النص', () => _cueEditText(i), false),
+      (Icons.straighten, 'إزاحة دقيقة', _openNudgeSheet, false), // PATCH_S190_COMFORT
       (Icons.text_fields, 'النمط', () => _openToolFromClip(121), _toolOpen == 121),
       (Icons.border_style, 'الإطار', () => _openToolFromClip(122), _toolOpen == 122),
       (Icons.filter_frames, 'الظل', () => _openToolFromClip(123), _toolOpen == 123),
@@ -2261,6 +2382,7 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.last_page, 'قص النهاية', () => _pipTrim(i, head: false), false),
       (Icons.flip_to_front, 'للأمام', () => state.movePipLayer(i, 1), false),
       (Icons.flip_to_back, 'للخلف', () => state.movePipLayer(i, -1), false),
+      (Icons.straighten, 'إزاحة دقيقة', _openNudgeSheet, false), // PATCH_S190_COMFORT
       (Icons.content_copy, 'نسخ', () => state.duplicatePipAt(i), false),
       (Icons.delete_outline, 'حذف', () => _pipDelete(i), false),
     ];

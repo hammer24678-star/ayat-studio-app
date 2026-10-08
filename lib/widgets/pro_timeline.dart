@@ -200,9 +200,31 @@ class ProTimelineState extends State<ProTimeline>
     if ((target - _scroll.offset).abs() > 0.3) _scroll.jumpTo(target);
   }
 
+  // PATCH_S190_COMFORT: one seek in flight, only the newest target waits.
+  // Dragging the ruler used to queue a seek per touch event on the player, so
+  // the picture trailed the finger; now it always jumps to where it is now.
+  bool _seekBusy = false;
+  int? _seekPend;
+
+  void _seekMs(int ms) {
+    if (_seekBusy) {
+      _seekPend = ms;
+      return;
+    }
+    _seekBusy = true;
+    widget.controller
+        .seekTo(Duration(milliseconds: ms))
+        .catchError((_) {})
+        .whenComplete(() {
+      _seekBusy = false;
+      final p = _seekPend;
+      _seekPend = null;
+      if (p != null && mounted) _seekMs(p);
+    });
+  }
+
   void _seekSec(double sec) {
-    final ms = (sec.clamp(0.0, _dur) * 1000).round();
-    widget.controller.seekTo(Duration(milliseconds: ms));
+    _seekMs((sec.clamp(0.0, _dur) * 1000).round());
   }
 
   // PATCH_S181_CLIPTOUCH: zoom so [a, b] (seconds) fills most of the view and
