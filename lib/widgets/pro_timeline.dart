@@ -11,6 +11,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback; // PATCH_S179_AAA
+import 'package:flutter/scheduler.dart' show Ticker; // PATCH_S187_SMOOTH_PLAYHEAD
 import 'package:video_player/video_player.dart';
 
 import '../models/studio_state.dart';
@@ -73,7 +74,8 @@ class _PeakSlot {
   List<double>? peaks;
 }
 
-class ProTimelineState extends State<ProTimeline> {
+class ProTimelineState extends State<ProTimeline>
+    with SingleTickerProviderStateMixin { // PATCH_S187_SMOOTH_PLAYHEAD
   static const double _gutter = 48;
   static const double _rulerH = 24;
   static const double _minPps = 6;
@@ -111,7 +113,9 @@ class ProTimelineState extends State<ProTimeline> {
   @override
   void initState() {
     super.initState();
+    _ticker = createTicker(_onTick); // PATCH_S187_SMOOTH_PLAYHEAD
     widget.controller.addListener(_follow);
+    _follow();
   }
 
   @override
@@ -126,24 +130,73 @@ class ProTimelineState extends State<ProTimeline> {
   @override
   void dispose() {
     widget.controller.removeListener(_follow);
+    _ticker.dispose(); // PATCH_S187_SMOOTH_PLAYHEAD
+    _frame.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
   // ------------------------------------------------------------ behaviour
 
-  /// While playing, keep the playhead on screen.
+  // PATCH_S187_SMOOTH_PLAYHEAD: the player reports its position only a few
+  // times a second, so the playhead is predicted from the wall clock between
+  // reports (and snapped back if the prediction drifts or the user seeks).
+  final Stopwatch _wall = Stopwatch()..start();
+  late final Ticker _ticker;
+  final ValueNotifier<int> _frame = ValueNotifier<int>(0);
+  double _anchorPos = 0;
+  double _anchorAt = 0;
+  bool _wasPlaying = false;
+
+  double get _nowSec => _wall.elapsedMicroseconds / 1e6;
+
+  double _smoothSec(VideoPlayerValue v) {
+    final p = v.position.inMilliseconds / 1000.0;
+    if (!v.isPlaying) return p;
+    final pred = _anchorPos + (_nowSec - _anchorAt) * v.playbackSpeed;
+    if ((pred - p).abs() > 0.25) {
+      _anchorPos = p;
+      _anchorAt = _nowSec;
+      return p;
+    }
+    return pred.clamp(0.0, _dur).toDouble();
+  }
+
+  /// Starts / stops the frame ticker with playback.
   void _follow() {
     final v = widget.controller.value;
-    if (!v.isPlaying || !_scroll.hasClients || _pinching) return;
-    final x = v.position.inMilliseconds / 1000.0 * _pps;
-    final off = _scroll.offset;
-    if (x < off + 24 || x > off + _viewW - 48) {
-      final target = (x - _viewW * 0.3)
-          .clamp(0.0, _scroll.position.maxScrollExtent)
-          .toDouble();
-      _scroll.jumpTo(target);
+    if (v.isPlaying) {
+      if (!_wasPlaying) {
+        _anchorPos = v.position.inMilliseconds / 1000.0;
+        _anchorAt = _nowSec;
+      }
+      if (!_ticker.isActive) _ticker.start();
+    } else {
+      _anchorPos = v.position.inMilliseconds / 1000.0;
+      _anchorAt = _nowSec;
+      if (_ticker.isActive) _ticker.stop();
     }
+    _wasPlaying = v.isPlaying;
+  }
+
+  void _onTick(Duration _) {
+    final v = widget.controller.value;
+    if (!v.isPlaying) {
+      _ticker.stop();
+      return;
+    }
+    _frame.value++;
+    if (!_scroll.hasClients ||
+        _pinching ||
+        _scrubbing ||
+        _scroll.position.isScrollingNotifier.value) {
+      return;
+    }
+    final x = _smoothSec(v) * _pps;
+    final target = (x - _viewW * 0.5)
+        .clamp(0.0, _scroll.position.maxScrollExtent)
+        .toDouble();
+    if ((target - _scroll.offset).abs() > 0.3) _scroll.jumpTo(target);
   }
 
   void _seekSec(double sec) {
@@ -506,10 +559,11 @@ class ProTimelineState extends State<ProTimeline> {
   // -------------------------------------------------------------- playhead
 
   Widget _playhead() {
-    return ValueListenableBuilder<VideoPlayerValue>(
-      valueListenable: widget.controller,
-      builder: (context, v, _) {
-        final x = v.position.inMilliseconds / 1000.0 * _pps;
+    return ListenableBuilder( // PATCH_S187_SMOOTH_PLAYHEAD
+      listenable: Listenable.merge([widget.controller, _frame]),
+      builder: (context, _) {
+        final v = widget.controller.value;
+        final x = _smoothSec(v) * _pps;
         return Positioned(
           left: x - 6,
           top: 0,
