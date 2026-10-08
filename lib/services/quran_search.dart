@@ -181,9 +181,59 @@ class QuranSearch {
         final c = a.rank.compareTo(b.rank);
         return c != 0 ? c : a.corpusIndex.compareTo(b.corpusIndex);
       });
+      // PATCH_S192_ALEF: nothing matched as typed -> try again ignoring alefs.
+      if (results.isEmpty) {
+        results.addAll(_alefless(q, ayaat, norm, offsets, limit));
+      }
     }
 
     return results.length > limit ? results.sublist(0, limit) : results;
+  }
+
+  /// The corpus writes many long-aa sounds as a small dagger alef above the
+  /// letter (العٰلمين, الكتٰب, هٰذا) which the normalizer drops, while people
+  /// type a full alef (العالمين, الكتاب, هذا). So when the exact pass finds
+  /// nothing, both sides are compared with every alef removed. The reported
+  /// range is widened by a leading / trailing alef the user typed, so a
+  /// completion still starts and ends on whole letters.
+  static List<AyahSearchResult> _alefless(String q, List<Ayah> ayaat,
+      List<String> norm, List<List<int>> offsets, int limit) {
+    final qs = q.replaceAll('ا', '');
+    if (qs.length < 2) return const [];
+    final out = <AyahSearchResult>[];
+    for (var i = 0; i < norm.length && i < ayaat.length; i++) {
+      final n = norm[i];
+      final sb = StringBuffer();
+      final back = <int>[];
+      for (var k = 0; k < n.length; k++) {
+        if (n[k] == 'ا') continue;
+        sb.write(n[k]);
+        back.add(k);
+      }
+      final sk = sb.toString();
+      final at = sk.indexOf(qs);
+      if (at < 0) continue;
+      final map = offsets[i];
+      var nStart = back[at];
+      var nEnd = back[at + qs.length - 1];
+      if (q.startsWith('ا') && nStart > 0 && n[nStart - 1] == 'ا') nStart--;
+      if (q.endsWith('ا') && nEnd + 1 < n.length && n[nEnd + 1] == 'ا') nEnd++;
+      final start = nStart < map.length ? map[nStart] : -1;
+      final end = nEnd < map.length ? map[nEnd] : -1;
+      out.add(AyahSearchResult(
+        corpusIndex: i,
+        ayah: ayaat[i],
+        matchStart: start,
+        matchLength: (start >= 0 && end >= start) ? end - start + 1 : 0,
+        rank: at == 0 ? 0 : (sk[at - 1] == ' ' ? 1 : 2) + at / 10000.0,
+      ));
+      if (out.length >= limit * 3) break;
+    }
+    out.sort((a, b) {
+      final c = a.rank.compareTo(b.rank);
+      return c != 0 ? c : a.corpusIndex.compareTo(b.corpusIndex);
+    });
+    return out;
   }
 
   /// Drops the prebuilt index — only needed by tests that swap corpora.

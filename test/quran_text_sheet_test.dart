@@ -40,4 +40,15 @@ void main() {
   test('non-Quran text finds nothing', () {
     expect(QuranSearch.search('مرحبا بكم', corpus), isEmpty);
   });
+
+  // PATCH_S192_ALEF
+  test('a full alef still finds dagger-alef text, whole letters at the edges',
+      () {
+    final r = QuranSearch.search('العالمين', corpus);
+    expect(r, isNotEmpty);
+    expect(r.first.ayah.num, 2);
+    final out = quranCompleteFrom(r.first.ayah.ar, r.first.matchStart);
+    expect(out.startsWith('ٱ'), isTrue);
+    expect(out.endsWith('ٱلْعَـٰلَمِينَ'), isTrue);
+  });
 }
