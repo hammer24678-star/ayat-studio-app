@@ -35,14 +35,15 @@ class TextEditorPro extends StatefulWidget {
   final List<String> segmentTexts; // for unified one-line sizing
   final double canvasWidth;
   final VoidCallback? onPickCustomFont;
+  final TextEditorTab? only; // PATCH_S184_PRO_MAIN: show just this one page (no inner tab row)
   const TextEditorPro({super.key, required this.state,
-    this.segmentTexts = const [], this.canvasWidth = 1080, this.onPickCustomFont});
+    this.segmentTexts = const [], this.canvasWidth = 1080, this.onPickCustomFont, this.only});
   @override
   State<TextEditorPro> createState() => _TextEditorProState();
 }
 
 class _TextEditorProState extends State<TextEditorPro> {
-  TextEditorTab _tab = TextEditorTab.text;
+  late TextEditorTab _tab = widget.only ?? TextEditorTab.text; // PATCH_S184_PRO_MAIN
   StudioState get s => widget.state;
   // PATCH_S152_LANGUAGES_PATCH_A: 's' is already StudioState above, so
   // this file's shorthand for looked-up UI text is `_t`/`_tf`, matching
@@ -82,7 +83,7 @@ class _TextEditorProState extends State<TextEditorPro> {
 
   @override
   Widget build(BuildContext c) => ListenableBuilder(listenable: s,
-    builder: (c, _) => Column(children: [_tabRow(), _body()]));
+    builder: (c, _) => Column(children: [if (widget.only == null) _tabRow(), _body()])); // PATCH_S184_PRO_MAIN
 
   // PATCH_S132_GAUNTLET_LOOP: Wrap instead of a fixed-width Row (was
   // clipping the rightmost tab on narrow screens -- shot-2/shot-3 bug),

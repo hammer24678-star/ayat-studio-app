@@ -109,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S173_INSHOT_LAYOUT: which bottom tool panel is open (-1 = none).
   // 100 = video, 101 = size, 102 = magic, 0..n-1 = the tab index.
   int _toolOpen = -1;
+  double _panelFrac = 0.36; // PATCH_S184_PRO_MAIN: height of the tool panel (drag its handle)
   // PATCH_S174_PRO_EDITOR: selected ayah clip on the timeline (-1 = none) and
   // the playhead markers (session only, like a scratch pad).
   int _selSeg = -1;
@@ -1300,23 +1301,45 @@ class _HomeScreenState extends State<HomeScreen>
   // ---------------------------------------------------------------------
 
   // (id, icon, label). 100/101/102 are extra tools, 0..n-1 the existing tabs.
+  // PATCH_S184_PRO_MAIN: one flat strip, every old tab section is its own tool.
   List<(int, IconData, String)> _toolList() => [
         (100, Icons.movie_outlined, 'الفيديو'),
         (101, Icons.aspect_ratio, 'المقاس'),
-        for (var i = 0; i < _tabs.length; i++) (i, _tabs[i].$1, _tabs[i].$2),
-        // PATCH_S174_PRO_EDITOR: Resolve-style pages
-        (103, Icons.palette_outlined, 'اللون'),
-        (104, Icons.equalizer, 'الصوت'),
-        (105, Icons.subtitles_outlined, 'النص المفرَّغ'),
-        (106, Icons.ios_share, 'تصدير سريع'),
-        (107, Icons.speed, 'السرعة'), // PATCH_S175_CAPCUT
+        (112, Icons.open_with, 'التحويل'),
+        (107, Icons.speed, 'السرعة'),
+        (120, Icons.menu_book_outlined, 'الآيات'),
+        (121, Icons.text_fields, 'النص'),
+        (122, Icons.border_style, 'الإطار'),
+        (123, Icons.filter_frames, 'الظل'),
+        (124, Icons.wb_sunny_outlined, 'التوهج'),
+        (125, Icons.label_outline, 'اللافتة'),
+        (126, Icons.opacity, 'الشفافية'),
         (108, Icons.animation, 'الحركة'),
         (109, Icons.closed_caption_outlined, 'الترجمة'),
         (110, Icons.emoji_emotions_outlined, 'ملصقات'),
+        (127, Icons.wallpaper, 'الخلفية'),
+        (128, Icons.layers_outlined, 'كروما'),
+        (130, Icons.auto_awesome_outlined, 'تأثيرات'),
+        (131, Icons.dashboard_customize_outlined, 'قوالب'),
+        (103, Icons.palette_outlined, 'اللون'),
         (111, Icons.high_quality_outlined, 'تحسين'),
-        (112, Icons.open_with, 'التحويل'), // PATCH_S180_TRANSFORM
+        (104, Icons.equalizer, 'الصوت'),
+        (129, Icons.record_voice_over_outlined, 'القارئ'),
+        (105, Icons.subtitles_outlined, 'النص المفرَّغ'),
         (102, Icons.auto_fix_high, 'لمسات'),
+        (132, Icons.branding_watermark_outlined, 'علامة'),
+        (106, Icons.ios_share, 'تصدير سريع'),
+        (133, Icons.tune, 'الإخراج'),
       ];
+
+  Widget _teOnly(TextEditorTab t) => TextEditorPro(
+        key: ValueKey('te-${t.name}'),
+        state: state,
+        segmentTexts: state.unifiedTexts,
+        canvasWidth: 1080,
+        onPickCustomFont: _pickCustomFont,
+        only: t,
+      );
 
   void _openTool(int id) {
     HapticFeedback.selectionClick();
@@ -1344,7 +1367,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _studioBody() {
     return LayoutBuilder(builder: (context, c) {
-      final panelH = (c.maxHeight * 0.36).clamp(0.0, 420.0);
+      // PATCH_S184_PRO_MAIN: resizable, never so tall that the stage disappears
+      final panelH = max(0.0, min(c.maxHeight * _panelFrac, c.maxHeight - 330.0))
+          .clamp(0.0, 560.0)
+          .toDouble();
       final hasStatus = _busy || state.corpusStatus.isNotEmpty;
       final dockCompact = _toolOpen != -1 || c.maxHeight < 560; // PATCH_S174_PRO_EDITOR
       return Column(
@@ -1843,6 +1869,11 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.last_page, 'قص النهاية', () => _trimSeg(i, head: false), false),
         (Icons.animation, 'انتقال', _openTransitionSheet, false),
         (Icons.zoom_in, 'تكبير', _zoomToSelection, false),
+        // PATCH_S184_PRO_MAIN
+        (Icons.text_fields, 'النمط', () => _openToolFromClip(121), _toolOpen == 121),
+        (Icons.animation, 'الحركة', () => _openToolFromClip(108), _toolOpen == 108),
+        (Icons.closed_caption_outlined, 'الترجمة', () => _openToolFromClip(109), _toolOpen == 109),
+        (Icons.record_voice_over_outlined, 'القارئ', () => _openToolFromClip(129), _toolOpen == 129),
       ];
 
   void _trimSeg(int i, {required bool head}) {
@@ -1872,6 +1903,9 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.last_page, 'قص النهاية', () => _cueTrim(i, head: false), false),
       (Icons.animation, 'انتقال', _openTransitionSheet, false),
       (Icons.edit_outlined, 'تعديل النص', () => _cueEditText(i), false),
+      (Icons.text_fields, 'النمط', () => _openToolFromClip(121), _toolOpen == 121),
+      (Icons.border_style, 'الإطار', () => _openToolFromClip(122), _toolOpen == 122),
+      (Icons.filter_frames, 'الظل', () => _openToolFromClip(123), _toolOpen == 123),
       (Icons.zoom_in, 'تكبير', _zoomToSelection, false),
       (Icons.content_copy, 'نسخ', () => _cueDuplicate(i), false),
       (Icons.delete_outline, 'حذف', () => _cueDelete(i), false),
@@ -1984,13 +2018,19 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.add_photo_alternate_outlined, 'إضافة', _addMediaSheet, false),
         (Icons.animation, 'انتقال', _openTransitionSheet, false),
         (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
-        (Icons.speed, 'السرعة', () => _openToolFromClip(107), false),
+        (Icons.speed, 'السرعة', () => _openToolFromClip(107), _toolOpen == 107),
+        // PATCH_S184_PRO_MAIN: every tool of the main clip, one tap away
+        (Icons.palette_outlined, 'اللون', () => _openToolFromClip(103), _toolOpen == 103),
+        (Icons.equalizer, 'الصوت', () => _openToolFromClip(104), _toolOpen == 104),
+        (Icons.high_quality_outlined, 'تحسين', () => _openToolFromClip(111), _toolOpen == 111),
+        (Icons.aspect_ratio, 'المقاس', () => _openToolFromClip(101), _toolOpen == 101),
+        (Icons.wallpaper, 'الخلفية', () => _openToolFromClip(127), _toolOpen == 127),
+        (Icons.layers_outlined, 'كروما', () => _openToolFromClip(128), _toolOpen == 128),
         (Icons.fit_screen_outlined, 'ملاءمة', () => _tlKey.currentState?.fit(), false),
       ];
 
   void _openToolFromClip(int id) {
-    setState(() => _selMain = false);
-    if (_toolOpen != id) _openTool(id);
+    _openTool(id); // PATCH_S184_PRO_MAIN: keep the selection, tap again to close the tool
   }
 
   void _trimMain({required bool head}) {
@@ -2293,6 +2333,14 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.text_increase, 'أكبر', () => _nudgeTextSize(0.1), false),
       (Icons.font_download_outlined, 'الخط', _openFontSheet, false),
       (Icons.vertical_align_center, 'الموضع', _cycleTextPos, false),
+      // PATCH_S184_PRO_MAIN: the whole look of the text, from the bar
+      (Icons.text_fields, 'النمط', () => _openToolFromClip(121), _toolOpen == 121),
+      (Icons.border_style, 'الإطار', () => _openToolFromClip(122), _toolOpen == 122),
+      (Icons.filter_frames, 'الظل', () => _openToolFromClip(123), _toolOpen == 123),
+      (Icons.wb_sunny_outlined, 'التوهج', () => _openToolFromClip(124), _toolOpen == 124),
+      (Icons.label_outline, 'اللافتة', () => _openToolFromClip(125), _toolOpen == 125),
+      (Icons.opacity, 'الشفافية', () => _openToolFromClip(126), _toolOpen == 126),
+      (Icons.animation, 'الحركة', () => _openToolFromClip(108), _toolOpen == 108),
       (Icons.animation, 'انتقال', _openTransitionSheet, false),
       if (!synced) ...[
         (Icons.first_page, 'يبدأ هنا', () => _setTextWindowHere(start: true), hasWin),
@@ -2628,6 +2676,30 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Column(
         children: [
+          // PATCH_S184_PRO_MAIN: drag to resize the panel, double tap to toggle
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragUpdate: (d) {
+              final hh = MediaQuery.of(context).size.height * 0.8;
+              setState(() => _panelFrac =
+                  (_panelFrac - d.delta.dy / hh).clamp(0.2, 0.6).toDouble());
+            },
+            onDoubleTap: () => setState(
+                () => _panelFrac = _panelFrac > 0.45 ? 0.36 : 0.58),
+            child: SizedBox(
+              height: 20,
+              child: Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AyatColors.parchmentDim,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
           SizedBox(
             height: 46,
             child: Row(
@@ -2749,6 +2821,42 @@ class _HomeScreenState extends State<HomeScreen>
         return ProTransformPage(state: state, controller: _video);
       case 102:
         return MagicCard(state: state, onToast: _toast);
+      // PATCH_S184_PRO_MAIN: the old tab sections, one tool each
+      case 120:
+        return _ayahPanel();
+      case 121:
+        return _teOnly(TextEditorTab.text);
+      case 122:
+        return _teOnly(TextEditorTab.border);
+      case 123:
+        return _teOnly(TextEditorTab.shadow);
+      case 124:
+        return _teOnly(TextEditorTab.glow);
+      case 125:
+        return _teOnly(TextEditorTab.label);
+      case 126:
+        return _teOnly(TextEditorTab.opacity);
+      case 127:
+        return _bgPanel();
+      case 128:
+        return _chromaPanel();
+      case 129:
+        return _recitersPanel();
+      case 130:
+        return _effectsPanel();
+      case 131:
+        return _templatesPanel();
+      case 132:
+        return _watermarkSection();
+      case 133:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _exportPanel(),
+            const SizedBox(height: 16),
+            _exportButton(),
+          ],
+        );
       default:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
