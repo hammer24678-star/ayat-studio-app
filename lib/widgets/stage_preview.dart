@@ -1103,7 +1103,7 @@ class _StagePreviewState extends State<StagePreview>
         state.update(() {
           state.textOffset += details.focalPointDelta / scale;
           state.textUserScale =
-              (gestureStartUserScale * details.scale).clamp(0.6, 1.8);
+              (gestureStartUserScale * details.scale).clamp(0.4, 3.0); // PATCH_S183_TEXT_BAR
         });
       },
       // PATCH_S133_STAGE_TEXT_SELECT_EDIT: double-tap now opens the text

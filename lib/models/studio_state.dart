@@ -464,6 +464,35 @@ class StudioState extends ChangeNotifier {
     textTimeCues = next;
     notifyListeners();
   }
+
+  // PATCH_S183_TEXT_BAR: the window (begin / stop) of the typed text. Both ends
+  // are always set together, because the exporter only honours the window when
+  // it has both. [dur] is the clip length in seconds.
+  void setTextWindow(double dur, {double? start, double? end}) {
+    if (dur <= 0.3) return;
+    var s = start ?? textTimeStartOverride ?? 0.0;
+    var e = end ?? textTimeEndOverride ?? dur;
+    s = s < 0.0 ? 0.0 : (s > dur ? dur : s);
+    e = e < 0.0 ? 0.0 : (e > dur ? dur : e);
+    if (e - s < 0.3) {
+      if (start != null) {
+        s = e - 0.3 < 0.0 ? 0.0 : e - 0.3;
+        if (e - s < 0.3) e = s + 0.3;
+      } else {
+        e = s + 0.3 > dur ? dur : s + 0.3;
+        if (e - s < 0.3) s = e - 0.3;
+      }
+    }
+    textTimeStartOverride = s;
+    textTimeEndOverride = e;
+    notifyListeners();
+  }
+
+  void clearTextWindow() {
+    textTimeStartOverride = null;
+    textTimeEndOverride = null;
+    notifyListeners();
+  }
   // PATCH_S145_SCROLL_WORDCOLOR_FONTS_GLOW: word index (into
   // state.ayahText.split(RegExp(r'\s+'))) -> the color that word is
   // drawn in instead of the normal text color. Was a Set<int> that only

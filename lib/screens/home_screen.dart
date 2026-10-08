@@ -58,6 +58,7 @@ import '../widgets/pro_panels.dart'; // PATCH_S174_PRO_EDITOR
 import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
 import '../widgets/pro_extras.dart'; // PATCH_S179_AAA
 import '../widgets/pro_transform.dart'; // PATCH_S180_TRANSFORM
+import '../services/ruh_touch.dart'; // PATCH_S183_TEXT_BAR
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
 import '../widgets/autoseg_wizard.dart'; // PATCH_S134_AUTOSEG_WIZARD
@@ -759,6 +760,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!state.timelineActive ||
         controller == null ||
         !controller.value.isInitialized) {
+      _gateTypedText(controller); // PATCH_S183_TEXT_BAR
       return;
     }
     final t = controller.value.position.inMilliseconds / 1000.0;
@@ -1432,7 +1434,8 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S181_CLIPTOUCH
   bool get _hasSelCue => _selCue >= 0 && _selCue < state.textTimeCues.length;
   bool get _hasSelMain => _selMain && _video != null && _video!.value.isInitialized;
-  bool get _hasAnySel => _hasSelSeg || _hasSelCue || _hasSelMain;
+  bool get _hasAnySel =>
+      _hasSelSeg || _hasSelCue || _hasSelMain || state.stageTextSelected; // PATCH_S183_TEXT_BAR
 
   Widget _proDock(bool compact) {
     final c = _video!;
@@ -1447,11 +1450,14 @@ class _HomeScreenState extends State<HomeScreen>
           selectedSeg: _selSeg,
           // PATCH_S181_CLIPTOUCH: any selection change on the ayah lane first
           // clears the other kinds; text / main selections set theirs after it.
-          onSelectSeg: (i) => setState(() {
-            _selSeg = i;
-            _selCue = -1;
-            _selMain = false;
-          }),
+          onSelectSeg: (i) {
+            state.clearStageSelection(); // PATCH_S183_TEXT_BAR
+            setState(() {
+              _selSeg = i;
+              _selCue = -1;
+              _selMain = false;
+            });
+          },
           selectedCue: _hasSelCue ? _selCue : -1,
           onSelectCue: (i) => setState(() {
             _selCue = i;
@@ -1467,6 +1473,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
           }),
           onAddMedia: _addMediaSheet,
+          onAutoSync: _busy ? null : _autoSync, // PATCH_S182_WHISPER_MAIN
           markers: _markers,
           compact: compact,
         ),
@@ -1699,6 +1706,8 @@ class _HomeScreenState extends State<HomeScreen>
   /// bottom strip turns into that clip's actions.
   Widget _clipToolStrip() {
     // PATCH_S181_CLIPTOUCH: text blocks and the main clip have their own bars
+    // PATCH_S183_TEXT_BAR: the text on the stage / its block on the timeline has a text bar
+    if (state.stageTextSelected && !_hasSelSeg) return _clipBar(_textItems());
     if (!_hasSelSeg) return _clipBar(_hasSelCue ? _cueItems() : _mainItems());
     final i = _selSeg;
     final items = <(IconData, String, VoidCallback, bool)>[
@@ -1750,7 +1759,7 @@ class _HomeScreenState extends State<HomeScreen>
               borderRadius: BorderRadius.circular(14),
               onTap: it.$3,
               child: SizedBox(
-                width: 76,
+                width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1805,7 +1814,7 @@ class _HomeScreenState extends State<HomeScreen>
               borderRadius: BorderRadius.circular(14),
               onTap: it.$3,
               child: SizedBox(
-                width: 76,
+                width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1960,6 +1969,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   List<(IconData, String, VoidCallback, bool)> _mainItems() => [
         (Icons.check_circle_outline, 'تم', () => setState(() => _selMain = false), false),
+        // PATCH_S182_WHISPER_MAIN: Whisper on the main screen
+        (Icons.auto_awesome, 'مزامنة تلقائية', () { if (!_busy) _autoSync(); }, state.timelineActive),
+        (Icons.manage_search, 'تعرّف من الصوت', () { if (!_busy) _detectFromVideo(); }, false),
+        (Icons.hearing, 'دقة التعرّف', () { if (!_busy) _showModelSizePicker(); }, false),
         (Icons.first_page, 'قص البداية', () => _trimMain(head: true), false),
         (Icons.last_page, 'قص النهاية', () => _trimMain(head: false), false),
         (
@@ -2221,6 +2234,163 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (mounted) setState(() {});
     _toast(isImage ? 'أُضيفت الصورة ✓' : 'أُضيف الفيديو ✓');
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S183_TEXT_BAR: the text bar of the main screen
+  // ---------------------------------------------------------------------
+
+  /// With a begin / stop window on the typed text, the stage shows the text
+  /// only inside it - through the same fade the export uses. (A single
+  /// invisible "hidden" overlay key lets the stage's own transition run.)
+  void _gateTypedText(VideoPlayerController? c) {
+    final s = state.textTimeStartOverride;
+    final e = state.textTimeEndOverride;
+    final cur = _liveOverlay.value;
+    final hiddenNow = cur != null && cur.segmentKey == 'hidden-window';
+    if (c == null ||
+        !c.value.isInitialized ||
+        s == null ||
+        e == null ||
+        state.timelineActive ||
+        !state.hasAyah) {
+      if (hiddenNow) _liveOverlay.value = null;
+      return;
+    }
+    final t = c.value.position.inMilliseconds / 1000.0;
+    final inside = t >= s && t < e;
+    if (!inside && !hiddenNow) {
+      _liveOverlay.value = StageOverlayText(' ', '', 'hidden-window', null, 0, '');
+    } else if (inside && hiddenNow) {
+      _liveOverlay.value = null;
+    }
+  }
+
+  double get _clipLenSec {
+    final c = _video;
+    if (c == null || !c.value.isInitialized) return state.videoDurationSec;
+    return c.value.duration.inMilliseconds / 1000.0;
+  }
+
+  List<(IconData, String, VoidCallback, bool)> _textItems() {
+    final synced = state.timelineActive && state.timeline.isNotEmpty;
+    final hasWin = state.textTimeStartOverride != null &&
+        state.textTimeEndOverride != null;
+    return [
+      (
+        Icons.check_circle_outline,
+        'تم',
+        () {
+          state.clearStageSelection();
+          setState(() {
+            _selMain = false;
+            _selCue = -1;
+          });
+        },
+        false
+      ),
+      (Icons.text_decrease, 'أصغر', () => _nudgeTextSize(-0.1), false),
+      (Icons.text_increase, 'أكبر', () => _nudgeTextSize(0.1), false),
+      (Icons.font_download_outlined, 'الخط', _openFontSheet, false),
+      (Icons.vertical_align_center, 'الموضع', _cycleTextPos, false),
+      (Icons.animation, 'انتقال', _openTransitionSheet, false),
+      if (!synced) ...[
+        (Icons.first_page, 'يبدأ هنا', () => _setTextWindowHere(start: true), hasWin),
+        (Icons.last_page, 'ينتهي هنا', () => _setTextWindowHere(start: false), hasWin),
+        if (hasWin) ...[
+          (Icons.restart_alt, 'كامل المدة', _resetTextWindow, false),
+        ],
+      ],
+      (Icons.auto_awesome, 'الروح', _applyRuhNow, false),
+    ];
+  }
+
+  void _nudgeTextSize(double d) {
+    final v = (state.textUserScale + d).clamp(0.4, 3.0).toDouble();
+    HapticFeedback.selectionClick();
+    state.update(() => state.textUserScale = v);
+  }
+
+  void _cycleTextPos() {
+    const vs = AyahTextPosition.values;
+    final n = vs[(state.textPosition.index + 1) % vs.length];
+    HapticFeedback.selectionClick();
+    state.update(() => state.textPosition = n);
+    _toast(switch (n) {
+      AyahTextPosition.top => 'النص في الأعلى',
+      AyahTextPosition.center => 'النص في الوسط',
+      AyahTextPosition.bottom => 'النص في الأسفل',
+    });
+  }
+
+  void _setTextWindowHere({required bool start}) {
+    final dur = _clipLenSec;
+    if (dur <= 0.3) return;
+    final t = _playheadSec;
+    HapticFeedback.mediumImpact();
+    state.pushHistory();
+    state.setTextWindow(dur, start: start ? t : null, end: start ? null : t);
+  }
+
+  void _resetTextWindow() {
+    HapticFeedback.selectionClick();
+    state.pushHistory();
+    state.clearTextWindow();
+    if (_liveOverlay.value?.segmentKey == 'hidden-window') {
+      _liveOverlay.value = null;
+    }
+  }
+
+  void _applyRuhNow() {
+    final text = _liveOverlay.value?.segmentKey == 'hidden-window'
+        ? state.ayahText
+        : (_liveOverlay.value?.text ?? state.ayahText);
+    RuhTouch.apply(context, state, text);
+  }
+
+  void _openFontSheet() {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AyatColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SafeArea(
+        child: ListenableBuilder(
+          listenable: state,
+          builder: (context, _) => ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.6),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('اختر الخط',
+                      style: Theme.of(ctx).textTheme.headlineMedium),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final f in state.allFonts)
+                        ChoiceChip(
+                          label: Text(_t(f.label),
+                              style: ayahTextStyle(f.key, fontSize: 17)),
+                          selected: state.fontKey == f.key,
+                          onSelected: (_) =>
+                              state.update(() => state.fontKey = f.key),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ---- آيات tab: the folded "advanced" card -----------------------------------

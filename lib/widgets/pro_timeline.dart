@@ -39,6 +39,7 @@ class ProTimeline extends StatefulWidget {
   final bool selectedMain;
   final ValueChanged<bool>? onSelectMain;
   final VoidCallback? onAddMedia;
+  final VoidCallback? onAutoSync; // PATCH_S182_WHISPER_MAIN
 
   const ProTimeline({
     super.key,
@@ -53,6 +54,7 @@ class ProTimeline extends StatefulWidget {
     this.selectedMain = false,
     this.onSelectMain,
     this.onAddMedia,
+    this.onAutoSync, // PATCH_S182_WHISPER_MAIN
   });
 
   @override
@@ -270,8 +272,9 @@ class ProTimelineState extends State<ProTimeline> {
     final s = widget.state;
     final c = widget.compact;
     return [
-      if (!c && s.textTimeCues.isNotEmpty)
-        const _LaneSpec('text', Icons.title, 32), // PATCH_S181_CLIPTOUCH
+      if (s.textTimeCues.isNotEmpty ||
+          (s.hasAyah && !(s.timelineActive && s.timeline.isNotEmpty)))
+        _LaneSpec('text', Icons.title, c ? 26 : 32), // PATCH_S183_TEXT_BAR
       _LaneSpec('ayah', Icons.menu_book_outlined, c ? 36 : 44),
       _LaneSpec('video', Icons.movie_outlined, c ? 30 : 40),
       _LaneSpec('audio',
@@ -595,9 +598,131 @@ class ProTimelineState extends State<ProTimeline> {
       child: Stack(
         children: [
           for (var i = 0; i < cues.length; i++) _cueClip(i, h),
+          // PATCH_S183_TEXT_BAR: the typed text, as a block with begin / stop
+          if (cues.isEmpty && _showTypedBlock) _typedBlock(h),
         ],
       ),
     );
+  }
+
+  bool get _showTypedBlock =>
+      widget.state.hasAyah &&
+      !(widget.state.timelineActive && widget.state.timeline.isNotEmpty);
+
+  double _tBase = 0;
+  double _tAccum = 0;
+
+  Widget _typedBlock(double h) {
+    final st = widget.state;
+    final a = (st.textTimeStartOverride ?? 0.0).clamp(0.0, _dur).toDouble();
+    final b = (st.textTimeEndOverride ?? _dur).clamp(0.0, _dur).toDouble();
+    final sel = st.stageTextSelected;
+    final w = math.max(6.0, (b - a) * _pps - 1);
+    return Positioned(
+      left: a * _pps,
+      width: w,
+      top: 2,
+      height: h - 4,
+      child: GestureDetector(
+        onTapUp: (d) {
+          widget.onSelectSeg(-1);
+          if (sel) {
+            st.clearStageSelection();
+          } else {
+            st.selectStageText();
+            _zoomIfNarrow(a, b);
+          }
+          _seekSec(a + d.localPosition.dx / _pps);
+          HapticFeedback.selectionClick();
+        },
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: sel ? 24 : 6),
+                alignment: Alignment.centerLeft,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C6B5A),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: sel
+                        ? AyatColors.goldBright
+                        : const Color(0x66ECC875),
+                    width: sel ? 2 : 1,
+                  ),
+                ),
+                child: ClipRect(
+                  child: Text(
+                    st.ayahText,
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    textDirection: TextDirection.rtl,
+                    style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AyatColors.parchment),
+                  ),
+                ),
+              ),
+            ),
+            if (sel) ...[
+              _typedHandle(true, w),
+              _typedHandle(false, w),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _typedHandle(bool isStart, double clipW) {
+    return Positioned(
+      left: isStart ? 0 : null,
+      right: isStart ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: _handleW(clipW),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) {
+          final st = widget.state;
+          st.pushHistory();
+          _tBase = isStart
+              ? (st.textTimeStartOverride ?? 0.0)
+              : (st.textTimeEndOverride ?? _dur);
+          _tAccum = 0;
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragUpdate: (d) {
+          _tAccum += d.delta.dx;
+          _moveTypedEdge(isStart);
+        },
+        child: _handleBody(isStart),
+      ),
+    );
+  }
+
+  void _moveTypedEdge(bool isStart) {
+    var target = _tBase + _tAccum / _pps;
+    final snaps = <double>[
+      widget.controller.value.position.inMilliseconds / 1000.0,
+      ...widget.markers,
+      0,
+      _dur,
+    ];
+    final tol = _snap ? 8 / _pps : -1.0;
+    for (final x in snaps) {
+      if ((x - target).abs() <= tol) {
+        target = x;
+        break;
+      }
+    }
+    target = target.clamp(0.0, _dur).toDouble();
+    if (isStart) {
+      widget.state.setTextWindow(_dur, start: target);
+    } else {
+      widget.state.setTextWindow(_dur, end: target);
+    }
   }
 
   Widget _cueClip(int i, double h) {
@@ -731,17 +856,49 @@ class ProTimelineState extends State<ProTimeline> {
       child: Stack(
         children: [
           if (tl.isEmpty)
-            const Positioned.fill(
+            Positioned.fill(
               child: Padding(
-                padding: EdgeInsets.only(left: 10),
+                padding: const EdgeInsets.only(left: 10),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    'المزامنة التلقائية تملأ هذا المسار بالآيات',
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                        fontSize: 10.5, color: AyatColors.parchmentDim),
-                  ),
+                  // PATCH_S182_WHISPER_MAIN: the lane itself offers the sync
+                  child: widget.onAutoSync == null
+                      ? const Text(
+                          'المزامنة التلقائية تملأ هذا المسار بالآيات',
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                              fontSize: 10.5, color: AyatColors.parchmentDim),
+                        )
+                      : GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            widget.onAutoSync!();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AyatColors.goldBright,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.auto_awesome,
+                                    size: 15, color: AyatColors.ink),
+                                SizedBox(width: 6),
+                                Text(
+                                  'مزامنة تلقائية (Whisper)',
+                                  style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AyatColors.ink),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),
