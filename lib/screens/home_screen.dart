@@ -643,8 +643,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _detectFromVideo() async {
     WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
     final matcher = state.matcher;
-    if (!state.hasVideo || matcher == null) {
-      _toast('ارفع فيديو أولًا');
+    if (!state.hasVideo || matcher == null) { // PATCH_S185_POLISH
+      _toast(!state.hasVideo
+          ? 'ارفع فيديو أولًا'
+          : 'نص القرآن ما زال يُحمَّل — انتظر لحظات ثم أعد المحاولة');
       return;
     }
     final text = await _withBusy(() async {
@@ -678,8 +680,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _autoSync() async {
     WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
     final matcher = state.matcher;
-    if (!state.hasVideo || matcher == null) {
-      _toast('ارفع فيديو أولًا');
+    if (!state.hasVideo || matcher == null) { // PATCH_S185_POLISH
+      _toast(!state.hasVideo
+          ? 'ارفع فيديو أولًا'
+          : 'نص القرآن ما زال يُحمَّل — انتظر لحظات ثم أعد المحاولة');
       return;
     }
     // pause the preview so the decoder isn't fighting the analysis pass
@@ -1737,7 +1741,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!_hasSelSeg) return _clipBar(_hasSelCue ? _cueItems() : _mainItems());
     final i = _selSeg;
     final items = <(IconData, String, VoidCallback, bool)>[
-      (Icons.check_circle_outline, 'تم', () => setState(() => _selSeg = -1),
+      (Icons.check_circle_outline, 'تم', () => setState(() { _selSeg = -1; _toolOpen = -1; }), // PATCH_S185_POLISH
           false),
       (Icons.content_cut, 'تقسيم', _splitAtPlayhead, false),
       ..._segExtraItems(i), // PATCH_S181_CLIPTOUCH
@@ -1897,7 +1901,7 @@ class _HomeScreenState extends State<HomeScreen>
   List<(IconData, String, VoidCallback, bool)> _cueItems() {
     final i = _selCue;
     return [
-      (Icons.check_circle_outline, 'تم', () => setState(() => _selCue = -1), false),
+      (Icons.check_circle_outline, 'تم', () => setState(() { _selCue = -1; _toolOpen = -1; }), false), // PATCH_S185_POLISH
       (Icons.content_cut, 'تقسيم', () => _cueSplit(i), false),
       (Icons.first_page, 'قص البداية', () => _cueTrim(i, head: true), false),
       (Icons.last_page, 'قص النهاية', () => _cueTrim(i, head: false), false),
@@ -2002,7 +2006,7 @@ class _HomeScreenState extends State<HomeScreen>
   // ---- the main clip ------------------------------------------------------
 
   List<(IconData, String, VoidCallback, bool)> _mainItems() => [
-        (Icons.check_circle_outline, 'تم', () => setState(() => _selMain = false), false),
+        (Icons.check_circle_outline, 'تم', () => setState(() { _selMain = false; _toolOpen = -1; }), false), // PATCH_S185_POLISH
         // PATCH_S182_WHISPER_MAIN: Whisper on the main screen
         (Icons.auto_awesome, 'مزامنة تلقائية', () { if (!_busy) _autoSync(); }, state.timelineActive),
         (Icons.manage_search, 'تعرّف من الصوت', () { if (!_busy) _detectFromVideo(); }, false),
@@ -2325,6 +2329,7 @@ class _HomeScreenState extends State<HomeScreen>
           setState(() {
             _selMain = false;
             _selCue = -1;
+            _toolOpen = -1; // PATCH_S185_POLISH
           });
         },
         false
@@ -7927,7 +7932,7 @@ class _HomeScreenState extends State<HomeScreen>
         Slider(
           value: state.ayahFontSize,
           min: 14,
-          max: 30,
+          max: 60, // PATCH_S185_POLISH
           onChanged: (v) => state.update(() => state.ayahFontSize = v),
         ),
         _fieldLabel('حجم خط ترجمة المعاني'),

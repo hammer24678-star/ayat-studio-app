@@ -128,7 +128,8 @@ class _TextEditorProState extends State<TextEditorPro> {
         label: Text(AppStrings(AppSettings.instance.lang).t('textEditorPro.addFont')),
         onPressed: widget.onPickCustomFont)]),
 
-    _slider(_t('textEditorPro.sizeLabel'), s.ayahFontSize, 14, 30, 0,
+    _slider(_t('textEditorPro.sizeLabel'), s.ayahFontSize, 14, 60, 0, // PATCH_S185_POLISH
+       
         (v) => s.update(() => s.ayahFontSize = v)),
     _slider(_t('textEditorPro.letterSpacing'), s.letterSpacing, 0, 12, 0,
         (v) => s.update(() => s.letterSpacing = v)),

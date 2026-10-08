@@ -55,7 +55,7 @@ class SettingsService {
         state.fontKey = fontKey;
       }
       state.ayahFontSize =
-          (read<double>('ayahFontSize') ?? state.ayahFontSize).clamp(14.0, 30.0);
+          (read<double>('ayahFontSize') ?? state.ayahFontSize).clamp(14.0, 60.0); // PATCH_S185_POLISH
       state.transFontSize =
           (read<double>('transFontSize') ?? state.transFontSize).clamp(9.0, 18.0);
       final color = read<int>('textColor');
