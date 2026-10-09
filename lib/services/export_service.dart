@@ -37,6 +37,7 @@ import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
 import 'pip_export.dart'; // PATCH_S188_PIP
+import 'video_fx.dart'; // PATCH_S194_CUT_FX
 import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 
 class ExportService {
@@ -848,6 +849,9 @@ class ExportService {
       final a = (state.enhanceSharpen / 100 * 1.5).toStringAsFixed(2);
       parts.add('unsharp=5:5:$a:5:5:0.0');
     }
+    // PATCH_S194_CUT_FX: B&W / negative / dramatic / warm / cool
+    final fxColor = VideoFxFilters.color(state.videoFx);
+    if (fxColor.isNotEmpty) parts.add(fxColor);
     if (state.vignetteEnabled) {
       parts.add(_vignetteFilter(state.vignetteIntensity));
     }
@@ -1430,7 +1434,11 @@ class ExportService {
     // segments concatenated before/after this one — see export()), applied
     // to the composited [outv] before mapping. Audio is untouched by all of
     // this.
-    final post = _postFilterChain(state);
+    // PATCH_S194_CUT_FX: fades / flash / bars / shake / pulse (main clip only)
+    final fxTimed = VideoFxFilters.timed(state.videoFx, w, h, duration);
+    final post = [_postFilterChain(state), fxTimed]
+        .where((e) => e.isNotEmpty)
+        .join(',');
     var outLabel = 'outv';
     if (post.isNotEmpty) {
       filters.add('[outv]$post[outv2]');

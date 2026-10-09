@@ -8,6 +8,7 @@ import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'video_transform.dart'; // PATCH_S180_TRANSFORM
 import 'pip_clip.dart'; // PATCH_S188_PIP
+import '../services/video_fx.dart'; // PATCH_S194_CUT_FX
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
 /// [start] and [end] (seconds into the uploaded clip).
@@ -159,6 +160,7 @@ class StudioState extends ChangeNotifier {
   // ---- PATCH_S34_STAGE_EFFECTS: decorative particle overlay ----
   StageEffect effect = StageEffect.none;
   double effectIntensity = 0.7; // 0.2..1.0
+  VideoFx videoFx = VideoFx.none; // PATCH_S194_CUT_FX: everyday video looks
 
   // ---- PATCH_S38_VIDEO_EFFECTS: export-time video effects (never audio) ----
   ColorGrade colorGrade = ColorGrade.none;
@@ -352,11 +354,11 @@ class StudioState extends ChangeNotifier {
     final c = pipClips[i];
     if (t <= c.start + kPipMinLen || t >= c.end - kPipMinLen) return false;
     pushHistory();
-    final second = c.duplicate();
-    second.start = t;
-    second.end = c.end;
-    second.srcIn = c.isImage ? 0.0 : c.srcIn + (t - c.start);
+    // PATCH_S194_CUT_FX: a cut is seamless - the tail keeps the look and
+    // timing, neither half fades at the cut (the junction button adds one).
+    final second = c.splitTail(t);
     c.end = t;
+    c.outAnim = PipAnim.none;
     pipClips = [...pipClips]..insert(i + 1, second);
     pipSel = i + 1;
     notifyListeners();
@@ -1418,6 +1420,7 @@ class StudioState extends ChangeNotifier {
         'customBgPath': customBgPath,
         'bgAnimated': bgAnimated,
         'effect': effect,
+        'videoFx': videoFx, // PATCH_S194_CUT_FX
         'effectIntensity': effectIntensity,
         'glowEnabled': glowEnabled,
         'glowIntensity': glowIntensity,
@@ -1521,6 +1524,7 @@ class StudioState extends ChangeNotifier {
     customBgPath = s['customBgPath'] as String?;
     bgAnimated = s['bgAnimated'] as bool;
     effect = s['effect'] as StageEffect;
+    videoFx = (s['videoFx'] as VideoFx?) ?? VideoFx.none; // PATCH_S194_CUT_FX
     effectIntensity = s['effectIntensity'] as double;
     glowEnabled = s['glowEnabled'] as bool;
     glowIntensity = s['glowIntensity'] as double;

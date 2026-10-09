@@ -24,6 +24,7 @@ import 'motion.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'selection_box_overlay.dart'; // PATCH_S133_STAGE_TEXT_SELECT_EDIT
 import 'pro_transform.dart'; // PATCH_S180_TRANSFORM
 import 'pro_pip.dart'; // PATCH_S188_PIP
+import 'video_fx_layer.dart'; // PATCH_S194_CUT_FX
 import '../services/ruh_touch.dart'; // PATCH_S181_CLIPTOUCH
 import 'color_picker_dialog.dart' show showAyatColorPicker; // PATCH_S145
 
@@ -355,7 +356,10 @@ class _StagePreviewState extends State<StagePreview>
           _grainTimer?.cancel();
           _grainTimer = null;
         }
-        return ClipRRect(
+        return VideoFxLayer( // PATCH_S194_CUT_FX
+          state: state,
+          controller: videoController,
+          child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
           child: Container(
             decoration: BoxDecoration(
@@ -797,6 +801,7 @@ class _StagePreviewState extends State<StagePreview>
             ), // PATCH_S85_VIDEO_ADJUST: closes the manual-adjust ColorFiltered
             ), // PATCH_S58_LIVE_EFFECTS_PREVIEW: closes ColorFiltered
           ),
+          ), // PATCH_S194_CUT_FX: closes ClipRRect
         );
       }),
     );

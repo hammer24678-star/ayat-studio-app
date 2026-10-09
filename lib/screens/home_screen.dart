@@ -33,6 +33,7 @@ import '../services/background_job.dart'; // PATCH_S163
 import '../services/reciter_audio_service.dart'; // PATCH_S104_RECITER_LIBRARY_DOWNLOAD
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import '../services/video_fx.dart'; // PATCH_S194_CUT_FX
 import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import '../services/stage_effects_library.dart'; // PATCH_S125_EFFECTS_LIBRARY
@@ -1845,6 +1846,21 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
     }
+    // PATCH_S194_CUT_FX: a PIP clip (selected first, else under the playhead)
+    final pi = state.hasPipSel &&
+            t > state.pipClips[state.pipSel].start + 0.3 &&
+            t < state.pipClips[state.pipSel].end - 0.3
+        ? state.pipSel
+        : state.pipClips.indexWhere(
+            (p) => t > p.start + 0.3 && t < p.end - 0.3);
+    if (pi >= 0) {
+      if (state.splitPipAt(pi, t)) {
+        HapticFeedback.mediumImpact();
+      } else {
+        _toast('ضع المؤشر داخل المقطع الصغير ثم قسّم');
+      }
+      return;
+    }
     if (seg == null) {
       final ci = state.textTimeCues
           .indexWhere((c) => t > c.start + 0.3 && t < c.end - 0.3);
@@ -2227,6 +2243,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.add_photo_alternate_outlined, 'إضافة', _addMediaSheet, false),
         (Icons.animation, 'انتقال', _openTransitionSheet, false),
         (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
+        (Icons.auto_awesome_outlined, 'تأثيرات', () => _openToolFromClip(130), _toolOpen == 130), // PATCH_S194_CUT_FX
         (Icons.picture_in_picture_alt_outlined, 'PIP', () => _openToolFromClip(113), _toolOpen == 113), // PATCH_S188_PIP
         (Icons.speed, 'السرعة', () => _openToolFromClip(107), _toolOpen == 107),
         // PATCH_S184_PRO_MAIN: every tool of the main clip, one tap away
@@ -2416,6 +2433,7 @@ class _HomeScreenState extends State<HomeScreen>
         false
       ),
       (Icons.tune, 'الخصائص', () => _openToolFromClip(113), _toolOpen == 113),
+      (Icons.auto_awesome_outlined, 'تأثيرات', () => _openToolFromClip(130), _toolOpen == 130), // PATCH_S194_CUT_FX
       (Icons.content_cut, 'تقسيم', () => _pipSplit(i), false),
       (Icons.first_page, 'قص البداية', () => _pipTrim(i, head: true), false),
       (Icons.last_page, 'قص النهاية', () => _pipTrim(i, head: false), false),
@@ -5355,6 +5373,23 @@ class _HomeScreenState extends State<HomeScreen>
         // PATCH_S125_EFFECTS_LIBRARY: 74 effects in one flat Wrap is a wall of
         // chips nobody reads to the end of. Grouped by category, with the
         // group holding the current selection expanded, it stays a menu.
+        // PATCH_S194_CUT_FX: everyday editor looks, applied live and exported
+        _fieldLabel('لمسات الفيديو'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final f in VideoFx.values)
+              ChoiceChip(
+                avatar: const Icon(Icons.movie_filter_outlined, size: 15),
+                label: Text(f.label),
+                selected: state.videoFx == f,
+                onSelected: (_) => state.update(() => state.videoFx =
+                    state.videoFx == f ? VideoFx.none : f),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
         _EffectPicker(
           selected: state.effect,
           onSelected: (e) => state.update(
