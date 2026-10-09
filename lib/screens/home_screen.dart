@@ -2628,6 +2628,28 @@ class _HomeScreenState extends State<HomeScreen>
     final e = state.textTimeEndOverride;
     final cur = _liveOverlay.value;
     final hiddenNow = cur != null && cur.segmentKey == 'hidden-window';
+    // PATCH_S193_PIP_POWER: text blocks of the timeline now show on the stage
+    // at their time (they were only ever drawn by the exporter).
+    if (c != null &&
+        c.value.isInitialized &&
+        !state.timelineActive &&
+        state.textTimeCues.isNotEmpty) {
+      final tt = c.value.position.inMilliseconds / 1000.0;
+      final k = state.textTimeCues.indexWhere((q) => tt >= q.start && tt < q.end);
+      if (k < 0) {
+        if (!hiddenNow) {
+          _liveOverlay.value =
+              StageOverlayText(' ', '', 'hidden-window', null, 0, '');
+        }
+      } else {
+        final q = state.textTimeCues[k];
+        final key = 'cue:$k:${q.text.hashCode}';
+        if (cur == null || cur.segmentKey != key) {
+          _liveOverlay.value = StageOverlayText(q.text, q.translation, key);
+        }
+      }
+      return;
+    }
     if (c == null ||
         !c.value.isInitialized ||
         s == null ||

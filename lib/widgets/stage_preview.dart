@@ -141,6 +141,12 @@ class _StagePreviewState extends State<StagePreview>
       widget.state.clearStageSelection();
       return;
     }
+    // PATCH_S193_PIP_POWER: same for a selected PIP - the first tap on empty
+    // stage lets go of it instead of pausing the video.
+    if (widget.state.hasPipSel) {
+      widget.state.selectPip(-1);
+      return;
+    }
     final c = widget.videoController;
     if (c == null || !c.value.isInitialized) return;
     final nowPlaying = !c.value.isPlaying;
@@ -496,6 +502,21 @@ class _StagePreviewState extends State<StagePreview>
                     ),
                   ),
                   )), // PATCH_S85_VIDEO_ADJUST: closes ImageFiltered + VideoXformLayer
+                // PATCH_S193_PIP_POWER: the tap catcher now sits UNDER the PIP layer. It
+                // used to sit above it and swallowed every touch meant for a PIP
+                // (move, resize, the ✕), so PIPs could not be touched at all.
+                // PATCH_S34_PLAYER_CONTROLS_TRIM: tap the stage to pause/resume.
+                // PATCH_S83_SYNC_QOL: double-tap left/right half seeks ∓/±5s.
+                if (controller != null && controller.value.isInitialized)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _togglePlayback,
+                      onDoubleTapDown: (d) =>
+                          _doubleTapSeek(d, constraints.maxWidth),
+                      onDoubleTap: () {}, // keeps the recognizer armed
+                    ),
+                  ),
                 // PATCH_S188_PIP: the little clips float above the video (and its blur),
                 // under the particles and the text - same order as the export.
                 if (state.pipClips.isNotEmpty)
@@ -512,18 +533,6 @@ class _StagePreviewState extends State<StagePreview>
                         loop: _fxAnim,
                         intensity: state.effectIntensity,
                       ),
-                    ),
-                  ),
-                // PATCH_S34_PLAYER_CONTROLS_TRIM: tap the stage to pause/resume.
-                // PATCH_S83_SYNC_QOL: double-tap left/right half seeks ∓/±5s.
-                if (controller != null && controller.value.isInitialized)
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: _togglePlayback,
-                      onDoubleTapDown: (d) =>
-                          _doubleTapSeek(d, constraints.maxWidth),
-                      onDoubleTap: () {}, // keeps the recognizer armed
                     ),
                   ),
                 if (videoReady && state.chromaEnabled)
