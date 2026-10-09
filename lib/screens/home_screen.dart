@@ -62,7 +62,9 @@ import '../widgets/pro_capcut.dart'; // PATCH_S175_CAPCUT
 import '../widgets/pro_extras.dart'; // PATCH_S179_AAA
 import '../widgets/pro_transform.dart'; // PATCH_S180_TRANSFORM
 import '../widgets/pro_pip.dart'; // PATCH_S188_PIP
+import '../widgets/pro_audio.dart'; // PATCH_S195_AUDIO_TAB
 import '../models/pip_clip.dart'; // PATCH_S188_PIP
+import '../models/audio_clip.dart'; // PATCH_S195_AUDIO_TAB
 import '../services/ruh_touch.dart'; // PATCH_S183_TEXT_BAR
 import 'mushaf_screen.dart'; // PATCH_S62_MUSHAF_READER
 import 'sequence_screen.dart'; // PATCH_S125_SEQUENCE
@@ -1201,9 +1203,11 @@ class _HomeScreenState extends State<HomeScreen>
         _hasSelCue ||
         _hasSelMain ||
         state.stageTextSelected ||
-        state.hasPipSel) {
+        state.hasPipSel ||
+        state.hasAudioSel) { // PATCH_S195_AUDIO_TAB
       state.clearStageSelection();
       state.selectPip(-1);
+      state.selectAudio(-1);
       setState(() {
         _selSeg = -1;
         _selCue = -1;
@@ -1373,6 +1377,7 @@ class _HomeScreenState extends State<HomeScreen>
         (103, Icons.palette_outlined, 'اللون'),
         (111, Icons.high_quality_outlined, 'تحسين'),
         (104, Icons.equalizer, 'الصوت'),
+        (114, Icons.library_music_outlined, 'الأصوات'), // PATCH_S195_AUDIO_TAB
         (129, Icons.record_voice_over_outlined, 'القارئ'),
         (105, Icons.subtitles_outlined, 'النص المفرَّغ'),
         (102, Icons.auto_fix_high, 'لمسات'),
@@ -1449,6 +1454,16 @@ class _HomeScreenState extends State<HomeScreen>
                       child:
                           ProNowPlayingChip(state: state, controller: _video!),
                     ),
+                  if (_video != null &&
+                      _video!.value.isInitialized &&
+                      state.audioClips.isNotEmpty) // PATCH_S195_AUDIO_TAB
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      width: 0,
+                      height: 0,
+                      child: AudioLayer(state: state, main: _video),
+                    ),
                   if (_toolOpen == 112 && _video != null && _video!.value.isInitialized) // PATCH_S180_TRANSFORM
                     Positioned.fill(child: _xformGestureLayer()),
                   if (_guides)
@@ -1510,7 +1525,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _hasSelCue => _selCue >= 0 && _selCue < state.textTimeCues.length;
   bool get _hasSelMain => _selMain && _video != null && _video!.value.isInitialized;
   bool get _hasAnySel =>
-      _hasSelSeg || _hasSelCue || _hasSelMain || state.stageTextSelected || state.hasPipSel; // PATCH_S183_TEXT_BAR + PATCH_S188_PIP
+      _hasSelSeg || _hasSelCue || _hasSelMain || state.stageTextSelected || state.hasPipSel || state.hasAudioSel; // PATCH_S183_TEXT_BAR + PATCH_S188_PIP + PATCH_S195_AUDIO_TAB
 
   Widget _proDock(bool compact) {
     final c = _video!;
@@ -1528,6 +1543,7 @@ class _HomeScreenState extends State<HomeScreen>
           onSelectSeg: (i) {
             state.clearStageSelection(); // PATCH_S183_TEXT_BAR
             if (i >= 0) state.selectPip(-1); // PATCH_S188_PIP
+            if (i >= 0) state.selectAudio(-1); // PATCH_S195_AUDIO_TAB
             setState(() {
               _selSeg = i;
               _selCue = -1;
@@ -1537,6 +1553,7 @@ class _HomeScreenState extends State<HomeScreen>
           selectedCue: _hasSelCue ? _selCue : -1,
           onSelectCue: (i) {
             if (i >= 0) state.selectPip(-1); // PATCH_S188_PIP
+            if (i >= 0) state.selectAudio(-1); // PATCH_S195_AUDIO_TAB
             setState(() {
               _selCue = i;
               _selSeg = -1;
@@ -1546,6 +1563,7 @@ class _HomeScreenState extends State<HomeScreen>
           selectedMain: _hasSelMain,
           onSelectMain: (v) {
             if (v) state.selectPip(-1); // PATCH_S188_PIP
+            if (v) state.selectAudio(-1); // PATCH_S195_AUDIO_TAB
             setState(() {
               _selMain = v;
               if (v) {
@@ -1846,6 +1864,14 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
     }
+    // PATCH_S195_AUDIO_TAB: a selected sound is cut in preference
+    if (state.hasAudioSel) {
+      final ac = state.audioClips[state.audioSel];
+      if (t > ac.start + kAudioMinLen && t < ac.end - kAudioMinLen) {
+        _audioSplit(state.audioSel);
+        return;
+      }
+    }
     // PATCH_S194_CUT_FX: a PIP clip (selected first, else under the playhead)
     final pi = state.hasPipSel &&
             t > state.pipClips[state.pipSel].start + 0.3 &&
@@ -1923,6 +1949,7 @@ class _HomeScreenState extends State<HomeScreen>
     // PATCH_S181_CLIPTOUCH: text blocks and the main clip have their own bars
     // PATCH_S183_TEXT_BAR: the text on the stage / its block on the timeline has a text bar
     if (state.stageTextSelected && !_hasSelSeg) return _clipBar(_textItems());
+    if (state.hasAudioSel && !_hasSelSeg) return _clipBar(_audioItems()); // PATCH_S195_AUDIO_TAB
     if (state.hasPipSel && !_hasSelSeg) return _clipBar(_pipItems()); // PATCH_S188_PIP
     if (!_hasSelSeg) return _clipBar(_hasSelCue ? _cueItems() : _mainItems());
     final i = _selSeg;
@@ -2245,6 +2272,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
         (Icons.auto_awesome_outlined, 'تأثيرات', () => _openToolFromClip(130), _toolOpen == 130), // PATCH_S194_CUT_FX
         (Icons.picture_in_picture_alt_outlined, 'PIP', () => _openToolFromClip(113), _toolOpen == 113), // PATCH_S188_PIP
+        (Icons.library_music_outlined, 'الأصوات', () => _openToolFromClip(114), _toolOpen == 114), // PATCH_S195_AUDIO_TAB
         (Icons.speed, 'السرعة', () => _openToolFromClip(107), _toolOpen == 107),
         // PATCH_S184_PRO_MAIN: every tool of the main clip, one tap away
         (Icons.palette_outlined, 'اللون', () => _openToolFromClip(103), _toolOpen == 103),
@@ -2474,6 +2502,143 @@ class _HomeScreenState extends State<HomeScreen>
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         content: const Text('تم حذف المقطع الصغير', textAlign: TextAlign.center),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'تراجع',
+          textColor: AyatColors.goldBright,
+          onPressed: state.undoStep,
+        ),
+      ));
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S195_AUDIO_TAB: sounds on the timeline - music, effects, the sound
+  // of another video. They play in the preview and are mixed into the export.
+  // ---------------------------------------------------------------------
+
+  Future<void> _addAudioClip({required bool fromVideo}) async {
+    final main = _video;
+    if (!state.hasVideo || main == null || !main.value.isInitialized) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    final res = await FilePicker.platform
+        .pickFiles(type: fromVideo ? FileType.video : FileType.audio);
+    final f = res?.files.single;
+    final path = f?.path;
+    if (f == null || path == null || !mounted) return;
+    if (!await MediaService.hasAudioStream(path)) {
+      _toast('هذا الملف لا يحتوي على صوت');
+      return;
+    }
+    final dur = (await MediaService.probedDurationSec(path)) ?? 0.0;
+    if (!mounted) return;
+    final total = main.value.duration.inMilliseconds / 1000.0;
+    final want = dur > 0.5 ? dur : 4.0;
+    var start = _playheadSec;
+    var end = start + want;
+    if (end > total) {
+      end = total;
+      // a short sound near the end is pulled back so it plays in full; a
+      // long track simply stops where the clip stops
+      if (want < total) start = max(0.0, total - want);
+    }
+    if (end - start < 0.5) {
+      _toast('المقطع الأساسي قصير جدًّا');
+      return;
+    }
+    final dot = f.name.lastIndexOf('.');
+    final niceName = dot > 0 ? f.name.substring(0, dot) : f.name;
+    state.addAudio(AudioClip(
+      path: path,
+      name: niceName,
+      kind: fromVideo ? AudioKind.extracted : AudioKind.music,
+      mediaDur: dur,
+      start: start,
+      end: end,
+      volume: fromVideo ? 1.0 : 0.5,
+      fadeIn: 0.3,
+      fadeOut: 0.5,
+    ));
+    HapticFeedback.mediumImpact();
+    if (_toolOpen != 114) _openTool(114);
+    _toast('أُضيف الصوت');
+  }
+
+  List<(IconData, String, VoidCallback, bool)> _audioItems() {
+    final i = state.audioSel;
+    final c = (i >= 0 && i < state.audioClips.length) ? state.audioClips[i] : null;
+    return [
+      (
+        Icons.check_circle_outline,
+        'تم',
+        () {
+          state.selectAudio(-1);
+          setState(() => _toolOpen = -1);
+        },
+        false
+      ),
+      if (c != null) ...[
+        (Icons.tune, 'الخصائص', () => _openToolFromClip(114), _toolOpen == 114),
+        (Icons.content_cut, 'تقسيم', () => _audioSplit(i), false),
+        (Icons.first_page, 'قص البداية', () => _audioTrim(i, head: true), false),
+        (Icons.last_page, 'قص النهاية', () => _audioTrim(i, head: false), false),
+        (Icons.volume_down, 'أخفض', () => _audioVol(i, -0.1), false),
+        (Icons.volume_up, 'ارفع', () => _audioVol(i, 0.1), false),
+        (
+          Icons.volume_off_outlined,
+          'كتم',
+          () => state.update(() => c.muted = !c.muted),
+          c.muted
+        ),
+        (
+          Icons.repeat,
+          'تكرار',
+          () => state.update(() => c.loop = !c.loop),
+          c.loop
+        ),
+        (Icons.content_copy, 'نسخ', () => state.duplicateAudioAt(i), false),
+        (Icons.delete_outline, 'حذف', () => _audioDelete(i), false),
+      ],
+    ];
+  }
+
+  void _audioSplit(int i) {
+    if (state.splitAudioAt(i, _playheadSec)) {
+      HapticFeedback.mediumImpact();
+    } else {
+      _toast('ضع المؤشر داخل الصوت ثم قسّم');
+    }
+  }
+
+  void _audioTrim(int i, {required bool head}) {
+    if (i < 0 || i >= state.audioClips.length) return;
+    final c = state.audioClips[i];
+    final t = _playheadSec;
+    if (t <= c.start + kAudioMinLen || t >= c.end - kAudioMinLen) {
+      _toast('ضع المؤشر داخل الصوت ثم اقصّ');
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    state.pushHistory();
+    state.setAudioWindow(i, start: head ? t : null, end: head ? null : t);
+  }
+
+  void _audioVol(int i, double d) {
+    if (i < 0 || i >= state.audioClips.length) return;
+    final c = state.audioClips[i];
+    state.update(() => c.volume = (c.volume + d).clamp(0.0, kAudioMaxVol).toDouble());
+  }
+
+  void _audioDelete(int i) {
+    if (i < 0 || i >= state.audioClips.length) return;
+    HapticFeedback.mediumImpact();
+    state.removeAudioAt(i);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('تم حذف الصوت', textAlign: TextAlign.center),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
@@ -3326,6 +3491,14 @@ class _HomeScreenState extends State<HomeScreen>
         return ProEnhance(state: state);
       case 112: // PATCH_S180_TRANSFORM
         return ProTransformPage(state: state, controller: _video);
+      case 114: // PATCH_S195_AUDIO_TAB
+        return ProAudioClipsPage(
+          state: state,
+          controller: _video,
+          onAddAudio: () => _addAudioClip(fromVideo: false),
+          onAddFromVideo: () => _addAudioClip(fromVideo: true),
+          onToast: _toast,
+        );
       case 113: // PATCH_S188_PIP
         return ProPipPage(
           state: state,

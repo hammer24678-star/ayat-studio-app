@@ -8,6 +8,7 @@ import '../services/subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import '../data/text_transitions.dart'; // PATCH_S126_TEXT_TRANSITIONS
 import 'video_transform.dart'; // PATCH_S180_TRANSFORM
 import 'pip_clip.dart'; // PATCH_S188_PIP
+import 'audio_clip.dart'; // PATCH_S195_AUDIO_TAB
 import '../services/video_fx.dart'; // PATCH_S194_CUT_FX
 
 /// One detected span of the auto-sync timeline: [ayah] was heard between
@@ -279,7 +280,10 @@ class StudioState extends ChangeNotifier {
     final v = (i >= 0 && i < pipClips.length) ? i : -1;
     if (v == pipSel) return;
     pipSel = v;
-    if (v >= 0) stageTextSelected = false;
+    if (v >= 0) {
+      stageTextSelected = false;
+      audioSel = -1; // PATCH_S195_AUDIO_TAB
+    }
     notifyListeners();
   }
 
@@ -288,6 +292,7 @@ class StudioState extends ChangeNotifier {
     pipClips = [...pipClips, c];
     pipSel = pipClips.length - 1;
     stageTextSelected = false;
+    audioSel = -1; // PATCH_S195_AUDIO_TAB
     notifyListeners();
   }
 
@@ -377,6 +382,123 @@ class StudioState extends ChangeNotifier {
     pipClips = next;
     pipSel = j;
     notifyListeners();
+  }
+
+  // ---- PATCH_S195_AUDIO_TAB: sounds laid on the timeline -----------------
+  List<AudioClip> audioClips = []; // music, effects, voice-over, video sound
+  int audioSel = -1; // selection only, not part of undo
+
+  bool get hasAudioSel => audioSel >= 0 && audioSel < audioClips.length;
+  AudioClip? get selectedAudio => hasAudioSel ? audioClips[audioSel] : null;
+
+  /// True when the export has sounds to mix in (a silent export has none).
+  bool get hasAudioClips =>
+      !muteAudio && audioClips.any((c) => !c.muted && c.volume > 0.005);
+
+  void selectAudio(int i) {
+    final v = (i >= 0 && i < audioClips.length) ? i : -1;
+    if (v == audioSel) return;
+    audioSel = v;
+    if (v >= 0) {
+      pipSel = -1;
+      stageTextSelected = false;
+    }
+    notifyListeners();
+  }
+
+  void addAudio(AudioClip c) {
+    pushHistory();
+    audioClips = [...audioClips, c];
+    audioSel = audioClips.length - 1;
+    pipSel = -1;
+    stageTextSelected = false;
+    notifyListeners();
+  }
+
+  void removeAudioAt(int i) {
+    if (i < 0 || i >= audioClips.length) return;
+    pushHistory();
+    audioClips = [...audioClips]..removeAt(i);
+    audioSel = -1;
+    notifyListeners();
+  }
+
+  void duplicateAudioAt(int i) {
+    if (i < 0 || i >= audioClips.length) return;
+    pushHistory();
+    final src = audioClips[i];
+    final d = src.duplicate();
+    final len = src.end - src.start;
+    var s = src.end;
+    if (videoDurationSec > len && s + len > videoDurationSec) {
+      s = videoDurationSec - len;
+    }
+    d.start = s < 0 ? 0.0 : s;
+    d.end = d.start + len;
+    audioClips = [...audioClips]..insert(i + 1, d);
+    audioSel = i + 1;
+    notifyListeners();
+  }
+
+  /// Moves one or both edges (seconds). Trimming the start keeps the sound in
+  /// step (the part of the media that plays moves with it).
+  void setAudioWindow(int i, {double? start, double? end}) {
+    if (i < 0 || i >= audioClips.length) return;
+    final c = audioClips[i];
+    var s = start ?? c.start;
+    var e = end ?? c.end;
+    if (s < 0) s = 0;
+    if (videoDurationSec > kAudioMinLen && e > videoDurationSec) {
+      e = videoDurationSec;
+    }
+    if (e - s < kAudioMinLen) {
+      if (start != null) {
+        s = e - kAudioMinLen;
+      } else {
+        e = s + kAudioMinLen;
+      }
+    }
+    if (s < 0) {
+      s = 0;
+      e = kAudioMinLen;
+    }
+    if (start != null) {
+      final ni = c.srcIn + (s - c.start);
+      c.srcIn = ni < 0 ? 0.0 : ni;
+    }
+    c.start = s;
+    c.end = e;
+    notifyListeners();
+  }
+
+  /// Slides the whole sound so it starts at [s] (length unchanged).
+  void moveAudioTo(int i, double s) {
+    if (i < 0 || i >= audioClips.length) return;
+    final c = audioClips[i];
+    final len = c.end - c.start;
+    var ns = s < 0 ? 0.0 : s;
+    if (videoDurationSec > len && ns + len > videoDurationSec) {
+      ns = videoDurationSec - len;
+    }
+    c.start = ns;
+    c.end = ns + len;
+    notifyListeners();
+  }
+
+  /// Cuts a sound in two at [t]. False when [t] is too close to an edge.
+  bool splitAudioAt(int i, double t) {
+    if (i < 0 || i >= audioClips.length) return false;
+    final c = audioClips[i];
+    if (t <= c.start + kAudioMinLen || t >= c.end - kAudioMinLen) return false;
+    pushHistory();
+    // a cut is seamless: the tail keeps playing where the head stopped
+    final second = c.splitTail(t);
+    c.end = t;
+    c.fadeOut = 0.0;
+    audioClips = [...audioClips]..insert(i + 1, second);
+    audioSel = i + 1;
+    notifyListeners();
+    return true;
   }
 
   bool get hasVideoTransform =>
@@ -726,6 +848,7 @@ class StudioState extends ChangeNotifier {
 
   void selectStageText([TimelineSegment? segment]) {
     stageTextSelected = true;
+    audioSel = -1; // PATCH_S195_AUDIO_TAB
     selectedSegment = segment;
     notifyListeners();
   }
@@ -1448,6 +1571,8 @@ class StudioState extends ChangeNotifier {
         'videoKeyEase': videoKeyEase,
         'pipClips': [for (final c in pipClips) c.copy()], // PATCH_S188_PIP
         'pipSel': pipSel,
+        'audioClips': [for (final c in audioClips) c.copy()], // PATCH_S195_AUDIO_TAB
+        'audioSel': audioSel,
         'showIntro': showIntro,
         'showOutro': showOutro,
         'outroText': outroText,
@@ -1559,6 +1684,13 @@ class StudioState extends ChangeNotifier {
     pipClips = [for (final c in (s['pipClips'] as List).cast<PipClip>()) c.copy()];
     pipSel = s['pipSel'] as int;
     if (pipSel >= pipClips.length) pipSel = -1;
+    // PATCH_S195_AUDIO_TAB
+    audioClips = [
+      for (final c in ((s['audioClips'] as List?) ?? const []).cast<AudioClip>())
+        c.copy()
+    ];
+    audioSel = (s['audioSel'] as int?) ?? -1;
+    if (audioSel >= audioClips.length) audioSel = -1;
     showIntro = s['showIntro'] as bool;
     showOutro = s['showOutro'] as bool;
     outroText = s['outroText'] as String;

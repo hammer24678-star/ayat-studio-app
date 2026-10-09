@@ -37,6 +37,7 @@ import 'subtitle_service.dart'; // PATCH_S125_SUBTITLES
 import 'karaoke.dart'; // PATCH_S33_KARAOKE_WORD_HIGHLIGHT
 import 'overlay_renderer.dart';
 import 'pip_export.dart'; // PATCH_S188_PIP
+import 'audio_clips_export.dart'; // PATCH_S195_AUDIO_TAB
 import 'video_fx.dart'; // PATCH_S194_CUT_FX
 import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 
@@ -1522,6 +1523,37 @@ class ExportService {
       filters.add('[$aLabel][abed]'
           'amix=inputs=2:duration=first:dropout_transition=0,volume=2[abedmix]');
       aLabel = 'abedmix';
+    }
+
+    // PATCH_S195_AUDIO_TAB: the sounds of the Audio tab, laid on the timeline.
+    // Mixed in last of all, over whatever was built so far (the recitation,
+    // the clip's own sound, the ambience bed), each at its own tempo.
+    if (state.hasAudioClips) {
+      final audUsable = <int>{
+        for (final c in state.audioClips)
+          if (File(c.path).existsSync()) c.id
+      };
+      final audR = AudioClipsExport.append(
+        inputs: inputs,
+        filters: filters,
+        idx: idx,
+        st: state,
+        clipStart: clipStart,
+        duration: duration,
+        outDuration: outDuration,
+        speed: state.hasSpeedChange
+            ? state.playbackSpeed.clamp(0.25, 4.0).toDouble()
+            : 1.0,
+        aLabel: aLabel,
+        aStream: aStream,
+        aChain: aChain,
+        usable: audUsable,
+      );
+      if (audR != null) {
+        aLabel = audR.label;
+        aChain = <String>[];
+        idx = audR.idx;
+      }
     }
 
     final audioMap = aLabel != null ? '-map "[$aLabel]"' : '-map $aStream';

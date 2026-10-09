@@ -162,6 +162,10 @@ class MediaService {
     }
   }
 
+  // PATCH_S195_AUDIO_TAB: does this file carry a sound at all?
+  static Future<bool> hasAudioStream(String path) =>
+      _hasStream(path, 'audio', fallback: false);
+
   static Future<String> appendClip(
     String basePath,
     String addPath, {

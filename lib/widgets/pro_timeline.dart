@@ -15,6 +15,7 @@ import 'package:flutter/scheduler.dart' show Ticker; // PATCH_S187_SMOOTH_PLAYHE
 import 'package:video_player/video_player.dart';
 
 import '../models/pip_clip.dart'; // PATCH_S188_PIP
+import '../models/audio_clip.dart'; // PATCH_S195_AUDIO_TAB
 import '../models/studio_state.dart';
 import '../services/thumb_service.dart';
 import '../services/waveform_service.dart';
@@ -350,6 +351,9 @@ class ProTimelineState extends State<ProTimeline>
     return [
       if (s.pipClips.isNotEmpty) // PATCH_S188_PIP
         _LaneSpec('pip', Icons.picture_in_picture_alt_outlined, c ? 28 : 36),
+      if (s.audioClips.isNotEmpty) // PATCH_S195_AUDIO_TAB
+        _LaneSpec('sounds', Icons.library_music_outlined,
+            _soundRowCount() * (c ? 22.0 : 26.0) + 4),
       if (s.textTimeCues.isNotEmpty ||
           (s.hasAyah && !(s.timelineActive && s.timeline.isNotEmpty)))
         _LaneSpec('text', Icons.title, c ? 26 : 32), // PATCH_S183_TEXT_BAR
@@ -646,6 +650,7 @@ class ProTimelineState extends State<ProTimeline>
   Widget _laneBody(_LaneSpec l, double w) {
     final child = switch (l.id) {
       'pip' => _pipLane(l.h, w), // PATCH_S188_PIP
+      'sounds' => _soundsLane(l.h, w), // PATCH_S195_AUDIO_TAB
       'text' => _textLane(l.h, w),
       'ayah' => _ayahLane(l.h, w),
       'video' => _videoLane(l.h, w),
@@ -870,6 +875,235 @@ class ProTimelineState extends State<ProTimeline>
     } else {
       if ((target - c.end).abs() < 0.001) return;
       widget.state.setPipWindow(i, end: target);
+    }
+  }
+
+  // ---- PATCH_S195_AUDIO_TAB: the lane of the sounds -------------------------
+  // tap = select, drag a selected sound = move it, the two gold edges = trim.
+  // Sounds that overlap in time sit on separate rows.
+  double _sndBase = 0;
+  double _sndAccum = 0;
+  bool _sndSnapped = false;
+
+  int _soundRowCount() {
+    final clips = widget.state.audioClips;
+    if (clips.isEmpty) return 1;
+    final rows = assignAudioRows(clips);
+    return rows.reduce(math.max) + 1;
+  }
+
+  Widget _soundsLane(double h, double w) {
+    final clips = widget.state.audioClips;
+    final rows = assignAudioRows(clips);
+    final rowH = (h - 4) / _soundRowCount();
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: (d) {
+        widget.state.selectAudio(-1);
+        _seekSec(d.localPosition.dx / _pps);
+      },
+      child: Stack(
+        children: [
+          for (var i = 0; i < clips.length; i++)
+            _soundClip(i, rows[i], rowH),
+        ],
+      ),
+    );
+  }
+
+  List<double> _soundSnapPoints(int skip) => <double>[
+        widget.controller.value.position.inMilliseconds / 1000.0,
+        ...widget.markers,
+        for (var k = 0; k < widget.state.audioClips.length; k++)
+          if (k != skip) ...[
+            widget.state.audioClips[k].start,
+            widget.state.audioClips[k].end
+          ],
+        for (final s in widget.state.timeline) ...[s.start, s.end],
+        for (final q in widget.state.textTimeCues) ...[q.start, q.end],
+        for (final p in widget.state.pipClips) ...[p.start, p.end],
+        0,
+        _dur,
+      ];
+
+  static Color _soundColor(AudioKind k) => switch (k) {
+        AudioKind.music => const Color(0xFF2E6B58),
+        AudioKind.effect => const Color(0xFF8A5A2B),
+        AudioKind.voice => const Color(0xFF3D5A9A),
+        AudioKind.extracted => const Color(0xFF5A4A8A),
+      };
+
+  Widget _soundClip(int i, int row, double rowH) {
+    final clips = widget.state.audioClips;
+    if (i >= clips.length) return const SizedBox.shrink();
+    final c = clips[i];
+    final sel = widget.state.audioSel == i;
+    final w = math.max(10.0, (c.end - c.start) * _pps - 1);
+    return Positioned(
+      left: c.start * _pps,
+      width: w,
+      top: 2 + row * rowH,
+      height: rowH - 2,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (d) {
+          widget.onSelectSeg(-1);
+          widget.onSelectCue?.call(-1);
+          widget.onSelectMain?.call(false);
+          widget.state.selectPip(-1);
+          widget.state.selectAudio(sel ? -1 : i);
+          _seekSec(c.start + d.localPosition.dx / _pps);
+          if (!sel) _zoomIfNarrow(c.start, c.end);
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragStart: sel
+            ? (_) {
+                widget.state.pushHistory();
+                _sndBase = c.start;
+                _sndAccum = 0;
+                _sndSnapped = false;
+                HapticFeedback.selectionClick();
+              }
+            : null,
+        onHorizontalDragUpdate: sel
+            ? (d) {
+                _sndAccum += d.delta.dx;
+                _moveSound(i);
+              }
+            : null,
+        child: Stack(
+          children: [
+            Positioned.fill(child: _soundBody(c, sel)),
+            if (sel) ...[
+              _soundHandle(i, true, w),
+              _soundHandle(i, false, w),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _soundBody(AudioClip c, bool sel) {
+    final color = _soundColor(c.kind);
+    return Opacity(
+      opacity: c.muted ? 0.45 : 1.0,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        padding: EdgeInsets.symmetric(horizontal: sel ? 24 : 6),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: sel ? AyatColors.goldBright : const Color(0x66FFFFFF),
+            width: sel ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(c.muted ? Icons.volume_off : Icons.music_note,
+                size: 12, color: AyatColors.parchment),
+            const SizedBox(width: 3),
+            Flexible(
+              child: Text(
+                '${c.name}  ${(c.volume * 100).round()}%',
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: AyatColors.parchment),
+              ),
+            ),
+            if (c.loop) ...[
+              const SizedBox(width: 3),
+              const Icon(Icons.repeat, size: 11, color: AyatColors.parchment),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _soundHandle(int i, bool isStart, double clipW) {
+    return Positioned(
+      left: isStart ? 0 : null,
+      right: isStart ? null : 0,
+      top: 0,
+      bottom: 0,
+      width: _handleW(clipW),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) {
+          final clips = widget.state.audioClips;
+          if (i >= clips.length) return;
+          widget.state.pushHistory();
+          _sndBase = isStart ? clips[i].start : clips[i].end;
+          _sndAccum = 0;
+          _sndSnapped = false;
+          HapticFeedback.selectionClick();
+        },
+        onHorizontalDragUpdate: (d) {
+          _sndAccum += d.delta.dx;
+          _moveSoundEdge(i, isStart);
+        },
+        child: _handleBody(isStart),
+      ),
+    );
+  }
+
+  void _moveSound(int i) {
+    final clips = widget.state.audioClips;
+    if (i < 0 || i >= clips.length) return;
+    final c = clips[i];
+    final len = c.end - c.start;
+    var s = _sndBase + _sndAccum / _pps;
+    final tol = _snap ? 8 / _pps : -1.0;
+    var hit = false;
+    for (final x in _soundSnapPoints(i)) {
+      if ((x - s).abs() <= tol) {
+        s = x;
+        hit = true;
+        break;
+      }
+      if ((x - (s + len)).abs() <= tol) {
+        s = x - len;
+        hit = true;
+        break;
+      }
+    }
+    if (hit && !_sndSnapped) HapticFeedback.selectionClick();
+    _sndSnapped = hit;
+    s = s.clamp(0.0, math.max(0.0, _dur - len)).toDouble();
+    if ((s - c.start).abs() < 0.001) return;
+    widget.state.moveAudioTo(i, s);
+  }
+
+  void _moveSoundEdge(int i, bool isStart) {
+    final clips = widget.state.audioClips;
+    if (i < 0 || i >= clips.length) return;
+    final c = clips[i];
+    var target = _sndBase + _sndAccum / _pps;
+    final tol = _snap ? 8 / _pps : -1.0;
+    var hit = false;
+    for (final x in _soundSnapPoints(i)) {
+      if ((x - target).abs() <= tol) {
+        target = x;
+        hit = true;
+        break;
+      }
+    }
+    if (hit && !_sndSnapped) HapticFeedback.selectionClick();
+    _sndSnapped = hit;
+    target = target.clamp(0.0, _dur).toDouble();
+    if (isStart) {
+      if ((target - c.start).abs() < 0.001) return;
+      widget.state.setAudioWindow(i, start: target);
+    } else {
+      if ((target - c.end).abs() < 0.001) return;
+      widget.state.setAudioWindow(i, end: target);
     }
   }
 
