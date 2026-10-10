@@ -224,6 +224,7 @@ class _StagePreviewState extends State<StagePreview>
               TextField(
                 controller: ctrl,
                 autofocus: true,
+                autocorrect: false, // PATCH_S197_DETAILS
                 maxLines: 4,
                 textAlign: TextAlign.right,
                 textDirection: TextDirection.rtl,

@@ -383,7 +383,8 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        duration: const Duration(milliseconds: 2200),
+        duration: Duration(
+            milliseconds: (1800 + msg.length * 55).clamp(2200, 6500).toInt()), // PATCH_S197_DETAILS
       ));
   }
 
@@ -919,15 +920,17 @@ class _HomeScreenState extends State<HomeScreen>
           side: const BorderSide(color: AyatColors.hairline),
         ),
         title: const Text('التصدير جاهز ✓'),
-        content: Text('تم حفظ المقطع بصيغة MP4:\n$path$sizeNote',
+        content: Text('تم حفظ المقطع بصيغة MP4:\n\u2066$path\u2069$sizeNote',
             style: Theme.of(context).textTheme.bodyMedium),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('إغلاق')),
           FilledButton.icon(
-            onPressed: () => SharePlus.instance
-                .share(ShareParams(files: [XFile(path)])),
+            onPressed: () { // PATCH_S197_DETAILS
+              HapticFeedback.selectionClick();
+              SharePlus.instance.share(ShareParams(files: [XFile(path)]));
+            },
             icon: const Icon(Icons.share, size: 16),
             label: const Text('مشاركة الفيديو'),
           ),
@@ -3412,6 +3415,7 @@ class _HomeScreenState extends State<HomeScreen>
           Expanded(
             child: SingleChildScrollView(
               controller: _scrollCtrl,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, // PATCH_S197_DETAILS
               padding: EdgeInsets.fromLTRB(16, 4, 16, 24),
               child: SmoothSwap( // PATCH_S176_SMOOTH
                 child: KeyedSubtree(
@@ -3576,7 +3580,18 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Material(
         color: Colors.transparent,
-        child: ListView.builder(
+        child: ShaderMask( // PATCH_S197_DETAILS
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (r) => const LinearGradient(
+            colors: [
+              Color(0x00000000),
+              Color(0xFF000000),
+              Color(0xFF000000),
+              Color(0x00000000),
+            ],
+            stops: [0.0, 0.05, 0.95, 1.0],
+          ).createShader(r),
+          child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           controller: _stripCtrl, // PATCH_S176_SMOOTH
@@ -3632,6 +3647,7 @@ class _HomeScreenState extends State<HomeScreen>
             );
           },
         ),
+        ),
       ),
     );
   }
@@ -3639,8 +3655,9 @@ class _HomeScreenState extends State<HomeScreen>
   // The InShot-style "SAVE": compact gold pill in the app bar.
   Widget _exportPill() {
     final disabled = _busy;
-    return Opacity(
-      opacity: disabled ? 0.5 : 1,
+    return AnimatedOpacity( // PATCH_S197_DETAILS
+      duration: const Duration(milliseconds: 220),
+      opacity: disabled ? 0.55 : 1,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -3663,11 +3680,17 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.movie_creation_outlined,
-                    size: 16, color: AyatColors.ink),
-                SizedBox(width: 6),
-                Text('تصدير',
+              children: [
+                disabled
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AyatColors.ink))
+                    : const Icon(Icons.movie_creation_outlined,
+                        size: 16, color: AyatColors.ink), // PATCH_S197_DETAILS
+                const SizedBox(width: 6),
+                const Text('تصدير',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
@@ -3901,6 +3924,7 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(height: 6),
             TextButton.icon(
               onPressed: () {
+                HapticFeedback.lightImpact(); // PATCH_S197_DETAILS
                 final action = _busyCancelAction;
                 if (action != null) {
                   action();
@@ -4689,8 +4713,9 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S83_SYNC_QOL: tenth-of-a-second precision for the timing editor —
   // whole seconds are useless when nudging by ±0.1s.
   static String _fmtSecFine(double s) {
-    final m = s ~/ 60;
-    final sec = s - m * 60;
+    final tenths = (s * 10).round(); // PATCH_S197_DETAILS
+    final m = tenths ~/ 600;
+    final sec = (tenths % 600) / 10;
     return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
   }
 

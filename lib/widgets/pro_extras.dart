@@ -120,8 +120,9 @@ class ProNowPlayingChip extends StatelessWidget {
 }
 
 String _fmtTime(double s) {
-  final m = s ~/ 60;
-  final sec = s - m * 60;
+  final tenths = (s * 10).round(); // PATCH_S197_DETAILS
+  final m = tenths ~/ 600;
+  final sec = (tenths % 600) / 10;
   return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
 }
 
@@ -131,6 +132,7 @@ double? _parseTime(String raw) {
   for (var i = 0; i < ar.length; i++) {
     t = t.replaceAll(ar[i], '$i');
   }
+  t = t.replaceAll('٫', '.').replaceAll('،', '.').replaceAll(',', '.'); // PATCH_S197_DETAILS
   if (t.isEmpty) return null;
   if (!t.contains(':')) return double.tryParse(t);
   var total = 0.0;
@@ -149,6 +151,7 @@ Future<double?> showGoToTimeDialog(
   required double max,
 }) {
   final ctl = TextEditingController(text: _fmtTime(current));
+  ctl.selection = TextSelection(baseOffset: 0, extentOffset: ctl.text.length); // PATCH_S197_DETAILS
   return showDialog<double>(
     context: context,
     builder: (ctx) {
@@ -162,6 +165,9 @@ Future<double?> showGoToTimeDialog(
         content: TextField(
           controller: ctl,
           autofocus: true,
+          keyboardType: TextInputType.datetime, // PATCH_S197_DETAILS
+          textInputAction: TextInputAction.go,
+          autocorrect: false,
           textDirection: TextDirection.ltr,
           decoration: const InputDecoration(hintText: 'مثال: 1:25.5 أو 85'),
           onSubmitted: (_) => submit(),

@@ -495,8 +495,9 @@ class _ProTranscriptState extends State<ProTranscript> {
   String _q = '';
 
   static String _fmt(double s) {
-    final m = s ~/ 60;
-    final sec = s - m * 60;
+    final tenths = (s * 10).round(); // PATCH_S197_DETAILS
+    final m = tenths ~/ 600;
+    final sec = (tenths % 600) / 10;
     return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
   }
 

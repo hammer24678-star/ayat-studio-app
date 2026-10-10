@@ -1808,8 +1808,9 @@ class ProTimelineState extends State<ProTimeline>
 // ---------------------------------------------------------------- painters
 
 String _fmtTick(double t, double step) {
-  final m = t ~/ 60;
-  final sec = t - m * 60;
+  final tenths = (t * 10).round(); // PATCH_S197_DETAILS
+  final m = tenths ~/ 600;
+  final sec = (tenths % 600) / 10;
   if (step < 1) return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
   return '$m:${sec.floor().toString().padLeft(2, '0')}';
 }

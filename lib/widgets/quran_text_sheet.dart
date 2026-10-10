@@ -200,6 +200,7 @@ class _QuranTextSheetState extends State<_QuranTextSheet> {
               TextField(
                 controller: _ctrl,
                 autofocus: true,
+                autocorrect: false, // PATCH_S197_DETAILS
                 minLines: 1,
                 maxLines: 4,
                 textAlign: TextAlign.right,

@@ -1955,6 +1955,7 @@ class _AyahSearchScreenState extends State<_AyahSearchScreen> {
             title: TextField(
               controller: _ctrl,
               autofocus: true,
+              autocorrect: false, // PATCH_S197_DETAILS
               textInputAction: TextInputAction.search,
               onChanged: _run,
               style: TextStyle(color: p.text, fontSize: 15),
