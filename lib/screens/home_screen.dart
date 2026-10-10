@@ -402,7 +402,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<T?> _withBusy<T>(Future<T> Function() job) async {
-    if (_busy) return null;
+    if (_busy) {
+      _toast('هناك عملية جارية، انتظر حتى تنتهي'); // PATCH_S196_FIXES
+      return null;
+    }
     setState(() {
       _busy = true;
       _busyProgress = null;
@@ -710,6 +713,7 @@ class _HomeScreenState extends State<HomeScreen>
         onStatus: (s) => _setBusyStatus(s),
         onProgress: (f) {
           BackgroundJob.update(null, f); // PATCH_S163
+          if (!mounted) return; // PATCH_S196_FIXES
           setState(() => _busyProgress = f);
         },
       );
@@ -886,6 +890,7 @@ class _HomeScreenState extends State<HomeScreen>
         onStatus: (s) => _setBusyStatus(s),
         onProgress: (f) {
           BackgroundJob.update(null, f); // PATCH_S163
+          if (!mounted) return; // PATCH_S196_FIXES
           setState(() => _busyProgress = f);
         },
       );
@@ -1036,6 +1041,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     if (_previewingReciter == i && _reciterPreview != null) {
       await _reciterPreview!.dispose();
+      if (!mounted) return; // PATCH_S196_FIXES
       setState(() {
         _reciterPreview = null;
         _previewingReciter = null;
@@ -1043,6 +1049,7 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     await _reciterPreview?.dispose();
+    if (!mounted) return; // PATCH_S196_FIXES
     final c = VideoPlayerController.file(File(path));
     setState(() {
       _reciterPreview = c;
