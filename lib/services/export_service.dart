@@ -452,6 +452,7 @@ class ExportService {
       }
 
       final docs = await getApplicationDocumentsDirectory();
+      await _pruneOldExports(docs); // PATCH_S198_REVIEW
       final outPath =
           '${docs.path}/ayat_studio_${DateTime.now().millisecondsSinceEpoch}.mp4';
       if (parts.length == 1) {
@@ -1631,6 +1632,29 @@ class ExportService {
         '${_encodeParams(state.exportQuality)} "$mp4"';
     await _run(cmd, titleCardSec, null);
     return mp4;
+  }
+
+  // PATCH_S198_REVIEW: every export (and its subtitle file) stayed in app
+  // storage forever - gigabytes after a few weeks. Keep the 3 newest; the copy
+  // in the public Download folder is not touched.
+  static Future<void> _pruneOldExports(Directory dir, {int keep = 3}) async {
+    try {
+      final re = RegExp(r'^ayat_studio_(\d{6,16})\.(mp4|srt|vtt|ass|txt)$');
+      final byStamp = <int, List<File>>{};
+      await for (final e in dir.list()) {
+        if (e is! File) continue;
+        final m = re.firstMatch(e.uri.pathSegments.last);
+        if (m == null) continue;
+        (byStamp[int.parse(m.group(1)!)] ??= <File>[]).add(e);
+      }
+      final stamps = byStamp.keys.toList()..sort();
+      if (stamps.length <= keep) return;
+      for (final s in stamps.sublist(0, stamps.length - keep)) {
+        for (final f in byStamp[s]!) {
+          f.delete().ignore();
+        }
+      }
+    } catch (_) {}
   }
 
   static String _hex(Color c) {

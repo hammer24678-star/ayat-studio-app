@@ -23,6 +23,12 @@ class _AyahBlocksEditorState extends State<AyahBlocksEditor> {
   static const _edge = 48.0; // px from viewport edge that triggers auto-scroll
 
   @override
+  void dispose() { // PATCH_S198_REVIEW
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext c) {
     final total = widget.durationSec <= 0 ? 1.0 : widget.durationSec;
     return LayoutBuilder(builder: (c, box) {

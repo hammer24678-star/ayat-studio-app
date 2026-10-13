@@ -241,6 +241,10 @@ class WhisperService {
         await sink.close();
         client.close(); // PATCH_S163
       }
+      if (total > 0 && got < total) { // PATCH_S198_REVIEW: cut short but still above the minimum
+        throw Exception(
+            'انقطع تنزيل النموذج — أعد المحاولة وسيُستأنف تلقائيًا من حيث توقف');
+      }
       if (await part.length() < spec.minExpectedBytes) {
         throw Exception(
             'انقطع تنزيل النموذج — أعد المحاولة وسيُستأنف تلقائيًا من حيث توقف');

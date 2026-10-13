@@ -58,8 +58,9 @@ class _NudgeSheetState extends State<_NudgeSheet> {
   late int _mode = widget.canMove ? 2 : 0; // 0 start, 1 end, 2 whole block
 
   static String _fmt(double s) {
-    final m = s ~/ 60;
-    final sec = s - m * 60;
+    final cs = ((s < 0 ? 0.0 : s) * 100).round(); // PATCH_S198_REVIEW: never "0:60.00"
+    final m = cs ~/ 6000;
+    final sec = (cs % 6000) / 100;
     return '$m:${sec.toStringAsFixed(2).padLeft(5, '0')}';
   }
 

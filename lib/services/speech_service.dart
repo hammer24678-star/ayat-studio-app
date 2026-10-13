@@ -28,6 +28,8 @@ class SpeechService {
     }
     SpeechRecognitionResult? finalResult;
     await _stt.listen(
+      listenFor: const Duration(seconds: 30), // PATCH_S198_REVIEW
+      pauseFor: const Duration(seconds: 5),
       listenOptions: SpeechListenOptions(
         localeId: 'ar_SA',
         partialResults: false,
@@ -37,7 +39,12 @@ class SpeechService {
       },
     );
     // wait until the session ends (finalResult delivered or timeout)
+    final sw = Stopwatch()..start(); // PATCH_S198_REVIEW
     while (_stt.isListening) {
+      if (sw.elapsed > const Duration(seconds: 45)) {
+        await _stt.stop();
+        break;
+      }
       await Future.delayed(const Duration(milliseconds: 200));
     }
     final result = finalResult;

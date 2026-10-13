@@ -29,7 +29,22 @@ class FontService {
   static String familyOf(String fileName) {
     final stem = fileName.replaceAll(_fontExt, '');
     final safe = stem.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    // PATCH_S198_REVIEW: Arabic-named files all collapsed to "Ayat_____" and
+    // shadowed each other. Non-ASCII names get a stable hash; plain ASCII
+    // names keep their old family (saved fontKeys stay valid).
+    if (stem.codeUnits.any((u) => u > 127)) {
+      return 'Ayat_${safe}_${_stableHash(stem)}';
+    }
     return 'Ayat_$safe';
+  }
+
+  static String _stableHash(String s) { // PATCH_S198_REVIEW
+    var h = 0x811C9DC5; // FNV-1a, stable across runs (String.hashCode is not)
+    for (final u in s.codeUnits) {
+      h ^= u;
+      h = (h * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(16);
   }
 
   static String _labelOf(String fileName) =>
@@ -65,8 +80,9 @@ class FontService {
     final out = <AyahFontChoice>[];
     try {
       final dir = await _fontsDir();
-      for (final entry in dir.listSync()) {
-        if (entry is! File) continue;
+      final entries = dir.listSync().whereType<File>().toList()
+        ..sort((a, b) => a.path.compareTo(b.path)); // PATCH_S198_REVIEW
+      for (final entry in entries) {
         final name = entry.uri.pathSegments.last;
         if (!_fontExt.hasMatch(name)) continue;
         try {

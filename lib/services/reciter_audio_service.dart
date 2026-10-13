@@ -125,6 +125,36 @@ class ReciterAudioService {
     return null;
   }
 
+  // PATCH_S198_REVIEW: surah mp3s run up to ~150 MB each and were kept
+  // forever. Past ~1.5 GB the least recently used ones go (re-downloadable).
+  static Future<void> _pruneCache(Directory dir, String keepPath) async {
+    try {
+      const maxBytes = 1500 * 1024 * 1024;
+      final files = <File>[];
+      var total = 0;
+      await for (final e in dir.list()) {
+        if (e is! File || !e.path.endsWith('.mp3')) continue;
+        files.add(e);
+        total += await e.length();
+      }
+      if (total <= maxBytes) return;
+      final mod = <String, DateTime>{};
+      for (final f in files) {
+        mod[f.path] = (await f.stat()).modified;
+      }
+      files.sort((a, b) => mod[a.path]!.compareTo(mod[b.path]!));
+      for (final f in files) {
+        if (total <= maxBytes) break;
+        if (f.path == keepPath) continue;
+        final len = await f.length();
+        try {
+          await f.delete();
+          total -= len;
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
   /// Downloads (or returns the already-cached copy of) surah [surahNum]
   /// (1..114) recited by [displayName]. Returns the local file path, or
   /// throws [ReciterAudioException] with a user-facing Arabic message.
@@ -148,37 +178,56 @@ class ReciterAudioService {
         displayName.replaceAll(RegExp(r'[^\u0600-\u06FF0-9]'), '_');
     final file = File('${dir.path}/${safeName}_$surahNum.mp3');
     if (await file.exists() && await file.length() > 1024) {
+      file.setLastModified(DateTime.now()).ignore(); // PATCH_S198_REVIEW: LRU touch
       return file.path;
     }
     final surahStr = surahNum.toString().padLeft(3, '0');
     final url = Uri.parse('${moshaf.server}$surahStr.mp3');
     http.StreamedResponse streamed;
+    final client = http.Client(); // PATCH_S198_REVIEW: used to be created and never closed
     try {
       final req = http.Request('GET', url);
-      streamed =
-          await http.Client().send(req).timeout(const Duration(seconds: 60));
+      streamed = await client.send(req).timeout(const Duration(seconds: 60));
     } catch (_) {
+      client.close();
       throw ReciterAudioException(
           'تعذّر تنزيل الملف الصوتي — تحقق من الاتصال بالإنترنت');
     }
     if (streamed.statusCode != 200) {
+      client.close();
       throw ReciterAudioException('فشل التنزيل (${streamed.statusCode})');
     }
     final total = streamed.contentLength ?? 0;
     var received = 0;
     final tmp = File('${file.path}.part');
     final sink = tmp.openWrite();
-    await for (final chunk in streamed.stream) {
-      sink.add(chunk);
-      received += chunk.length;
-      onProgress?.call(total > 0 ? received / total : null);
+    try { // PATCH_S198_REVIEW
+      await for (final chunk
+          in streamed.stream.timeout(const Duration(seconds: 45))) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress?.call(total > 0 ? received / total : null);
+      }
+    } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      tmp.delete().ignore();
+      throw ReciterAudioException('انقطع التنزيل — حاول مجددًا');
+    } finally {
+      client.close();
     }
     await sink.close();
+    if (total > 0 && received < total) {
+      tmp.delete().ignore();
+      throw ReciterAudioException('انقطع التنزيل قبل اكتماله — حاول مجددًا');
+    }
     if (await tmp.length() < 1024) {
       await tmp.delete().catchError((_) => tmp);
       throw ReciterAudioException('الملف المُنزَّل غير صالح — حاول مجددًا');
     }
     await tmp.rename(file.path);
+    _pruneCache(dir, file.path).ignore(); // PATCH_S198_REVIEW
     return file.path;
   }
 }

@@ -70,7 +70,37 @@ class AiArtService {
     Directory('${docs.path}/ai_art_cache').delete(recursive: true).ignore();
     final dir = Directory('${docs.path}/ai_art_cache_v2');
     if (!await dir.exists()) await dir.create(recursive: true);
+    _pruneCache(dir).ignore(); // PATCH_S198_REVIEW
     return _cacheDirMemo = dir;
+  }
+
+  static bool _hasImageMagic(List<int> b) { // PATCH_S198_REVIEW
+    if (b.length < 12) return false;
+    final png = b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47;
+    final jpg = b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF;
+    final webp = b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
+        b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50;
+    return png || jpg || webp;
+  }
+
+  // Keep the newest 300 images; art is deterministic, so a pruned one simply
+  // regenerates. Runs once per session, never blocks.
+  static Future<void> _pruneCache(Directory dir) async {
+    try {
+      final files = <File>[];
+      await for (final e in dir.list()) {
+        if (e is File && e.path.endsWith('.png')) files.add(e);
+      }
+      if (files.length <= 300) return;
+      final mod = <String, DateTime>{};
+      for (final f in files) {
+        mod[f.path] = (await f.stat()).modified;
+      }
+      files.sort((a, b) => mod[b.path]!.compareTo(mod[a.path]!));
+      for (final f in files.skip(300)) {
+        f.delete().ignore();
+      }
+    } catch (_) {}
   }
 
   static Future<File> _fileFor(int surahNum, int ayahNum, int seedOffset) async {
@@ -312,11 +342,18 @@ class AiArtService {
           final contentType = res.headers['content-type'] ?? '';
           final looksLikeImage = res.statusCode == 200 &&
               res.bodyBytes.length > 5000 &&
-              (contentType.startsWith('image/') || contentType.isEmpty);
+              (contentType.startsWith('image/') ||
+                  (contentType.isEmpty && _hasImageMagic(res.bodyBytes))); // PATCH_S198_REVIEW
           if (!looksLikeImage) {
             lastError =
                 AiArtException('فشل توليد الفن (رمز الحالة: ${res.statusCode})');
-            _markDead(model, 5);
+            // PATCH_S198_REVIEW: a 400/403 is about THIS prompt (safety
+            // filter), not the model - don't bench the model for every ayah.
+            if (res.statusCode == 200 ||
+                res.statusCode == 404 ||
+                res.statusCode == 410) {
+              _markDead(model, 5);
+            }
             break; // hard failure for this model -- try the next one
           }
           final tmp = File('${cached.path}.part');

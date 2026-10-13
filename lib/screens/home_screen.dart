@@ -108,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen>
   // PATCH_S37_CANCEL_LONG_JOBS: set by long jobs (export / auto-sync) so the
   // status card can offer a working إلغاء button; cleared when the job ends.
   VoidCallback? _busyCancelAction;
+  bool _cancelPressed = false; // PATCH_S198_REVIEW
   bool _listening = false;
   Timer? _persistDebounce; // PATCH_S37_PERSISTENT_SETTINGS
   bool _settingsRestored = false;
@@ -181,6 +182,8 @@ class _HomeScreenState extends State<HomeScreen>
   late final _watermarkCtrl =
       TextEditingController(text: state.watermarkText);
   late final _outroCtrl = TextEditingController(text: state.outroText);
+  late final TextEditingController _pollKeyCtrl =
+      TextEditingController(text: state.pollinationsApiKey); // PATCH_S198_REVIEW
   late final _staticDurCtrl =
       TextEditingController(text: '${state.staticDurationSec}');
 
@@ -313,6 +316,12 @@ class _HomeScreenState extends State<HomeScreen>
   // flush immediately instead of hoping the 800ms debounce already fired.
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
+    if (appState == AppLifecycleState.paused) { // PATCH_S198_REVIEW: stop sound in the background
+      try {
+        _video?.pause().catchError((_) {});
+        _reciterPreview?.pause().catchError((_) {});
+      } catch (_) {}
+    }
     if (appState == AppLifecycleState.paused && _settingsRestored) {
       _persistDebounce?.cancel();
       SettingsService.persist(state);
@@ -348,6 +357,7 @@ class _HomeScreenState extends State<HomeScreen>
     _customHCtrl.dispose();
     _watermarkCtrl.dispose(); // PATCH_S123_WATERMARK
     _outroCtrl.dispose();
+    _pollKeyCtrl.dispose(); // PATCH_S198_REVIEW
     _staticDurCtrl.dispose();
     super.dispose();
   }
@@ -429,6 +439,7 @@ class _HomeScreenState extends State<HomeScreen>
           _busyStatus = '';
           _busyProgress = null;
           _busyCancelAction = null; // PATCH_S37_CANCEL_LONG_JOBS
+          _cancelPressed = false; // PATCH_S198_REVIEW
         });
       }
     }
@@ -663,10 +674,12 @@ class _HomeScreenState extends State<HomeScreen>
     final text = await _withBusy(() async {
       _setBusyStatus('جارٍ استخراج الصوت…');
       final wav = await MediaService.extractWav16kMono(state.videoPath!);
-      final t = await WhisperService.transcribeWav(wav,
-          onStatus: (s) => _setBusyStatus(s));
-      File(wav).delete().ignore();
-      return t;
+      try { // PATCH_S198_REVIEW
+        return await WhisperService.transcribeWav(wav,
+            onStatus: (s) => _setBusyStatus(s));
+      } finally {
+        File(wav).delete().ignore();
+      }
     });
     if (text == null || !mounted) return;
     if (text.isEmpty) {
@@ -697,8 +710,13 @@ class _HomeScreenState extends State<HomeScreen>
           : 'نص القرآن ما زال يُحمَّل — انتظر لحظات ثم أعد المحاولة');
       return;
     }
+    if (_busy) { // PATCH_S198_REVIEW: never steal the running job's cancel button
+      _toast('هناك عملية جارية، انتظر حتى تنتهي');
+      return;
+    }
     // pause the preview so the decoder isn't fighting the analysis pass
     await _video?.pause();
+    if (!mounted || _busy) return; // PATCH_S198_REVIEW
     // PATCH_S37_CANCEL_LONG_JOBS: a full scan can take minutes on long clips
     setState(() => _busyCancelAction = TimelineBuilder.requestCancel);
     await _withBusy(() async {
@@ -879,9 +897,14 @@ class _HomeScreenState extends State<HomeScreen>
       _toast('اختر آية أو ارفع فيديو أولًا');
       return;
     }
+    if (_busy) { // PATCH_S198_REVIEW
+      _toast('هناك عملية جارية، انتظر حتى تنتهي');
+      return;
+    }
     state.staticDurationSec =
         (int.tryParse(_staticDurCtrl.text) ?? 6).clamp(2, 60);
     await _video?.pause();
+    if (!mounted || _busy) return; // PATCH_S198_REVIEW
     // PATCH_S37_CANCEL_LONG_JOBS
     setState(() => _busyCancelAction = () => ExportService.cancel());
     final path = await _withBusy(() async {
@@ -967,6 +990,15 @@ class _HomeScreenState extends State<HomeScreen>
       state.useCustomBg = true;
       state.customBgPath = path;
     });
+  }
+
+  // PATCH_S198_REVIEW: one persistent controller (a new one per rebuild reset
+  // the cursor / IME composition on every keystroke and leaked).
+  TextEditingController _pollKeyController() {
+    if (_pollKeyCtrl.text.trim() != state.pollinationsApiKey) {
+      _pollKeyCtrl.text = state.pollinationsApiKey;
+    }
+    return _pollKeyCtrl;
   }
 
   Future<void> _pickCustomBg() async {
@@ -3926,9 +3958,14 @@ class _HomeScreenState extends State<HomeScreen>
               onPressed: () {
                 HapticFeedback.lightImpact(); // PATCH_S197_DETAILS
                 final action = _busyCancelAction;
-                if (action != null) {
+                if (_cancelPressed) {
+                  _toast('جارٍ الإلغاء… لحظة'); // PATCH_S198_REVIEW
+                } else if (action != null) {
                   action();
-                  setState(() => _busyCancelAction = null);
+                  setState(() {
+                    _busyCancelAction = null;
+                    _cancelPressed = true; // PATCH_S198_REVIEW
+                  });
                   _setBusyStatus('جارٍ الإلغاء…');
                 } else {
                   setState(() {
@@ -8087,9 +8124,7 @@ class _HomeScreenState extends State<HomeScreen>
                   style: TextStyle(fontSize: 13, color: AyatColors.parchmentDim)),
               children: [
                 TextField(
-                  controller: TextEditingController(text: state.pollinationsApiKey)
-                    ..selection = TextSelection.collapsed(
-                        offset: state.pollinationsApiKey.length),
+                  controller: _pollKeyController(), // PATCH_S198_REVIEW
                   style: const TextStyle(fontSize: 13),
                   decoration: const InputDecoration(
                     labelText: 'مفتاح Pollinations (اختياري)',
