@@ -1065,8 +1065,11 @@ class StudioState extends ChangeNotifier {
   }
 
   // PATCH_S32_AI_ART_NANO_BANANA
+  int _aiArtReq = 0; // PATCH_S199: only the newest request may touch the background
+
   Future<void> _generateAiArt(
       int surahNum, int ayahNum, String arText, String enText) async {
+    final req = ++_aiArtReq;
     _aiArtSurah = surahNum;
     _aiArtAyahNum = ayahNum;
     _aiArtAyahText = arText;
@@ -1081,16 +1084,16 @@ class StudioState extends ChangeNotifier {
         ayahEnglish: enText, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
         seedOffset: _aiArtSeedOffset,
       );
-      if (path != null) {
+      if (path != null && req == _aiArtReq) { // PATCH_S199
         useCustomBg = true;
         customBgPath = path;
       }
     } on AiArtException catch (e) {
-      aiArtError = e.message;
+      if (req == _aiArtReq) aiArtError = e.message;
     } catch (e) {
-      aiArtError = 'تعذر توليد الفن: $e';
+      if (req == _aiArtReq) aiArtError = 'تعذر توليد الفن: $e';
     } finally {
-      aiArtBusy = false;
+      if (req == _aiArtReq) aiArtBusy = false;
       notifyListeners();
     }
   }
@@ -1333,6 +1336,7 @@ class StudioState extends ChangeNotifier {
   // PATCH_S83_SYNC_QOL: undo of removeTimelineSegment — puts the segment
   // back where it was. Trim indexes reset for the same dangling reason.
   void insertTimelineSegment(int index, TimelineSegment segment) {
+    pushHistory(); // PATCH_S199
     timeline.insert(index.clamp(0, timeline.length), segment);
     timelineActive = true;
     trimFromIndex = -1;
@@ -1347,8 +1351,8 @@ class StudioState extends ChangeNotifier {
   // like dragging the cut point between two ayat).
   void nudgeTimelineSegment(int index,
       {double startDelta = 0, double endDelta = 0}) {
-    pushHistory(); // PATCH_S56_UNDO_REDO
     if (index < 0 || index >= timeline.length) return;
+    pushHistory(); // PATCH_S56_UNDO_REDO // PATCH_S199: only for a valid index
     final seg = timeline[index];
     if (startDelta != 0) {
       final floor = index > 0 ? timeline[index - 1].start + 0.3 : 0.0;
@@ -1375,6 +1379,7 @@ class StudioState extends ChangeNotifier {
   // ascending order.
   void addManualSegment(Ayah ayah, double start, double end,
       {String? textOverride}) {
+    pushHistory(); // PATCH_S199
     final seg = TimelineSegment(
         start: start,
         end: end,
@@ -1405,6 +1410,7 @@ class StudioState extends ChangeNotifier {
     if (index < 0 || index >= timeline.length) return false;
     final seg = timeline[index];
     if (atSec < seg.start + 0.3 || atSec > seg.end - 0.3) return false;
+    pushHistory(); // PATCH_S199
     final first = TimelineSegment(
       start: seg.start,
       end: atSec,
@@ -1438,6 +1444,7 @@ class StudioState extends ChangeNotifier {
   // the audio, not the label. The inferred flag clears for the same reason.
   void changeSegmentAyah(int index, Ayah ayah) {
     if (index < 0 || index >= timeline.length) return;
+    pushHistory(); // PATCH_S199
     final seg = timeline[index];
     timeline[index] = TimelineSegment(
       start: seg.start,
@@ -1462,11 +1469,23 @@ class StudioState extends ChangeNotifier {
     if (index < 0 || index + 1 >= timeline.length) return;
     final a = timeline[index];
     final b = timeline[index + 1];
+    pushHistory(); // PATCH_S199
+    // Two halves of the SAME ayah (the usual reason to merge) keep their word
+    // onsets and any typed/partial text instead of falling back to defaults.
+    final same = a.ayah.surahNum == b.ayah.surahNum && a.ayah.num == b.ayah.num;
+    final winner = a.confidence >= b.confidence ? a : b;
     final merged = TimelineSegment(
       start: a.start,
       end: b.end,
-      ayah: a.confidence >= b.confidence ? a.ayah : b.ayah,
+      ayah: winner.ayah,
       confidence: (a.confidence + b.confidence) / 2,
+      wordStarts: same ? [...a.wordStarts, ...b.wordStarts] : null,
+      inferred: a.inferred && b.inferred,
+      textOverride: same
+          ? ((a.textOverride != null && b.textOverride != null)
+              ? '${a.textOverride} ${b.textOverride}'
+              : null)
+          : winner.textOverride,
     );
     timeline[index] = merged;
     timeline.removeAt(index + 1);
@@ -1623,6 +1642,56 @@ class StudioState extends ChangeNotifier {
         'captionPosition': captionPosition,
         'textInTransition': textInTransition,
         'textOutTransition': textOutTransition,
+        // PATCH_S199_UNDO_COMPLETE: these were never snapshotted, so Undo
+        // looked dead for them and wasted a history step.
+        'translationFontSize': translationFontSize,
+        'translationOpacity': translationOpacity,
+        'translationOffsetY': translationOffsetY,
+        'adjustBrightness': adjustBrightness,
+        'adjustContrast': adjustContrast,
+        'adjustSaturation': adjustSaturation,
+        'videoBlur': videoBlur,
+        'audioVolume': audioVolume,
+        'bgCrossfadeDuration': bgCrossfadeDuration,
+        'textBorderWidth': textBorderWidth,
+        'shadowDistance': shadowDistance,
+        'shadowBlur': shadowBlur,
+        'labelOpacity': labelOpacity,
+        'overallOpacity': overallOpacity,
+        'glowSize': glowSize,
+        'glowSharpness': glowSharpness,
+        'playbackSpeed': playbackSpeed,
+        'translationColor': translationColor,
+        'chromaColor': chromaColor,
+        'labelColor': labelColor,
+        'tintIntensity': tintIntensity,
+        'exportFps': exportFps,
+        'enhanceSharpen': enhanceSharpen,
+        'enhanceDenoise': enhanceDenoise,
+        'bgSwitchAyahs': bgSwitchAyahs,
+        'bgSwitchSeconds': bgSwitchSeconds,
+        'chromaThreshold': chromaThreshold,
+        'chromaSoftness': chromaSoftness,
+        'textTransitionMs': textTransitionMs,
+        'audioFadeIn': audioFadeIn,
+        'audioFadeOut': audioFadeOut,
+        'audioDenoise': audioDenoise,
+        'audioNormalize': audioNormalize,
+        'multiBgEnabled': multiBgEnabled,
+        'chromaEnabled': chromaEnabled,
+        'textBorderEnabled': textBorderEnabled,
+        'shadowEnabled': shadowEnabled,
+        'labelEnabled': labelEnabled,
+        'unifiedOneLine': unifiedOneLine,
+        'exportSubtitles': exportSubtitles,
+        'exportQuality': exportQuality,
+        'exportResolution': exportResolution,
+        'bgSwitchTrigger': bgSwitchTrigger,
+        'bgTransitionStyle': bgTransitionStyle,
+        'subtitleFormat': subtitleFormat,
+        'subtitleContent': subtitleContent,
+        'tintColor': tintColor,
+        'multiBgIndexes': List<int>.of(multiBgIndexes),
       };
 
   void _apply(Map<String, Object?> s) {
@@ -1716,6 +1785,56 @@ class StudioState extends ChangeNotifier {
     captionPosition = s['captionPosition'] as CaptionPosition;
     textInTransition = s['textInTransition'] as TextTransition;
     textOutTransition = s['textOutTransition'] as TextTransition;
+    // PATCH_S199_UNDO_COMPLETE
+    translationFontSize = (s['translationFontSize'] as double?) ?? translationFontSize;
+    translationOpacity = (s['translationOpacity'] as double?) ?? translationOpacity;
+    translationOffsetY = (s['translationOffsetY'] as double?) ?? translationOffsetY;
+    adjustBrightness = (s['adjustBrightness'] as double?) ?? adjustBrightness;
+    adjustContrast = (s['adjustContrast'] as double?) ?? adjustContrast;
+    adjustSaturation = (s['adjustSaturation'] as double?) ?? adjustSaturation;
+    videoBlur = (s['videoBlur'] as double?) ?? videoBlur;
+    audioVolume = (s['audioVolume'] as double?) ?? audioVolume;
+    bgCrossfadeDuration = (s['bgCrossfadeDuration'] as double?) ?? bgCrossfadeDuration;
+    textBorderWidth = (s['textBorderWidth'] as double?) ?? textBorderWidth;
+    shadowDistance = (s['shadowDistance'] as double?) ?? shadowDistance;
+    shadowBlur = (s['shadowBlur'] as double?) ?? shadowBlur;
+    labelOpacity = (s['labelOpacity'] as double?) ?? labelOpacity;
+    overallOpacity = (s['overallOpacity'] as double?) ?? overallOpacity;
+    glowSize = (s['glowSize'] as double?) ?? glowSize;
+    glowSharpness = (s['glowSharpness'] as double?) ?? glowSharpness;
+    playbackSpeed = (s['playbackSpeed'] as double?) ?? playbackSpeed;
+    translationColor = (s['translationColor'] as Color?) ?? translationColor;
+    chromaColor = (s['chromaColor'] as Color?) ?? chromaColor;
+    labelColor = (s['labelColor'] as Color?) ?? labelColor;
+    tintIntensity = (s['tintIntensity'] as int?) ?? tintIntensity;
+    exportFps = (s['exportFps'] as int?) ?? exportFps;
+    enhanceSharpen = (s['enhanceSharpen'] as int?) ?? enhanceSharpen;
+    enhanceDenoise = (s['enhanceDenoise'] as int?) ?? enhanceDenoise;
+    bgSwitchAyahs = (s['bgSwitchAyahs'] as int?) ?? bgSwitchAyahs;
+    bgSwitchSeconds = (s['bgSwitchSeconds'] as int?) ?? bgSwitchSeconds;
+    chromaThreshold = (s['chromaThreshold'] as int?) ?? chromaThreshold;
+    chromaSoftness = (s['chromaSoftness'] as int?) ?? chromaSoftness;
+    textTransitionMs = (s['textTransitionMs'] as int?) ?? textTransitionMs;
+    audioFadeIn = (s['audioFadeIn'] as bool?) ?? audioFadeIn;
+    audioFadeOut = (s['audioFadeOut'] as bool?) ?? audioFadeOut;
+    audioDenoise = (s['audioDenoise'] as bool?) ?? audioDenoise;
+    audioNormalize = (s['audioNormalize'] as bool?) ?? audioNormalize;
+    multiBgEnabled = (s['multiBgEnabled'] as bool?) ?? multiBgEnabled;
+    chromaEnabled = (s['chromaEnabled'] as bool?) ?? chromaEnabled;
+    textBorderEnabled = (s['textBorderEnabled'] as bool?) ?? textBorderEnabled;
+    shadowEnabled = (s['shadowEnabled'] as bool?) ?? shadowEnabled;
+    labelEnabled = (s['labelEnabled'] as bool?) ?? labelEnabled;
+    unifiedOneLine = (s['unifiedOneLine'] as bool?) ?? unifiedOneLine;
+    exportSubtitles = (s['exportSubtitles'] as bool?) ?? exportSubtitles;
+    exportQuality = (s['exportQuality'] as ExportQuality?) ?? exportQuality;
+    exportResolution = (s['exportResolution'] as ExportResolutionCap?) ?? exportResolution;
+    bgSwitchTrigger = (s['bgSwitchTrigger'] as BgSwitchTrigger?) ?? bgSwitchTrigger;
+    bgTransitionStyle = (s['bgTransitionStyle'] as BgTransitionStyle?) ?? bgTransitionStyle;
+    subtitleFormat = (s['subtitleFormat'] as SubtitleFormat?) ?? subtitleFormat;
+    subtitleContent = (s['subtitleContent'] as SubtitleContent?) ?? subtitleContent;
+    tintColor = s['tintColor'] as Color?;
+    multiBgIndexes =
+        (s['multiBgIndexes'] as List?)?.cast<int>().toList() ?? multiBgIndexes;
   }
 
   /// Pushes a pre-edit snapshot. Called automatically by [update] and the

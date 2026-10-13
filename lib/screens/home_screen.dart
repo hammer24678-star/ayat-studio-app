@@ -8247,13 +8247,31 @@ class _HomeScreenState extends State<HomeScreen>
                       state.useCustomBg = true;
                       state.customBgPath = path;
                     }),
-                    onLongPress: () => state.update(() {
-                      state.customBgLibrary.removeAt(i);
-                      if (state.customBgPath == path) {
-                        state.useCustomBg = false;
-                        state.customBgPath = null;
-                      }
-                    }),
+                    onLongPress: () async { // PATCH_S199: confirm, remove by path
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (dctx) => AlertDialog(
+                          title: const Text('حذف الخلفية؟'),
+                          content: const Text('ستُزال من مكتبتك.'),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(dctx, false),
+                                child: const Text('إلغاء')),
+                            TextButton(
+                                onPressed: () => Navigator.pop(dctx, true),
+                                child: const Text('حذف')),
+                          ],
+                        ),
+                      );
+                      if (ok != true || !mounted) return;
+                      state.update(() {
+                        state.customBgLibrary.remove(path);
+                        if (state.customBgPath == path) {
+                          state.useCustomBg = false;
+                          state.customBgPath = null;
+                        }
+                      });
+                    },
                     child: Container(
                       width: 64,
                       decoration: BoxDecoration(
