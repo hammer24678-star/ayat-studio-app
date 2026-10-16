@@ -63,6 +63,13 @@ class WhisperService {
   static WhisperModelSize _size = WhisperModelSize.quranTuned;
   static final WhisperController _controller = WhisperController();
   static bool _modelReady = false;
+  // PATCH_S200_WHISPER_FALLBACK: tiers that failed to run this session, and
+  // tiers that have run successfully at least once this session.
+  static final Set<WhisperModelSize> _badTiers = <WhisperModelSize>{};
+  static final Set<WhisperModelSize> _provenTiers = <WhisperModelSize>{};
+
+  /// Last Whisper failure, with model/file details (also appended to errors).
+  static String? lastError;
 
   static WhisperModel get _model => _modelSpecs[_size]!.model;
 
@@ -278,10 +285,16 @@ class WhisperService {
   static Future<void> _ensureReadyImpl(
       {void Function(String status)? onStatus}) async {
     if (_modelReady) return;
+    // PATCH_S200_WHISPER_FALLBACK: a tier that already failed to run this
+    // session is not tried again - go straight to the safe one.
+    if (_badTiers.contains(_size) && _size != WhisperModelSize.small) {
+      _size = WhisperModelSize.small;
+    }
     try {
       await _downloadAndVerify(_size, onStatus: onStatus);
     } catch (e) {
       if (_size == WhisperModelSize.small) rethrow;
+      lastError = 'download ${_size.name}: ${_describe(e)}'; // PATCH_S200_WHISPER_FALLBACK
       final failedLabel = labelFor(_size).split(' — ').first;
       onStatus?.call('تعذّر تحميل "$failedLabel" — سيتم استخدام "دقيق" مؤقتًا…');
       _size = WhisperModelSize.small;
@@ -289,6 +302,117 @@ class WhisperService {
     }
     _modelReady = true;
     onStatus?.call('النموذج جاهز');
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S200_WHISPER_FALLBACK
+  // S75 only fell back to `small` when the model could not be DOWNLOADED. A
+  // tier that downloads fine and then fails to load/run left every
+  // transcribe call failing - and whisper_ggml_plus reports some native
+  // failures as a null result (not an exception), which callers read as "no
+  // speech". These helpers recover from a broken model file, fall back to
+  // `small` for the session when the chosen tier cannot run, and carry the
+  // real reason in the error text.
+  // ---------------------------------------------------------------------
+
+  static String _describe(Object? e) {
+    final msg = '$e'.replaceFirst('Exception: ', '');
+    return '${e.runtimeType}: ${msg.length > 300 ? msg.substring(0, 300) : msg}';
+  }
+
+  static Future<bool> _modelFileHealthy(WhisperModelSize size) async {
+    try {
+      final spec = _modelSpecs[size]!;
+      final f = File(await _controller.getPath(spec.model));
+      return await f.exists() &&
+          await f.length() >= spec.minExpectedBytes &&
+          await _hasGgmlMagic(f);
+    } catch (_) {
+      return true; // can't tell - don't blame the file
+    }
+  }
+
+  static Future<String> _modelInfo() async {
+    try {
+      final f = File(await _controller.getPath(_modelSpecs[_size]!.model));
+      if (!await f.exists()) return 'tier=${_size.name} file=missing';
+      final mb = (await f.length()) / (1024 * 1024);
+      final magic = await _hasGgmlMagic(f) ? 'ok' : 'BAD';
+      return 'tier=${_size.name} file=${mb.toStringAsFixed(0)}MB '
+          'magic=$magic threads=$_threads';
+    } catch (_) {
+      return 'tier=${_size.name}';
+    }
+  }
+
+  static Future<T> _guarded<T>(
+    Future<T> Function() run, {
+    void Function(String status)? onStatus,
+    bool fallbackOnError = true,
+  }) async {
+    final tier = _size;
+    Object? err;
+    try {
+      final r = await run();
+      if (r != null) {
+        _provenTiers.add(tier);
+        return r;
+      }
+      // null = "no speech" OR a failure the package swallowed. With a valid
+      // model file it is treated as no speech (the old behaviour).
+      if (await _modelFileHealthy(tier)) return r;
+      err = StateError('no result and the model file is invalid');
+    } catch (e) {
+      if (!fallbackOnError) rethrow;
+      err = e;
+    }
+
+    lastError = '${await _modelInfo()} | ${_describe(err)}';
+
+    // 1) a broken cached model file: drop it and fetch it again, once
+    if (!await _modelFileHealthy(tier)) {
+      try {
+        final f = File(await _controller.getPath(_modelSpecs[tier]!.model));
+        if (await f.exists()) await f.delete();
+        _modelReady = false;
+        await ensureReady(onStatus: onStatus);
+        final again = await run();
+        if (again != null) {
+          _provenTiers.add(_size);
+          return again;
+        }
+      } catch (e2) {
+        lastError = '$lastError | redownload: ${_describe(e2)}';
+      }
+    }
+
+    // 2) nothing safer to fall back to, or this tier already worked once
+    //    this session (so this failure is about this audio, not the model)
+    if (tier == WhisperModelSize.small || _provenTiers.contains(tier)) {
+      throw Exception('تعذّر التعرّف على الكلام\n$lastError');
+    }
+
+    // 3) fall back to `small` for the rest of the session
+    onStatus?.call(
+        'تعذّر تشغيل "${labelFor(tier).split(' — ').first}" على هذا الجهاز — جارٍ استخدام "دقيق"…');
+    _size = WhisperModelSize.small;
+    _modelReady = false;
+    try {
+      await ensureReady(onStatus: onStatus);
+      final r2 = await run();
+      if (r2 != null) {
+        _badTiers.add(tier);
+        _provenTiers.add(WhisperModelSize.small);
+        return r2;
+      }
+      lastError = '$lastError | small also returned no result';
+    } catch (e3) {
+      lastError = '$lastError | small: ${_describe(e3)}';
+    }
+    // small could not run it either, so the chosen tier was not the culprit
+    _size = tier;
+    _modelReady = false;
+    throw Exception('تعذّر التعرّف على الكلام\n$lastError');
   }
 
   /// Transcribes a 16kHz mono WAV file (extract audio with ffmpeg first —
@@ -299,12 +423,16 @@ class WhisperService {
   }) async {
     await ensureReady(onStatus: onStatus);
     onStatus?.call('جارٍ التعرّف على الكلام…');
-    final result = await _controller.transcribe(
-      model: _model,
-      audioPath: wavPath,
-      lang: 'ar',
-      threads: _threads, // PATCH_S123_WHISPER_THREADS
-      convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
+    // PATCH_S200_WHISPER_FALLBACK: guarded - see _guarded().
+    final result = await _guarded(
+      () => _controller.transcribe(
+        model: _model,
+        audioPath: wavPath,
+        lang: 'ar',
+        threads: _threads, // PATCH_S123_WHISPER_THREADS
+        convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
+      ),
+      onStatus: onStatus,
     );
     return result?.transcription.text.trim() ?? '';
   }
@@ -325,14 +453,20 @@ class WhisperService {
   }) async {
     await ensureReady(onStatus: onStatus);
     onStatus?.call('جارٍ التعرّف على الكلام…');
-    final result = await _controller.transcribe(
-      model: _model,
-      audioPath: wavPath,
-      lang: 'ar',
-      withTimestamps: true,
-      splitOnWord: splitOnWord,
-      threads: _threads, // PATCH_S123_WHISPER_THREADS
-      convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
+    // PATCH_S200_WHISPER_FALLBACK: guarded. The word-split attempt keeps
+    // throwing untouched so TimelineBuilder's S61 retry still happens.
+    final result = await _guarded(
+      () => _controller.transcribe(
+        model: _model,
+        audioPath: wavPath,
+        lang: 'ar',
+        withTimestamps: true,
+        splitOnWord: splitOnWord,
+        threads: _threads, // PATCH_S123_WHISPER_THREADS
+        convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
+      ),
+      onStatus: onStatus,
+      fallbackOnError: !splitOnWord,
     );
     final text = result?.transcription.text.trim() ?? '';
     final rawSegments = result?.transcription.segments ?? const [];

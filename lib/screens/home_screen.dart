@@ -681,6 +681,7 @@ class _HomeScreenState extends State<HomeScreen>
         File(wav).delete().ignore();
       }
     });
+    if (mounted) _syncModelSizeDisplay(); // PATCH_S200: keep the picker truthful after a fallback
     if (text == null || !mounted) return;
     if (text.isEmpty) {
       _toast('لم يتم استخراج أي كلام واضح من الفيديو');
