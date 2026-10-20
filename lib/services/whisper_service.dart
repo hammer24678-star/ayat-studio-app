@@ -11,6 +11,7 @@
 // PATCH_S76_QURAN_MODEL_DEFAULT
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data'; // PATCH_S201
 
 import 'package:http/http.dart' as http;
 import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
@@ -415,26 +416,211 @@ class WhisperService {
     throw Exception('تعذّر التعرّف على الكلام\n$lastError');
   }
 
+  // ---------------------------------------------------------------------
+  // PATCH_S201_WHISPER_AUDIT
+  //
+  // 1) Short windows. whisper.cpp pads every input to a 30-second window
+  //    before the encoder runs, so a 6-second scan window spends ~80% of the
+  //    encoder's time on padding. whisper_ggml_plus exposes exactly one knob
+  //    for that - speedUp, which halves the encoder context to 15 s - and
+  //    audio longer than 15 s would lose its tail under it. So it would be
+  //    used ONLY for audio that fits with room to spare (every scan /
+  //    gap-rescue / re-transcribe window does). It trades a little accuracy
+  //    for ~35-40% less scan time and has not been measured on Quran audio,
+  //    so [fastShortWindows] ships OFF - set it to true to try it.
+  //    Short windows also skip the bundled Silero VAD: the package turns it
+  //    on by default for the non-word-split calls but never for the word-split
+  //    ones, so the S61 fallback and the re-transcribe pass heard different
+  //    audio than the main scan. These windows are already RMS-gated and known
+  //    to hold speech, so all three paths now behave the same.
+  // ---------------------------------------------------------------------
+  static bool fastShortWindows = false;
+  static const double _shortWindowMaxSec = 12.0;
+
+  /// Duration of a 16 kHz mono 16-bit WAV from its size (44-byte header).
+  static double _wavSeconds(String path) {
+    try {
+      final dataBytes = File(path).lengthSync() - 44;
+      return dataBytes <= 0 ? 0.0 : dataBytes / 32000.0;
+    } catch (_) {
+      return double.infinity; // unknown length -> never take the fast path
+    }
+  }
+
+  static ({bool speedUp, WhisperVadMode vad}) _fastParams(String wavPath) {
+    final short = _wavSeconds(wavPath) <= _shortWindowMaxSec;
+    return (
+      speedUp: short && fastShortWindows,
+      vad: short ? WhisperVadMode.disabled : WhisperVadMode.auto,
+    );
+  }
+
+  /// PATCH_S201: frees the native Whisper context (the model's weights plus
+  /// its working buffers - roughly the model file's size again). It otherwise
+  /// stays resident for the life of the app, next to FFmpeg exports. Safe to
+  /// call any time: the next transcribe simply loads the model again.
+  static Future<void> release() async {
+    try {
+      await _controller.dispose(model: _model);
+    } catch (_) {
+      // best effort
+    }
+  }
+
+  // PATCH_S201: "detect ayah from video" only needs to hear where the
+  // recitation starts, but it used to transcribe the video's ENTIRE
+  // soundtrack (minutes of CPU) and then match that whole transcript against
+  // single ayat. This copies about the first [maxSec] seconds of actual speech
+  // (leading silence skipped) of a 16 kHz mono 16-bit WAV into a temp file and
+  // returns its path. Returns null when the file is already short enough, is
+  // not the expected format, holds no speech, or anything goes wrong - the
+  // caller then simply uses the original file (the old behaviour).
+  static Future<String?> _leadingSpeechWav(String wavPath, double maxSec) async {
+    const rate = 16000;
+    const frame = 1600; // 100 ms
+    RandomAccessFile? raf;
+    try {
+      raf = await File(wavPath).open();
+      final fileLen = await raf.length();
+      final head = await raf.read(math.min(fileLen, 4096));
+      if (head.length < 44 ||
+          String.fromCharCodes(head.sublist(0, 4)) != 'RIFF' ||
+          String.fromCharCodes(head.sublist(8, 12)) != 'WAVE') {
+        return null;
+      }
+      final hd = ByteData.sublistView(head);
+      var off = 12;
+      var dataStart = -1;
+      var dataLen = 0;
+      var formatOk = false;
+      while (off + 8 <= head.length) {
+        final id = String.fromCharCodes(head.sublist(off, off + 4));
+        final size = hd.getUint32(off + 4, Endian.little);
+        if (id == 'fmt ' && off + 24 <= head.length) {
+          formatOk = hd.getUint16(off + 8, Endian.little) == 1 && // PCM
+              hd.getUint16(off + 10, Endian.little) == 1 && // mono
+              hd.getUint32(off + 12, Endian.little) == rate &&
+              hd.getUint16(off + 22, Endian.little) == 16; // bits
+        } else if (id == 'data') {
+          dataStart = off + 8;
+          dataLen = size;
+          break;
+        }
+        off += 8 + size + (size.isOdd ? 1 : 0);
+      }
+      if (!formatOk || dataStart < 0) return null;
+      final avail = fileLen - dataStart;
+      if (dataLen <= 0 || dataLen > avail) dataLen = avail; // streamed WAVs
+      final totalSamples = dataLen ~/ 2;
+      if (totalSamples <= ((maxSec + 2) * rate).floor()) return null;
+
+      // look for the first speech in the first two minutes
+      final want = math.min(totalSamples, ((120 + maxSec) * rate).floor());
+      await raf.setPosition(dataStart);
+      final raw = Uint8List.fromList(await raf.read(want * 2));
+      final n = raw.length ~/ 2;
+      final pcm = raw.buffer.asInt16List(0, n);
+      final nFrames = n ~/ frame;
+      if (nFrames < 5) return null;
+      final rms = List<double>.filled(nFrames, 0);
+      for (var f = 0; f < nFrames; f++) {
+        var sum = 0.0;
+        final base = f * frame;
+        for (var i = 0; i < frame; i++) {
+          final v = pcm[base + i] / 32768.0;
+          sum += v * v;
+        }
+        rms[f] = math.sqrt(sum / frame);
+      }
+      // same idea as TimelineBuilder.adaptiveSilenceThreshold: just above the
+      // clip's own room tone, never below the proven fixed gate
+      final sorted = [...rms]..sort();
+      final noiseFloor = sorted[(sorted.length * 0.1).floor()];
+      final gate = (noiseFloor * 2.2).clamp(0.008, 0.02).toDouble();
+      var onset = -1;
+      for (var f = 0; f + 1 < nFrames; f++) {
+        if (rms[f] >= gate && rms[f + 1] >= gate) {
+          onset = f;
+          break;
+        }
+      }
+      if (onset < 0) return null;
+
+      final startSample = math.max(0, onset * frame - rate ~/ 2); // 0.5 s lead-in
+      final endSample = math.min(n, startSample + (maxSec * rate).floor());
+      if (endSample - startSample < rate) return null;
+
+      final dataBytes = (endSample - startSample) * 2;
+      final header = ByteData(44);
+      void putAscii(int at, String s) {
+        for (var i = 0; i < s.length; i++) {
+          header.setUint8(at + i, s.codeUnitAt(i));
+        }
+      }
+
+      putAscii(0, 'RIFF');
+      header.setUint32(4, 36 + dataBytes, Endian.little);
+      putAscii(8, 'WAVE');
+      putAscii(12, 'fmt ');
+      header.setUint32(16, 16, Endian.little);
+      header.setUint16(20, 1, Endian.little); // PCM
+      header.setUint16(22, 1, Endian.little); // mono
+      header.setUint32(24, rate, Endian.little);
+      header.setUint32(28, rate * 2, Endian.little); // byte rate
+      header.setUint16(32, 2, Endian.little); // block align
+      header.setUint16(34, 16, Endian.little); // bits per sample
+      putAscii(36, 'data');
+      header.setUint32(40, dataBytes, Endian.little);
+
+      final out = BytesBuilder();
+      out.add(header.buffer.asUint8List());
+      out.add(pcm.buffer.asUint8List(startSample * 2, dataBytes));
+      final outPath = '${Directory.systemTemp.path}/'
+          'ayat_lead_${DateTime.now().microsecondsSinceEpoch}.wav';
+      await File(outPath).writeAsBytes(out.takeBytes(), flush: true);
+      return outPath;
+    } catch (_) {
+      return null;
+    } finally {
+      await raf?.close();
+    }
+  }
+
   /// Transcribes a 16kHz mono WAV file (extract audio with ffmpeg first —
   /// see MediaService.extractWav16kMono) and returns the Arabic transcript.
   static Future<String> transcribeWav(
     String wavPath, {
     void Function(String status)? onStatus,
+    // PATCH_S201: when set, only about the first [leadSeconds] seconds of
+    // actual speech are transcribed (see _leadingSpeechWav).
+    double? leadSeconds,
   }) async {
     await ensureReady(onStatus: onStatus);
     onStatus?.call('جارٍ التعرّف على الكلام…');
-    // PATCH_S200_WHISPER_FALLBACK: guarded - see _guarded().
-    final result = await _guarded(
-      () => _controller.transcribe(
-        model: _model,
-        audioPath: wavPath,
-        lang: 'ar',
-        threads: _threads, // PATCH_S123_WHISPER_THREADS
-        convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
-      ),
-      onStatus: onStatus,
-    );
-    return result?.transcription.text.trim() ?? '';
+    // PATCH_S201: optionally trim to the first seconds of speech.
+    final lead = leadSeconds == null
+        ? null
+        : await _leadingSpeechWav(wavPath, leadSeconds);
+    final path = lead ?? wavPath;
+    final fast = _fastParams(path); // PATCH_S201
+    try {
+      // PATCH_S200_WHISPER_FALLBACK: guarded - see _guarded().
+      final result = await _guarded(
+        () => _controller.transcribe(
+          model: _model,
+          audioPath: path,
+          lang: 'ar',
+          threads: _threads, // PATCH_S123_WHISPER_THREADS
+          convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
+          speedUp: fast.speedUp, // PATCH_S201: short windows only
+          vadMode: fast.vad, // PATCH_S201
+        ),
+        onStatus: onStatus,
+      );
+      return result?.transcription.text.trim() ?? '';
+    } finally {
+      if (lead != null) File(lead).delete().ignore(); // PATCH_S201
+    }
   }
 
   // PATCH_S31_ACCURATE_SYNC: same as transcribeWav, but also returns
@@ -455,6 +641,7 @@ class WhisperService {
     onStatus?.call('جارٍ التعرّف على الكلام…');
     // PATCH_S200_WHISPER_FALLBACK: guarded. The word-split attempt keeps
     // throwing untouched so TimelineBuilder's S61 retry still happens.
+    final fast = _fastParams(wavPath); // PATCH_S201
     final result = await _guarded(
       () => _controller.transcribe(
         model: _model,
@@ -463,6 +650,8 @@ class WhisperService {
         withTimestamps: true,
         splitOnWord: splitOnWord,
         threads: _threads, // PATCH_S123_WHISPER_THREADS
+        speedUp: fast.speedUp, // PATCH_S201: short windows only
+        vadMode: fast.vad, // PATCH_S201
         convert: false, // PATCH_S163: already 16 kHz mono WAV — skip the per-window ffmpeg pass
       ),
       onStatus: onStatus,

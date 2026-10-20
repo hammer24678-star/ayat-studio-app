@@ -676,6 +676,7 @@ class _HomeScreenState extends State<HomeScreen>
       final wav = await MediaService.extractWav16kMono(state.videoPath!);
       try { // PATCH_S198_REVIEW
         return await WhisperService.transcribeWav(wav,
+            leadSeconds: 25, // PATCH_S201: only the start is needed to identify the ayah
             onStatus: (s) => _setBusyStatus(s));
       } finally {
         File(wav).delete().ignore();

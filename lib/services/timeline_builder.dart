@@ -445,6 +445,8 @@ class TimelineBuilder {
     } finally {
       tempDir.delete(recursive: true).ignore();
       File(wavPath).delete().ignore();
+      // PATCH_S201: give the native model's memory back before the export.
+      await WhisperService.release();
     }
     return (
       timeline: timeline,
@@ -1269,8 +1271,12 @@ class TimelineBuilder {
   /// Reads the 16-bit mono PCM samples out of a WAV file, walking the RIFF
   /// chunks properly instead of assuming a fixed 44-byte header (ffmpeg can
   /// emit LIST/INFO chunks before `data`).
-  static Int16List _readWavMono16(String path) {
-    final bytes = File(path).readAsBytesSync();
+  static Int16List _readWavMono16(String path) =>
+      decodeWavMono16(File(path).readAsBytesSync()); // PATCH_S201
+
+  /// PATCH_S201: the pure part of [_readWavMono16], public so a test can pin
+  /// it down: the PCM samples of a 16-bit WAV, every one of them.
+  static Int16List decodeWavMono16(Uint8List bytes) {
     final bd = ByteData.sublistView(bytes);
     if (bytes.length < 12 ||
         String.fromCharCodes(bytes.sublist(0, 4)) != 'RIFF' ||
@@ -1283,9 +1289,12 @@ class TimelineBuilder {
       final size = bd.getUint32(offset + 4, Endian.little);
       if (id == 'data') {
         final end = min(bytes.length, offset + 8 + size);
-        final data = bytes.sublist(offset + 8, end);
-        return Int16List.sublistView(
-            Uint8List.fromList(data), 0, data.length ~/ 2);
+        final data = bytes.sublist(offset + 8, end); // a fresh copy, offset 0
+        // PATCH_S201: Int16List.sublistView(src, a, b) counts in elements of
+        // its SOURCE - bytes here - so `0, data.length ~/ 2` viewed only HALF
+        // of the samples (and threw when that count was odd): auto-sync heard
+        // the first half of every clip. asInt16List takes a sample count.
+        return data.buffer.asInt16List(data.offsetInBytes, data.length ~/ 2);
       }
       offset += 8 + size + (size.isOdd ? 1 : 0);
     }
