@@ -703,6 +703,46 @@ class _HomeScreenState extends State<HomeScreen>
     if (picked?.$1 != null) _applyDetectedAyah(picked!.$1!, heardText: text);
   }
 
+  // ---------------------------------------------------------------------
+  // PATCH_S202_ART_WHOLE_FILE: one tap on the main screen. Whisper first (if
+  // the clip has not been synced yet), then art for every ayah it found.
+  // ---------------------------------------------------------------------
+  Future<void> _artForWholeFile() async {
+    if (_busy) {
+      _toast('هناك عملية جارية، انتظر حتى تنتهي');
+      return;
+    }
+    if (!state.hasVideo) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    HapticFeedback.selectionClick();
+    if (!state.timelineActive || state.timeline.isEmpty) {
+      await _autoSync();
+      if (!mounted || !state.timelineActive || state.timeline.isEmpty) return;
+    }
+    await _runArtBatch();
+  }
+
+  Future<void> _runArtBatch() async {
+    if (!mounted || _busy || state.aiArtBatchBusy) return;
+    setState(() => _busyCancelAction = state.cancelArtBatch);
+    await _withBusy<void>(() async {
+      _setBusyStatus('جارٍ رسم الفن لآيات المقطع…', 0);
+      await state.generateArtForTimelineBatch(
+        onProgress: (done, total) =>
+            _setBusyStatus('جارٍ رسم الفن: آية $done من $total…', done / total),
+      );
+    });
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    if (state.aiArtBatchOk > 0) {
+      _toast('تم رسم الفن لـ ${state.aiArtBatchOk} آية ✓ — سيتبدّل مع التلاوة تلقائيًا');
+    } else if (state.aiArtError != null) {
+      _toast(state.aiArtError!);
+    }
+  }
+
   Future<void> _autoSync() async {
     WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
     final matcher = state.matcher;
@@ -785,6 +825,12 @@ class _HomeScreenState extends State<HomeScreen>
       await _video?.play();
     });
     _syncModelSizeDisplay(); // PATCH_S75_COMPACT_PICKER_FALLBACK
+    // PATCH_S202_ART_WHOLE_FILE: AI art switch on -> draw the art as soon as the sync is done
+    if (mounted && state.aiArtEnabled && state.timelineActive &&
+        state.timeline.isNotEmpty && !state.aiArtBatchBusy) {
+      _toast('جارٍ رسم الفن لآيات المقطع في الخلفية…');
+      state.generateArtForTimelineBatch().then((_) {}, onError: (_) {});
+    }
   }
 
   /// 10x/sec: while an auto-sync timeline is active, light the current
@@ -2300,6 +2346,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.check_circle_outline, 'تم', () => setState(() { _selMain = false; _toolOpen = -1; }), false), // PATCH_S185_POLISH
         // PATCH_S182_WHISPER_MAIN: Whisper on the main screen
         (Icons.auto_awesome, 'مزامنة تلقائية', () { if (!_busy) _autoSync(); }, state.timelineActive),
+        (Icons.auto_fix_high, 'فن لكل الآيات', () { if (!_busy) _artForWholeFile(); }, state.aiArtBatchBusy), // PATCH_S202_ART_WHOLE_FILE
         (Icons.manage_search, 'تعرّف من الصوت', () { if (!_busy) _detectFromVideo(); }, false),
         (Icons.spellcheck, 'كتابة بالقرآن', _addQuranText, false), // PATCH_S189_QURAN_TYPE
         (Icons.hearing, 'دقة التعرّف', () { if (!_busy) _showModelSizePicker(); }, false),
@@ -8162,16 +8209,31 @@ class _HomeScreenState extends State<HomeScreen>
           if (state.aiArtBatchBusy)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
-                const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2)),
-                const SizedBox(width: 8),
-                Expanded(
-                    child:
-                        Text(state.aiArtBatchProgress ?? 'جارٍ توليد الفن...')),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(
+                            state.aiArtBatchProgress ?? 'جارٍ توليد الفن...')),
+                    // PATCH_S202_ART_WHOLE_FILE
+                    TextButton(
+                        onPressed: state.cancelArtBatch,
+                        child: const Text('إلغاء')),
+                  ]),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(
+                      value: state.aiArtBatchFraction > 0
+                          ? state.aiArtBatchFraction
+                          : null,
+                      minHeight: 3),
+                ],
+              ),
             )
           else if (state.aiArtBusy)
             const Padding(
@@ -8201,7 +8263,7 @@ class _HomeScreenState extends State<HomeScreen>
                   : state.generateAiArtNow(),
               icon: const Icon(Icons.auto_awesome, size: 18),
               label: Text(state.timelineActive
-                  ? 'توليد الفن لآيات المقطع (حتى 6 آيات)'
+                  ? 'توليد الفن لكل آيات المقطع'
                   : 'توليد فن للآية الحالية'),
             ),
             if (state.hasAiArt) ...[

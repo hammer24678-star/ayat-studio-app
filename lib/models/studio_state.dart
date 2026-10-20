@@ -1184,8 +1184,22 @@ class StudioState extends ChangeNotifier {
   // cache-checked, so re-running this after a partial success only retries
   // whatever didn't finish, and never re-hits the network for ayat that
   // already have art.
-  static const int _aiArtBatchMax = 10; // PATCH_S163: was 6 (parallel now)
-  Future<void> generateArtForTimelineBatch() async {
+  // PATCH_S202_ART_WHOLE_FILE: the batch now covers EVERY distinct ayah of
+  // the synced file (it stopped at 10), runs 3 at a time (AiArtService still
+  // limits real network requests itself), can be cancelled, and reports a
+  // real fraction. Art that is already cached is returned instantly, so a
+  // re-run - or a run after a cancel - only draws what is still missing.
+  // The first success switches AI art on, so the S84 playback path swaps
+  // each ayah's picture in as the reciter reaches it.
+  bool _aiArtCancel = false;
+  double aiArtBatchFraction = 0;
+  int aiArtBatchOk = 0;
+  void cancelArtBatch() => _aiArtCancel = true;
+
+  Future<void> generateArtForTimelineBatch({
+    void Function(int done, int total)? onProgress,
+  }) async {
+    aiArtBatchOk = 0;
     if (aiArtBatchBusy || aiArtBusy) return;
     if (timeline.isEmpty) {
       aiArtError = 'شغّل المزامنة التلقائية أولًا لرصد آيات المقطع';
@@ -1195,60 +1209,70 @@ class StudioState extends ChangeNotifier {
     final seen = <String>{};
     final targets = <Ayah>[];
     for (final seg in timeline) {
-      final key = '${seg.ayah.surahNum}:${seg.ayah.num}';
-      if (seen.add(key)) {
+      if (seen.add('${seg.ayah.surahNum}:${seg.ayah.num}')) {
         targets.add(seg.ayah);
-        if (targets.length >= _aiArtBatchMax) break;
       }
     }
 
     aiArtBatchBusy = true;
-    aiArtBatchProgress = null;
+    _aiArtCancel = false;
+    aiArtBatchFraction = 0;
+    aiArtBatchProgress = 'جارٍ رسم الفن لـ ${targets.length} آية…';
     aiArtError = null;
     notifyListeners();
     var ok = 0;
+    var done = 0;
+    var next = 0;
     try {
-      // PATCH_S163_AI_ART_SPEED: every target starts at once; AiArtService
-      // gates real network concurrency itself (2, or 1 after a 429). The first
-      // ayah's art still takes over the background the moment it lands.
-      var done = 0;
-      await Future.wait([
-        for (var i = 0; i < targets.length; i++)
-          () async {
-            final ayah = targets[i];
-            try {
-              final path = await AiArtService.artFor(
-                surahNum: ayah.surahNum,
-                ayahNum: ayah.num,
-                ayahArabic: ayah.ar,
-                ayahEnglish: ayah.en, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
-              );
-              if (path != null) {
-                ok++;
-                if (i == 0) {
-                  useCustomBg = true;
-                  customBgPath = path;
-                  _aiArtSurah = ayah.surahNum;
-                  _aiArtAyahNum = ayah.num;
-                  _aiArtAyahText = ayah.ar;
-                  _aiArtSeedOffset = 0;
-                  _lastMatchedSurah = ayah.surahNum;
-                  _lastMatchedAyahNum = ayah.num;
-                  _lastMatchedAyahText = ayah.ar;
-                  _lastMatchedAyahEn = ayah.en;
-                }
+      Future<void> worker() async {
+        while (!_aiArtCancel) {
+          final i = next++;
+          if (i >= targets.length) return;
+          final ayah = targets[i];
+          try {
+            final path = await AiArtService.artFor(
+              surahNum: ayah.surahNum,
+              ayahNum: ayah.num,
+              ayahArabic: ayah.ar,
+              ayahEnglish: ayah.en, // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART
+            );
+            if (path != null) {
+              ok++;
+              aiArtEnabled = true; // PATCH_S202: playback swaps the art in
+              if (i == 0) {
+                useCustomBg = true;
+                customBgPath = path;
+                _aiArtSurah = ayah.surahNum;
+                _aiArtAyahNum = ayah.num;
+                _aiArtAyahText = ayah.ar;
+                _aiArtSeedOffset = 0;
+                _lastMatchedSurah = ayah.surahNum;
+                _lastMatchedAyahNum = ayah.num;
+                _lastMatchedAyahText = ayah.ar;
+                _lastMatchedAyahEn = ayah.en;
               }
-            } on AiArtException catch (e) {
-              aiArtError = e.message; // last error stays visible if all fail
-            } catch (e) {
-              aiArtError = 'تعذر توليد الفن: $e';
             }
-            done++;
-            aiArtBatchProgress = 'تم $done من ${targets.length}…';
-            notifyListeners();
-          }(),
-      ]);
-      if (ok == 0) {
+          } on AiArtException catch (e) {
+            aiArtError = e.message; // the last error stays visible if all fail
+          } catch (e) {
+            aiArtError = 'تعذر توليد الفن: $e';
+          }
+          done++;
+          aiArtBatchFraction = done / targets.length;
+          aiArtBatchProgress = 'تم $done من ${targets.length}…';
+          onProgress?.call(done, targets.length);
+          notifyListeners();
+        }
+      }
+
+      await Future.wait([for (var w = 0; w < 3; w++) worker()]);
+      aiArtBatchOk = ok;
+      if (_aiArtCancel) {
+        aiArtError = null;
+        aiArtBatchProgress = ok > 0
+            ? 'أُلغي — تم رسم الفن لـ $ok من ${targets.length} آية (الباقي يُرسم أثناء التشغيل)'
+            : null;
+      } else if (ok == 0) {
         aiArtError ??= 'تعذر توليد الفن لأي من آيات المقطع';
         aiArtBatchProgress = null;
       } else if (ok < targets.length) {
@@ -1261,6 +1285,8 @@ class StudioState extends ChangeNotifier {
       }
     } finally {
       aiArtBatchBusy = false;
+      _aiArtCancel = false;
+      aiArtBatchFraction = 0;
       notifyListeners();
     }
   }
