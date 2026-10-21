@@ -872,6 +872,7 @@ class ExportService {
   // off, there is no synced timeline, or no picture has been drawn yet.
   static BgTransitionStyle? _artTransition;
   static double _artFade = 0.5;
+  static bool _artKenBurns = false; // PATCH_S205
 
   static Future<List<({String path, double dur})>?> _buildArtSegments({
     required StudioState state,
@@ -985,6 +986,7 @@ class ExportService {
     }
     _artTransition = style;
     _artFade = fade;
+    _artKenBurns = state.storyVideoMode && out.length <= 30; // PATCH_S205
     return out;
   }
 
@@ -1003,6 +1005,7 @@ class ExportService {
   }) async {
     // PATCH_S204_STORY_VIDEO: per-ayah art wins over every other background mode
     _artTransition = null;
+    _artKenBurns = false; // PATCH_S205
     final artSegs = await _buildArtSegments(
       state: state,
       work: work,
@@ -1108,7 +1111,11 @@ class ExportService {
           .write('-loop 1 -t ${seg.dur.toStringAsFixed(3)} -i "${seg.path}" ');
       final segIdx = idx++;
       final lbl = 'bgseg$i';
-      filters.add('[$segIdx:v]scale=$w:$h,fps=$_fps,format=yuv420p[$lbl]');
+      // PATCH_S205: story scenes drift in slowly instead of sitting still
+      final kb = _artKenBurns
+          ? _staticImageFilterChain(w, h, true)
+          : 'scale=$w:$h,fps=$_fps';
+      filters.add('[$segIdx:v]$kb,format=yuv420p[$lbl]');
       segLabels.add(lbl);
     }
 

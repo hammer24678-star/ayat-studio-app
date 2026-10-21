@@ -109,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen>
   // status card can offer a working إلغاء button; cleared when the job ends.
   VoidCallback? _busyCancelAction;
   bool _cancelPressed = false; // PATCH_S198_REVIEW
+  String _chainStep = ''; // PATCH_S205: "الخطوة ١ من ٣ · " on the story chain
   bool _listening = false;
   Timer? _persistDebounce; // PATCH_S37_PERSISTENT_SETTINGS
   bool _settingsRestored = false;
@@ -718,7 +719,9 @@ class _HomeScreenState extends State<HomeScreen>
     }
     HapticFeedback.selectionClick();
     if (!state.timelineActive || state.timeline.isEmpty) {
+      _chainStep = 'الخطوة ١ من ٣ · '; // PATCH_S205
       await _autoSync();
+      _chainStep = '';
       if (!mounted || !state.timelineActive || state.timeline.isEmpty) return;
     }
     // PATCH_S204_STORY_VIDEO: an art batch the sync kicked off in the background
@@ -727,19 +730,23 @@ class _HomeScreenState extends State<HomeScreen>
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
     if (!mounted) return;
-    await _runArtBatch(); // cached pictures return instantly
+    _chainStep = 'الخطوة ٢ من ٣ · '; // PATCH_S205
+    await _runArtBatch(quiet: true); // cached pictures return instantly
+    _chainStep = '';
     if (!mounted || state.aiArtBatchCancelled || state.aiArtBatchOk == 0) return;
     // look + export, then give the clip's own picture back for normal editing
     state.applyStoryLook();
     state.storyVideoMode = true;
+    _chainStep = 'الخطوة ٣ من ٣ · '; // PATCH_S205
     try {
       await _export();
     } finally {
       state.storyVideoMode = false;
+      _chainStep = '';
     }
   }
 
-  Future<void> _runArtBatch() async {
+  Future<void> _runArtBatch({bool quiet = false}) async {
     if (!mounted || _busy || state.aiArtBatchBusy) return;
     setState(() => _busyCancelAction = state.cancelArtBatch);
     await _withBusy<void>(() async {
@@ -751,6 +758,7 @@ class _HomeScreenState extends State<HomeScreen>
     });
     if (!mounted) return;
     HapticFeedback.mediumImpact();
+    if (quiet && state.aiArtBatchOk > 0) return; // PATCH_S205
     if (state.aiArtBatchOk > 0) {
       _toast('تم رسم الفن لـ ${state.aiArtBatchOk} آية ✓ — سيتبدّل مع التلاوة تلقائيًا');
     } else if (state.aiArtError != null) {
@@ -2090,7 +2098,7 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.delete_outline, 'حذف', () => _deleteSegWithUndo(i), false),
     ];
     return Container(
-      height: 68,
+      height: 72, // PATCH_S205
       decoration: const BoxDecoration(
         color: AyatColors.ink,
         border: Border(top: BorderSide(color: AyatColors.hairline)),
@@ -2103,7 +2111,10 @@ class _HomeScreenState extends State<HomeScreen>
           itemCount: items.length,
           itemBuilder: (context, k) {
             final it = items[k];
-            final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
+            // PATCH_S205: active tool = gold pill; the story button = faint frame
+            final active = it.$4;
+            final hero = it.$2 == 'فيديو الفن';
+            final col = active || hero ? AyatColors.goldBright : AyatColors.parchmentDim;
             return PressableScale( // PATCH_S186_SMOOTH_CONTROL
               borderRadius: BorderRadius.circular(14),
               pressedScale: 0.9,
@@ -2111,21 +2122,41 @@ class _HomeScreenState extends State<HomeScreen>
                 HapticFeedback.selectionClick();
                 it.$3();
               },
-              child: SizedBox(
-                width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(it.$1, size: 23, color: col),
-                    const SizedBox(height: 4),
-                    Text(it.$2,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: col)),
-                  ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: min(80.0, MediaQuery.of(context).size.width / 5.6), // PATCH_S182_WHISPER_MAIN
+                  decoration: BoxDecoration(
+                    color: active
+                        ? AyatColors.goldBright.withOpacity(0.14)
+                        : (hero ? AyatColors.goldBright.withOpacity(0.06) : Colors.transparent),
+                    borderRadius: BorderRadius.circular(14),
+                    border: (active || hero)
+                        ? Border.all(
+                            color: AyatColors.goldBright
+                                .withOpacity(active ? 0.45 : 0.22))
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(it.$1, size: 22, color: col),
+                      const SizedBox(height: 3),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Text(it.$2,
+                            maxLines: 2,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                height: 1.1,
+                                fontWeight: FontWeight.w700,
+                                color: col)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -2149,7 +2180,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _clipBar(List<(IconData, String, VoidCallback, bool)> items) {
     return Container(
-      height: 68,
+      height: 72, // PATCH_S205
       decoration: const BoxDecoration(
         color: AyatColors.ink,
         border: Border(top: BorderSide(color: AyatColors.hairline)),
@@ -2162,7 +2193,10 @@ class _HomeScreenState extends State<HomeScreen>
           itemCount: items.length,
           itemBuilder: (context, k) {
             final it = items[k];
-            final col = it.$4 ? AyatColors.goldBright : AyatColors.parchmentDim;
+            // PATCH_S205: active tool = gold pill; the story button = faint frame
+            final active = it.$4;
+            final hero = it.$2 == 'فيديو الفن';
+            final col = active || hero ? AyatColors.goldBright : AyatColors.parchmentDim;
             return PressableScale( // PATCH_S186_SMOOTH_CONTROL
               borderRadius: BorderRadius.circular(14),
               pressedScale: 0.9,
@@ -2170,21 +2204,41 @@ class _HomeScreenState extends State<HomeScreen>
                 HapticFeedback.selectionClick();
                 it.$3();
               },
-              child: SizedBox(
-                width: min(76.0, MediaQuery.of(context).size.width / 6.4), // PATCH_S182_WHISPER_MAIN
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(it.$1, size: 23, color: col),
-                    const SizedBox(height: 4),
-                    Text(it.$2,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: col)),
-                  ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: min(80.0, MediaQuery.of(context).size.width / 5.6), // PATCH_S182_WHISPER_MAIN
+                  decoration: BoxDecoration(
+                    color: active
+                        ? AyatColors.goldBright.withOpacity(0.14)
+                        : (hero ? AyatColors.goldBright.withOpacity(0.06) : Colors.transparent),
+                    borderRadius: BorderRadius.circular(14),
+                    border: (active || hero)
+                        ? Border.all(
+                            color: AyatColors.goldBright
+                                .withOpacity(active ? 0.45 : 0.22))
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(it.$1, size: 22, color: col),
+                      const SizedBox(height: 3),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Text(it.$2,
+                            maxLines: 2,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                height: 1.1,
+                                fontWeight: FontWeight.w700,
+                                color: col)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -3970,7 +4024,9 @@ class _HomeScreenState extends State<HomeScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            _busy && _busyStatus.isNotEmpty ? _busyStatus : state.corpusStatus,
+            _busy && _busyStatus.isNotEmpty
+                ? '$_chainStep$_busyStatus' // PATCH_S205
+                : state.corpusStatus,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 13, color: AyatColors.goldBright),
           ),
