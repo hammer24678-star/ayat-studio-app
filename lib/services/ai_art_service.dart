@@ -103,6 +103,17 @@ class AiArtService {
     } catch (_) {}
   }
 
+  /// PATCH_S204_STORY_VIDEO: the already-drawn picture for an ayah, or null.
+  /// Never draws and never touches the network - the export only uses art
+  /// that exists.
+  static Future<String?> cachedPath(int surahNum, int ayahNum) async {
+    try {
+      final f = await _fileFor(surahNum, ayahNum, 0);
+      if (await f.exists() && await f.length() > 5000) return f.path;
+    } catch (_) {}
+    return null;
+  }
+
   static Future<File> _fileFor(int surahNum, int ayahNum, int seedOffset) async {
     final dir = await _cacheDir();
     final suffix = seedOffset == 0 ? '' : '_v$seedOffset';

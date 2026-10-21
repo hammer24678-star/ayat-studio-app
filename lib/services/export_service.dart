@@ -40,6 +40,7 @@ import 'pip_export.dart'; // PATCH_S188_PIP
 import 'audio_clips_export.dart'; // PATCH_S195_AUDIO_TAB
 import 'video_fx.dart'; // PATCH_S194_CUT_FX
 import 'stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
+import 'ai_art_service.dart'; // PATCH_S204
 
 class ExportService {
   // PATCH_S33_KARAOKE_WORD_HIGHLIGHT: word-lighting pace now comes from
@@ -128,6 +129,10 @@ class ExportService {
         final info = await _probe(state.videoPath!);
         videoHasAudio = info.hasAudio;
         videoHasVideoStream = info.hasVideo;
+        // PATCH_S204_STORY_VIDEO: art scenes replace the clip's picture; its sound stays
+        if (state.storyVideoMode && state.aiArtEnabled && state.timelineActive) {
+          videoHasVideoStream = false;
+        }
         // PATCH_S89_EXPORT_DURATION_AND_SCENE_ART: don't trust the
         // container header alone -- cross-check against a real decode so a
         // bad/short header can't silently truncate the export.
@@ -148,7 +153,7 @@ class ExportService {
             srcW = srcH;
             srcH = t;
           }
-          if (state.videoFit != VideoFitMode.source) {
+          if (state.videoFit != VideoFitMode.source || state.storyVideoMode) { // PATCH_S204
             // PATCH_S125_CUSTOM_ASPECT
             final (fw, fh) = state.frameSize;
             srcW = fw;
@@ -861,6 +866,128 @@ class ExportService {
     return parts.join(',');
   }
 
+  // PATCH_S204_STORY_VIDEO: one background slot per ayah, filled with that
+  // ayah's AI art. Slot edges sit midway between an ayah's end and the next
+  // one's start. Returns null (-> the normal background logic) when AI art is
+  // off, there is no synced timeline, or no picture has been drawn yet.
+  static BgTransitionStyle? _artTransition;
+  static double _artFade = 0.5;
+
+  static Future<List<({String path, double dur})>?> _buildArtSegments({
+    required StudioState state,
+    required Directory work,
+    required int w,
+    required int h,
+    required double clipStart,
+    required double duration,
+  }) async {
+    if (!state.aiArtEnabled ||
+        !state.timelineActive ||
+        state.timeline.isEmpty ||
+        duration <= 0) {
+      return null;
+    }
+    // ayahs that overlap the exported span, in order
+    final items = <({int s, int a, double t0, double t1})>[];
+    for (final seg in state.timeline) {
+      final t0 = seg.start - clipStart;
+      final t1 = seg.end - clipStart;
+      if (t1 <= 0 || t0 >= duration) continue;
+      items.add((s: seg.ayah.surahNum, a: seg.ayah.num, t0: t0, t1: t1));
+    }
+    if (items.isEmpty) return null;
+
+    // slot edges: 0 | midpoints | duration (kept monotonic)
+    final edges = <double>[0];
+    for (var i = 1; i < items.length; i++) {
+      final mid = (items[i - 1].t1 + items[i].t0) / 2;
+      edges.add(mid.clamp(edges.last, duration).toDouble());
+    }
+    edges.add(duration);
+
+    // the picture of each slot; an ayah with no art keeps the previous scene
+    final bgPng = '${work.path}/bg.png';
+    final paths = <String>[];
+    var any = false;
+    for (final it in items) {
+      final p = await AiArtService.cachedPath(it.s, it.a);
+      if (p != null) any = true;
+      paths.add(p ?? (paths.isEmpty ? '' : paths.last));
+    }
+    if (!any) return null;
+    final firstArt = paths.firstWhere((p) => p.isNotEmpty);
+    for (var i = 0; i < paths.length; i++) {
+      if (paths[i].isEmpty) paths[i] = firstArt; // leading ayat without art
+    }
+
+    // merge neighbours with the same picture and slivers under one second
+    final slots = <({String path, double dur})>[];
+    for (var i = 0; i < items.length; i++) {
+      final d = edges[i + 1] - edges[i];
+      if (d <= 0) continue;
+      if (slots.isNotEmpty &&
+          (slots.last.path == paths[i] || d < 1.0)) {
+        slots[slots.length - 1] =
+            (path: slots.last.path, dur: slots.last.dur + d);
+      } else {
+        slots.add((path: paths[i], dur: d));
+      }
+    }
+    if (slots.isEmpty) return null;
+    // a tiny first slot cannot merge backwards - fold it forward instead
+    if (slots.length > 1 && slots.first.dur < 1.0) {
+      slots[1] = (path: slots[1].path, dur: slots[1].dur + slots.first.dur);
+      slots.removeAt(0);
+    }
+    // safety cap for the ffmpeg graph
+    const maxSlots = 120;
+    while (slots.length > maxSlots) {
+      final b = (slots.length / maxSlots).ceil();
+      final merged = <({String path, double dur})>[];
+      for (var i = 0; i < slots.length; i += b) {
+        var d = 0.0;
+        for (var j = i; j < min(i + b, slots.length); j++) {
+          d += slots[j].dur;
+        }
+        merged.add((path: slots[i].path, dur: d));
+      }
+      slots
+        ..clear()
+        ..addAll(merged);
+    }
+
+    // transition: user's style, but plain cuts when there are very many scenes
+    var style = state.bgTransitionStyle;
+    if (slots.length > 30 || slots.length == 1) style = BgTransitionStyle.hardCut;
+    final fade = state.bgCrossfadeDuration.clamp(0.2, 0.6).toDouble();
+    // xfade shortens the stream by one overlap per join; every scene after the
+    // first is lengthened by that overlap so the picture still ends with the audio
+    // and the new scene is fully in place at the ayah boundary.
+    final extra = style == BgTransitionStyle.hardCut ? 0.0 : fade;
+
+    final rendered = <String, String>{bgPng: bgPng};
+    final out = <({String path, double dur})>[];
+    for (var i = 0; i < slots.length; i++) {
+      _checkCancel();
+      final src = slots[i].path;
+      var png = rendered[src];
+      if (png == null) {
+        png = '${work.path}/art_${rendered.length}.png';
+        await File(png).writeAsBytes(await OverlayRenderer.renderBackgroundPng(
+          w: w,
+          h: h,
+          bgIndex: state.bgIndex,
+          customBgPath: src,
+        ));
+        rendered[src] = png;
+      }
+      out.add((path: png, dur: slots[i].dur + (i == 0 ? 0.0 : extra)));
+    }
+    _artTransition = style;
+    _artFade = fade;
+    return out;
+  }
+
   // PATCH_S40_MULTI_BG_CYCLE: the ordered (backgroundPngPath, seconds)
   // timeline behind the cycling background. Returns null when cycling isn't
   // active (fewer than 2 backgrounds chosen, or a custom/AI-art background
@@ -874,6 +1001,17 @@ class ExportService {
     required double clipStart,
     required double duration,
   }) async {
+    // PATCH_S204_STORY_VIDEO: per-ayah art wins over every other background mode
+    _artTransition = null;
+    final artSegs = await _buildArtSegments(
+      state: state,
+      work: work,
+      w: w,
+      h: h,
+      clipStart: clipStart,
+      duration: duration,
+    );
+    if (artSegs != null) return artSegs;
     if (!state.multiBgEnabled ||
         state.useCustomBg ||
         state.multiBgIndexes.length < 2 ||
@@ -1211,8 +1349,9 @@ class ExportService {
             w: w,
             h: h,
             segments: bgSegments,
-            transition: state.bgTransitionStyle,
-            crossfadeDur: state.bgCrossfadeDuration,
+            transition: _artTransition ?? state.bgTransitionStyle, // PATCH_S204
+            crossfadeDur:
+                _artTransition != null ? _artFade : state.bgCrossfadeDuration,
           );
           inputs.write(chain.inputs);
           idx += chain.count;
@@ -1254,8 +1393,9 @@ class ExportService {
           w: w,
           h: h,
           segments: bgSegments,
-          transition: state.bgTransitionStyle,
-          crossfadeDur: state.bgCrossfadeDuration,
+          transition: _artTransition ?? state.bgTransitionStyle, // PATCH_S204
+          crossfadeDur:
+              _artTransition != null ? _artFade : state.bgCrossfadeDuration,
         );
         inputs.write(chain.inputs);
         idx += chain.count;

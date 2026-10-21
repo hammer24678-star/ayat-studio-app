@@ -721,7 +721,22 @@ class _HomeScreenState extends State<HomeScreen>
       await _autoSync();
       if (!mounted || !state.timelineActive || state.timeline.isEmpty) return;
     }
-    await _runArtBatch();
+    // PATCH_S204_STORY_VIDEO: an art batch the sync kicked off in the background
+    // must finish first, so the export sees every picture
+    while (mounted && state.aiArtBatchBusy) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+    if (!mounted) return;
+    await _runArtBatch(); // cached pictures return instantly
+    if (!mounted || state.aiArtBatchCancelled || state.aiArtBatchOk == 0) return;
+    // look + export, then give the clip's own picture back for normal editing
+    state.applyStoryLook();
+    state.storyVideoMode = true;
+    try {
+      await _export();
+    } finally {
+      state.storyVideoMode = false;
+    }
   }
 
   Future<void> _runArtBatch() async {
@@ -2346,7 +2361,7 @@ class _HomeScreenState extends State<HomeScreen>
         (Icons.check_circle_outline, 'تم', () => setState(() { _selMain = false; _toolOpen = -1; }), false), // PATCH_S185_POLISH
         // PATCH_S182_WHISPER_MAIN: Whisper on the main screen
         (Icons.auto_awesome, 'مزامنة تلقائية', () { if (!_busy) _autoSync(); }, state.timelineActive),
-        (Icons.auto_fix_high, 'فن لكل الآيات', () { if (!_busy) _artForWholeFile(); }, state.aiArtBatchBusy), // PATCH_S202_ART_WHOLE_FILE
+        (Icons.auto_fix_high, 'فيديو الفن', () { if (!_busy) _artForWholeFile(); }, state.aiArtBatchBusy), // PATCH_S202_ART_WHOLE_FILE
         (Icons.manage_search, 'تعرّف من الصوت', () { if (!_busy) _detectFromVideo(); }, false),
         (Icons.spellcheck, 'كتابة بالقرآن', _addQuranText, false), // PATCH_S189_QURAN_TYPE
         (Icons.hearing, 'دقة التعرّف', () { if (!_busy) _showModelSizePicker(); }, false),

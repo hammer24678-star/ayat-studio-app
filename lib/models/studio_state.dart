@@ -1191,6 +1191,28 @@ class StudioState extends ChangeNotifier {
   // re-run - or a run after a cancel - only draws what is still missing.
   // The first success switches AI art on, so the S84 playback path swaps
   // each ayah's picture in as the reciter reaches it.
+  // PATCH_S204_STORY_VIDEO
+  bool get aiArtBatchCancelled => _aiArtCancel;
+
+  /// While true the export shows the per-ayah art instead of the source
+  /// clip's picture (the clip still supplies the sound). Set by the story
+  /// button for the length of one export, then cleared.
+  bool storyVideoMode = false;
+
+  /// The look of the reference story clips: square, black starfield, ayah
+  /// text on top with its translation, word-by-word highlight, soft
+  /// cross-fades between the scenes.
+  void applyStoryLook() {
+    aspectRatio = AyatAspectRatio.square11;
+    effect = StageEffect.starfield;
+    textPosition = AyahTextPosition.top;
+    showTranslation = true;
+    karaokeEnabled = true;
+    bgTransitionStyle = BgTransitionStyle.crossfade;
+    bgCrossfadeDuration = 0.5;
+    notifyListeners();
+  }
+
   bool _aiArtCancel = false;
   double aiArtBatchFraction = 0;
   int aiArtBatchOk = 0;
