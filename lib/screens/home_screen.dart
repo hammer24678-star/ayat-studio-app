@@ -21,6 +21,8 @@ import '../models/studio_state.dart';
 import '../services/ayah_matcher.dart';
 import '../widgets/quran_text_sheet.dart'; // PATCH_S189_QURAN_TYPE
 import '../widgets/nudge_sheet.dart'; // PATCH_S190_COMFORT
+import '../widgets/sticker_sheet.dart'; // PATCH_S206_STICKERS
+import '../widgets/sticker_editor.dart'; // PATCH_S206_STICKERS
 import '../services/ai_art_service.dart'; // PATCH_S73C_FIX_MISSING_IMPORT: restores the import
 // dropped somewhere in S73/S73b's edits -- AiArtService.apiKey is used
 // below (Pollinations API key field) but the class was left unimported,
@@ -2428,6 +2430,7 @@ class _HomeScreenState extends State<HomeScreen>
           state.manualTrimSet || state.trimFromIndex >= 0
         ),
         (Icons.add_photo_alternate_outlined, 'إضافة', _addMediaSheet, false),
+        (Icons.emoji_emotions_outlined, 'ملصقات', _openStickers, false), // PATCH_S206_STICKERS
         (Icons.animation, 'انتقال', _openTransitionSheet, false),
         (Icons.open_with, 'التحويل', () => _openToolFromClip(112), false),
         (Icons.auto_awesome_outlined, 'تأثيرات', () => _openToolFromClip(130), _toolOpen == 130), // PATCH_S194_CUT_FX
@@ -2608,6 +2611,88 @@ class _HomeScreenState extends State<HomeScreen>
     _toast(image ? 'أُضيفت الصورة' : 'أُضيف الفيديو');
   }
 
+  // ---------------------------------------------------------------------
+  // PATCH_S206_STICKERS: sticker library + editor on top of the PiP layer.
+  // ---------------------------------------------------------------------
+  void _openStickers() {
+    if (!state.hasVideo || _video == null || !_video!.value.isInitialized) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    HapticFeedback.selectionClick();
+    showStickerSheet(context, onPick: _addStickerFromPath);
+  }
+
+  Future<void> _addStickerFromPath(String path) async {
+    final main = _video;
+    if (!state.hasVideo || main == null || !main.value.isInitialized) {
+      _toast('ارفع فيديو أولًا');
+      return;
+    }
+    var aspect = 1.0;
+    try {
+      final img = await decodeImageFromList(await File(path).readAsBytes());
+      aspect = img.width / img.height;
+      img.dispose();
+    } catch (_) {
+      _toast('تعذّر فتح الملصق');
+      return;
+    }
+    if (!mounted || !aspect.isFinite || aspect <= 0.05) return;
+    final total = main.value.duration.inMilliseconds / 1000.0;
+    var start = _playheadSec;
+    var end = start + 3.0;
+    if (end > total) {
+      end = total;
+      start = max(0.0, total - 3.0);
+    }
+    if (end - start < 0.5) {
+      _toast('المقطع الأساسي قصير جدًّا');
+      return;
+    }
+    state.addPip(PipClip(
+      path: path,
+      isImage: true,
+      aspect: aspect,
+      start: start,
+      end: end,
+      cx: 0.5,
+      cy: 0.45,
+      width: aspect > 1.6 ? 0.46 : (aspect < 0.7 ? 0.2 : 0.3),
+      shape: PipShape.rect,
+      inAnim: PipAnim.pop,
+      outAnim: PipAnim.fade,
+    ));
+    HapticFeedback.mediumImpact();
+    _toast('أُضيف الملصق — اسحبه لتحريكه واقرص لتكبيره');
+  }
+
+  Future<void> _editSticker(int i) async {
+    if (i < 0 || i >= state.pipClips.length) return;
+    final c = state.pipClips[i];
+    if (!c.isImage) return;
+    final path = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) =>
+            StickerEditorPage(sourcePath: c.path, title: 'تحرير الملصق'),
+      ),
+    );
+    if (path == null || !mounted) return;
+    var aspect = c.aspect;
+    try {
+      final img = await decodeImageFromList(await File(path).readAsBytes());
+      aspect = img.width / img.height;
+      img.dispose();
+    } catch (_) {}
+    if (!mounted) return;
+    state.update(() {
+      c.path = path;
+      if (aspect.isFinite && aspect > 0.05) c.aspect = aspect;
+    });
+    HapticFeedback.mediumImpact();
+    _toast('تم تحديث الملصق');
+  }
+
   List<(IconData, String, VoidCallback, bool)> _pipItems() {
     final i = state.pipSel;
     return [
@@ -2627,6 +2712,29 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.last_page, 'قص النهاية', () => _pipTrim(i, head: false), false),
       (Icons.flip_to_front, 'للأمام', () => state.movePipLayer(i, 1), false),
       (Icons.flip_to_back, 'للخلف', () => state.movePipLayer(i, -1), false),
+      // PATCH_S206_STICKERS: flip + sticker editor for the selected overlay
+      if (i >= 0 && i < state.pipClips.length) ...[
+        (
+          Icons.flip,
+          'قلب أفقي',
+          () {
+            final c = state.pipClips[i];
+            state.update(() => c.flipH = !c.flipH);
+          },
+          state.pipClips[i].flipH
+        ),
+        (
+          Icons.swap_vert,
+          'قلب رأسي',
+          () {
+            final c = state.pipClips[i];
+            state.update(() => c.flipV = !c.flipV);
+          },
+          state.pipClips[i].flipV
+        ),
+        if (state.pipClips[i].isImage)
+          (Icons.crop, 'قص / خلفية', () => _editSticker(i), false),
+      ],
       (Icons.straighten, 'إزاحة دقيقة', _openNudgeSheet, false), // PATCH_S190_COMFORT
       (Icons.content_copy, 'نسخ', () => state.duplicatePipAt(i), false),
       (Icons.delete_outline, 'حذف', () => _pipDelete(i), false),
