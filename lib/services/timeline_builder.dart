@@ -400,7 +400,7 @@ class TimelineBuilder {
       if (windowsAttempted > 0 && windowsFailed == windowsAttempted) {
         throw Exception(
             'تعذّر التعرّف على الكلام في كل مقاطع هذا الفيديو (${lastTranscribeError ?? "خطأ غير معروف"}) — '
-            'جرّب حجم نموذج مختلف من الإعدادات أو أعد تشغيل التطبيق.');
+            'جرّب حجم نموذج مختلف من الإعدادات ← التعرّف على الكلام، أو أعد تشغيل التطبيق.');
       }
       // PATCH_S31_ACCURATE_SYNC: a partial ayah still pending at the very
       // end of the scan is real — commit it instead of dropping it.

@@ -257,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    AppSettings.instance.addListener(_onWhisperPrefs); // PATCH_S207_WHISPER_SETTINGS
     _loadCorpus();
     // PATCH_S26_FONT_LOAD_REBUILD: google_fonts paints with a system-fallback font while
     // the real Amiri Quran / Aref Ruqaa files are still downloading, and
@@ -279,7 +280,24 @@ class _HomeScreenState extends State<HomeScreen>
             .where((f) => state.allFonts.every((e) => e.key != f.key)));
       }
       await SettingsService.restore(state);
+      // PATCH_S207_WHISPER_SETTINGS: the tier picked on the Settings screen
+      // (app-wide) wins over the one saved with the project.
+      final prefTier = AppSettings.instance.whisperTierIndex;
+      if (prefTier != null &&
+          prefTier >= 0 &&
+          prefTier < WhisperModelSize.values.length) {
+        state.whisperModelSize = WhisperModelSize.values[prefTier];
+      }
       WhisperService.setModelSize(state.whisperModelSize); // PATCH_S43_MODEL_SIZE_PICKER
+      // PATCH_S207_KEEP_PICKED: forget kept copies nothing refers to any more
+      MediaService.pruneKept(<String>{
+        if (state.videoPath != null) state.videoPath!,
+        for (final c in state.audioClips) c.path,
+        for (final c in state.pipClips) c.path,
+        for (final p in state.reciterAudioPaths)
+          if (p != null) p,
+        if (state.ambienceBedPath != null) state.ambienceBedPath!,
+      });
       if (!mounted) return;
       _settingsRestored = true;
       _outroCtrl.text = state.outroText;
@@ -336,6 +354,7 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance
         .removeObserver(this); // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE
     state.removeListener(_schedulePersist); // PATCH_S37_PERSISTENT_SETTINGS
+    AppSettings.instance.removeListener(_onWhisperPrefs); // PATCH_S207_WHISPER_SETTINGS
     // PATCH_S91_RELABEL_KARAOKE_AND_SAVE_ON_CLOSE: flush, don't just drop,
     // whatever change was still waiting on the debounce.
     _persistDebounce?.cancel();
@@ -415,6 +434,28 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // PATCH_S207_WHISPER_SETTINGS: the Settings screen chooses the model tier
+  // app-wide; the studio follows it.
+  void _onWhisperPrefs() {
+    final i = AppSettings.instance.whisperTierIndex;
+    if (i == null || i < 0 || i >= WhisperModelSize.values.length) return;
+    final t = WhisperModelSize.values[i];
+    if (!mounted || t == state.whisperModelSize) return;
+    state.update(() => state.whisperModelSize = t);
+    WhisperService.setModelSize(t);
+  }
+
+  // PATCH_S207_KEEP_PICKED: copy a picked file out of the picker's cache
+  // folder (Android may empty it at any time) into app storage.
+  Future<String?> _keepPicked(String path) async {
+    try {
+      return await MediaService.keepPicked(path);
+    } catch (e) {
+      if (mounted) _toast('$e'.replaceFirst('Exception: ', ''));
+      return null;
+    }
+  }
+
   Future<T?> _withBusy<T>(Future<T> Function() job) async {
     if (_busy) {
       _toast('هناك عملية جارية، انتظر حتى تنتهي'); // PATCH_S196_FIXES
@@ -475,8 +516,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _pickVideo() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.any);
-    final path = res?.files.single.path;
-    if (path == null) return;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
+    if (path == null || !mounted) return;
     await _video?.dispose();
     _liveOverlay.value = null;
     // PATCH_S83_SYNC_QOL: playback aids belong to the previous clip
@@ -551,8 +594,10 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     final res = await FilePicker.platform.pickFiles(type: FileType.any);
-    final secondPath = res?.files.single.path;
-    if (secondPath == null) return;
+    final secondRaw = res?.files.single.path;
+    if (secondRaw == null) return;
+    final secondPath = await _keepPicked(secondRaw); // PATCH_S207_KEEP_PICKED
+    if (secondPath == null || !mounted) return;
     final firstPath = state.videoPath!;
     final merged = await _withBusy(() async {
       _setBusyStatus('جارٍ دمج الفيديوهين…');
@@ -1135,8 +1180,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _pickReciterAudio(int i) async {
     final res = await FilePicker.platform.pickFiles(type: FileType.audio);
-    final path = res?.files.single.path;
-    if (path == null) return;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
+    if (path == null || !mounted) return;
     state.update(() => state.reciterAudioPaths[i] = path);
     _toast('تم إرفاق تلاوة لـ ${kReciters[i]} ✓');
   }
@@ -2556,7 +2603,9 @@ class _HomeScreenState extends State<HomeScreen>
     }
     final res = await FilePicker.platform
         .pickFiles(type: image ? FileType.image : FileType.video);
-    final path = res?.files.single.path;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null || !mounted) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
     if (path == null || !mounted) return;
     var aspect = 9 / 16;
     var mediaDur = 0.0;
@@ -2794,8 +2843,10 @@ class _HomeScreenState extends State<HomeScreen>
     final res = await FilePicker.platform
         .pickFiles(type: fromVideo ? FileType.video : FileType.audio);
     final f = res?.files.single;
-    final path = f?.path;
-    if (f == null || path == null || !mounted) return;
+    final pickedPath = f?.path;
+    if (f == null || pickedPath == null || !mounted) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
+    if (path == null || !mounted) return;
     if (!await MediaService.hasAudioStream(path)) {
       _toast('هذا الملف لا يحتوي على صوت');
       return;
@@ -2957,7 +3008,9 @@ class _HomeScreenState extends State<HomeScreen>
     if (choice == null || !mounted) return;
     final res = await FilePicker.platform
         .pickFiles(type: choice == 'image' ? FileType.image : FileType.video);
-    final path = res?.files.single.path;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null || !mounted) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
     if (path == null || !mounted) return;
     var sec = 5.0;
     if (choice == 'image') {
@@ -4363,6 +4416,7 @@ class _HomeScreenState extends State<HomeScreen>
                           onTap: () {
                             state.update(() => state.whisperModelSize = size);
                             WhisperService.setModelSize(size);
+                            AppSettings.instance.setWhisperTierIndex(size.index); // PATCH_S207
                             Navigator.of(sheetContext).pop();
                           },
                           child: Container(
@@ -6620,8 +6674,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _pickAmbienceBed() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.audio);
-    final path = res?.files.single.path;
-    if (path == null) return;
+    final pickedPath = res?.files.single.path;
+    if (pickedPath == null) return;
+    final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
+    if (path == null || !mounted) return;
     state.update(() => state.ambienceBedPath = path);
     _toast('تمت إضافة خلفية صوتية ✓');
   }

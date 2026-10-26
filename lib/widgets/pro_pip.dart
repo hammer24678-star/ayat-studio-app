@@ -155,7 +155,7 @@ class _PipLayerState extends State<PipLayer>
     with SingleTickerProviderStateMixin {
   /// Margin around every box: the corner handles live in it, so they stay
   /// inside the widget that receives the touches.
-  static const double _pad = 22.0;
+  static const double _pad = 44.0; // PATCH_S207: room for the rotate knob
 
   final Map<int, VideoPlayerController> _ctl = {};
   final Map<int, String> _ctlPath = {};
@@ -177,6 +177,10 @@ class _PipLayerState extends State<PipLayer>
   Offset _gStart = Offset.zero;
   bool _snapV = false, _snapH = false;
   double _hD0 = 1, _hA0 = 0; // corner-handle gesture: start distance / angle
+  // PATCH_S207: box proportions during a gesture, which frame edge the box
+  // is magnetised to, and whether the rotate knob sits on a snap angle
+  double _bAsp = 1.0;
+  bool _eL = false, _eR = false, _eT = false, _eB = false, _snapRot = false;
 
   @override
   void initState() {
@@ -383,6 +387,8 @@ class _PipLayerState extends State<PipLayer>
     _bRot = _dRot = c.rot;
     _gStart = d.focalPoint;
     _snapV = _snapH = false;
+    _bAsp = c.boxAspect; // PATCH_S207
+    _eL = _eR = _eT = _eB = _snapRot = false;
     HapticFeedback.selectionClick();
   }
 
@@ -398,12 +404,50 @@ class _PipLayerState extends State<PipLayer>
     final sh = (cy - 0.5).abs() < 0.018;
     if (sv) cx = 0.5;
     if (sh) cy = 0.5;
-    if ((sv && !_snapV) || (sh && !_snapH)) HapticFeedback.selectionClick();
+    // PATCH_S207: and to the frame's own edges (only while the box stands
+    // upright - a turned box has no flat side to line up)
+    var el = false, er = false, et = false, eb = false;
+    final upright = r.abs() < 0.5 || (r.abs() - 180).abs() < 0.5;
+    if (upright) {
+      final hw = w / 2;
+      final hh = (w * fw / _bAsp / fh) / 2;
+      const th = 0.014;
+      if (!sv) {
+        if ((cx - hw).abs() < th) {
+          cx = hw;
+          el = true;
+        } else if ((cx + hw - 1).abs() < th) {
+          cx = 1 - hw;
+          er = true;
+        }
+      }
+      if (!sh) {
+        if ((cy - hh).abs() < th) {
+          cy = hh;
+          et = true;
+        } else if ((cy + hh - 1).abs() < th) {
+          cy = 1 - hh;
+          eb = true;
+        }
+      }
+    }
+    if ((sv && !_snapV) ||
+        (sh && !_snapH) ||
+        (el && !_eL) ||
+        (er && !_eR) ||
+        (et && !_eT) ||
+        (eb && !_eB)) {
+      HapticFeedback.selectionClick();
+    }
     cx = cx.clamp(0.0, 1.0).toDouble();
     cy = cy.clamp(0.0, 1.0).toDouble();
     setState(() {
       _snapV = sv;
       _snapH = sh;
+      _eL = el;
+      _eR = er;
+      _eT = et;
+      _eB = eb;
       _dCx = cx;
       _dCy = cy;
       _dW = w;
@@ -411,10 +455,15 @@ class _PipLayerState extends State<PipLayer>
     });
   }
 
+  double _normDeg(double deg) => ((deg + 180) % 360) - 180;
+
+  // PATCH_S207: every 45 degrees now, not just the right angles
   double _snapAngle(double deg) {
-    var r = ((deg + 180) % 360) - 180;
-    for (final s in const [0.0, 90.0, -90.0, 180.0, -180.0]) {
-      if ((r - s).abs() < 3) {
+    var r = _normDeg(deg);
+    for (final s in const [
+      0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0, -180.0
+    ]) {
+      if ((r - s).abs() < 3.5) {
         r = s;
         break;
       }
@@ -445,17 +494,48 @@ class _PipLayerState extends State<PipLayer>
     HapticFeedback.selectionClick();
   }
 
+  // PATCH_S207: the corner handle used to resize AND turn at once, so a
+  // plain "make it bigger" drag also twisted the box. It only resizes now.
   void _hUpdate(Offset global, double fw, double fh) {
     if (_dragId < 0) return;
     final p = _local(global);
     if (p == null) return;
     final ctr = Offset(_bCx * fw, _bCy * fh);
     final d = (p - ctr).distance;
-    final a = math.atan2(p.dy - ctr.dy, p.dx - ctr.dx);
     final w = (_bW * d / _hD0).clamp(0.08, 1.5).toDouble();
-    final r = _snapAngle(_bRot + (a - _hA0) * 180 / math.pi);
+    setState(() => _dW = w);
+  }
+
+  // PATCH_S207: the knob above the box turns it - and only turns it.
+  void _rStart(PipClip c, int i, Offset global, double fw, double fh) {
+    final p = _local(global);
+    if (p == null) return;
+    widget.state.selectPip(i);
+    _dragId = c.id;
+    _bCx = _dCx = c.cx;
+    _bCy = _dCy = c.cy;
+    _bW = _dW = c.width;
+    _bRot = _dRot = c.rot;
+    _bAsp = c.boxAspect;
+    final ctr = Offset(c.cx * fw, c.cy * fh);
+    _hA0 = math.atan2(p.dy - ctr.dy, p.dx - ctr.dx);
+    _snapV = _snapH = false;
+    _eL = _eR = _eT = _eB = _snapRot = false;
+    HapticFeedback.selectionClick();
+  }
+
+  void _rUpdate(Offset global, double fw, double fh) {
+    if (_dragId < 0) return;
+    final p = _local(global);
+    if (p == null) return;
+    final ctr = Offset(_bCx * fw, _bCy * fh);
+    final a = math.atan2(p.dy - ctr.dy, p.dx - ctr.dx);
+    final raw = _normDeg(_bRot + (a - _hA0) * 180 / math.pi);
+    final r = _snapAngle(raw);
+    final hit = (r - raw).abs() > 0.01;
+    if (hit && !_snapRot) HapticFeedback.selectionClick();
     setState(() {
-      _dW = w;
+      _snapRot = hit;
       _dRot = r;
     });
   }
@@ -470,6 +550,7 @@ class _PipLayerState extends State<PipLayer>
     setState(() {
       _dragId = -1;
       _snapV = _snapH = false;
+      _eL = _eR = _eT = _eB = _snapRot = false; // PATCH_S207
     });
     if (moved) {
       widget.state.update(() {
@@ -648,68 +729,114 @@ class _PipLayerState extends State<PipLayer>
   List<Widget> _handles(
       PipClip c, int i, double bw, double bh, double fw, double fh) {
     final big = bw >= 70;
+    // PATCH_S207: every 30px button now sits in a 44px touch target
+    const hit = 44.0;
+    Widget at(double x, double y, Widget child) => Positioned(
+          left: x - hit / 2,
+          top: y - hit / 2,
+          width: hit,
+          height: hit,
+          child: child,
+        );
     return [
       // ✕ delete
-      Positioned(
-        left: _pad - 15,
-        top: _pad - 15,
-        width: 30,
-        height: 30,
-        child: GestureDetector(
+      at(
+        _pad,
+        _pad,
+        GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => _delete(i),
-          child: _dot(Icons.close),
-        ),
-      ),
-      // ⤢ size + turn
-      Positioned(
-        left: _pad + bw - 15,
-        top: _pad + bh - 15,
-        width: 30,
-        height: 30,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: (d) => _hStart(c, i, d.globalPosition, fw, fh),
-          onPanUpdate: (d) => _hUpdate(d.globalPosition, fw, fh),
-          onPanEnd: (_) => _onEnd(c),
-          onPanCancel: () => _onEnd(c),
-          child: _dot(Icons.open_in_full),
+          child: Center(child: _dot(Icons.close)),
         ),
       ),
       // ⇋ mirror
       if (big)
-        Positioned(
-          left: _pad + bw - 15,
-          top: _pad - 15,
-          width: 30,
-          height: 30,
-          child: GestureDetector(
+        at(
+          _pad + bw,
+          _pad,
+          GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
               HapticFeedback.selectionClick();
               widget.state.update(() => c.flipH = !c.flipH);
             },
-            child: _dot(Icons.flip),
+            child: Center(child: _dot(Icons.flip)),
           ),
         ),
       // ⧉ copy
       if (big)
-        Positioned(
-          left: _pad - 15,
-          top: _pad + bh - 15,
-          width: 30,
-          height: 30,
-          child: GestureDetector(
+        at(
+          _pad,
+          _pad + bh,
+          GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
               HapticFeedback.selectionClick();
               widget.state.duplicatePipAt(i);
             },
-            child: _dot(Icons.content_copy),
+            child: Center(child: _dot(Icons.content_copy)),
           ),
         ),
+      // ⤢ size (keeps the angle)
+      at(
+        _pad + bw,
+        _pad + bh,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (d) => _hStart(c, i, d.globalPosition, fw, fh),
+          onPanUpdate: (d) => _hUpdate(d.globalPosition, fw, fh),
+          onPanEnd: (_) => _onEnd(c),
+          onPanCancel: () => _onEnd(c),
+          child: Center(child: _dot(Icons.open_in_full)),
+        ),
+      ),
+      // ⟳ turn - a knob above the box, joined to it by a thin stem
+      Positioned(
+        left: _pad + bw / 2 - 0.75,
+        top: _pad - 14,
+        width: 1.5,
+        height: 14,
+        child: const IgnorePointer(
+          child: ColoredBox(color: AyatColors.goldBright),
+        ),
+      ),
+      at(
+        _pad + bw / 2,
+        _pad - 24,
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (d) => _rStart(c, i, d.globalPosition, fw, fh),
+          onPanUpdate: (d) => _rUpdate(d.globalPosition, fw, fh),
+          onPanEnd: (_) => _onEnd(c),
+          onPanCancel: () => _onEnd(c),
+          child: Center(child: _dot(Icons.rotate_right)),
+        ),
+      ),
     ];
   }
+
+  // PATCH_S207: the thin gold lines shown while the box rests on a frame edge
+  Widget _vLine(double x) => Positioned(
+        left: x - 0.5,
+        top: 0,
+        bottom: 0,
+        width: 1,
+        child: IgnorePointer(
+          child:
+              ColoredBox(color: AyatColors.goldBright.withValues(alpha: 0.7)),
+        ),
+      );
+
+  Widget _hLine(double y) => Positioned(
+        top: y - 0.5,
+        left: 0,
+        right: 0,
+        height: 1,
+        child: IgnorePointer(
+          child:
+              ColoredBox(color: AyatColors.goldBright.withValues(alpha: 0.7)),
+        ),
+      );
 
   Widget? _clipWidget(StudioState st, int i, double t, double fw, double fh) {
     final c = st.pipClips[i];
@@ -808,6 +935,37 @@ class _PipLayerState extends State<PipLayer>
                   child: IgnorePointer(
                     child: ColoredBox(
                         color: AyatColors.goldBright.withValues(alpha: 0.7)),
+                  ),
+                ),
+              if (_eL) _vLine(0.5),
+              if (_eR) _vLine(fw - 0.5),
+              if (_eT) _hLine(0.5),
+              if (_eB) _hLine(fh - 0.5),
+              if (_dragId >= 0)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xCC050F0D),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                              color: _snapRot
+                                  ? AyatColors.goldBright
+                                  : AyatColors.hairline),
+                        ),
+                        child: Text(
+                          '${(_dW * 100).round()}٪  ·  ${_dRot.round()}°',
+                          style: const TextStyle(
+                              fontSize: 11.5, color: AyatColors.goldBright),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               if (_snapH)
@@ -1017,6 +1175,14 @@ class ProPipPage extends StatelessWidget {
     });
   }
 
+  // PATCH_S207: move by a fraction of the frame
+  void _nudge(PipClip c, double dx, double dy) {
+    state.update(() {
+      c.cx = (c.cx + dx).clamp(0.0, 1.0).toDouble();
+      c.cy = (c.cy + dy).clamp(0.0, 1.0).toDouble();
+    });
+  }
+
   void _playMotion(PipClip c) {
     final v = controller;
     if (v == null || !v.value.isInitialized) return;
@@ -1094,7 +1260,7 @@ class ProPipPage extends StatelessWidget {
                 child: Text(
                   'أضف فيديو أو صورة تظهر فوق المقطع الأساسي، ثم اسحبها على الشاشة: '
                   'بإصبع واحد للتحريك، وبإصبعين للتكبير والتدوير، '
-                  'أو استخدم الأزرار على زواياها.',
+                  'أو استخدم الأزرار على زواياها (المقبض العلوي للتدوير، والسفلي للحجم).',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       fontSize: 12.5,
@@ -1183,6 +1349,39 @@ class ProPipPage extends StatelessWidget {
                   _btn(Icons.north_west, 'أعلى يسار', () => _place(sel, 'tl')),
                   _btn(Icons.south_east, 'أسفل يمين', () => _place(sel, 'br')),
                   _btn(Icons.south_west, 'أسفل يسار', () => _place(sel, 'bl')),
+                ],
+              ),
+              // PATCH_S207: quick sizes, fill the frame, a quarter turn and
+              // 1% nudges for the cases a finger can't land exactly
+              _title(context, 'ضبط سريع'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final f in const [0.25, 0.5, 0.75, 1.0])
+                    _btn(Icons.aspect_ratio, '${(f * 100).round()}٪',
+                        () => state.update(() => sel.width = f)),
+                  _btn(
+                      Icons.fullscreen,
+                      'ملء العرض',
+                      () => state.update(() {
+                            sel.width = 1.0;
+                            sel.cx = 0.5;
+                            sel.cy = 0.5;
+                            sel.rot = 0;
+                          })),
+                  _btn(
+                      Icons.rotate_90_degrees_cw_outlined,
+                      'تدوير ٩٠°',
+                      () => state.update(() {
+                            var r = sel.rot + 90;
+                            if (r > 180) r -= 360;
+                            sel.rot = r;
+                          })),
+                  _btn(Icons.west, 'يسار', () => _nudge(sel, -0.01, 0)),
+                  _btn(Icons.east, 'يمين', () => _nudge(sel, 0.01, 0)),
+                  _btn(Icons.north, 'أعلى', () => _nudge(sel, 0, -0.01)),
+                  _btn(Icons.south, 'أسفل', () => _nudge(sel, 0, 0.01)),
                 ],
               ),
               // ------------------------------------------- shape & frame

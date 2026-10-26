@@ -181,6 +181,7 @@ class _AutoSegWizardState extends State<_AutoSegWizard> {
       // Exact pair the existing model picker uses (S43).
       widget.state.update(() => widget.state.whisperModelSize = _tier);
       WhisperService.setModelSize(_tier);
+      AppSettings.instance.setWhisperTierIndex(_tier.index); // PATCH_S207
       return const AutoSegResult(tierApplied: true);
     }
     return const AutoSegResult(cloudChosen: true); // no backend in this APK

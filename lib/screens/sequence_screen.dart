@@ -71,7 +71,12 @@ class _SequenceScreenState extends State<SequenceScreen> {
     if (res == null) return;
     for (final f in res.files) {
       final p = f.path;
-      if (p != null) await _addPath(p);
+      if (p == null) continue;
+      String kept = p;
+      try {
+        kept = await MediaService.keepPicked(p); // PATCH_S207_KEEP_PICKED
+      } catch (_) {}
+      await _addPath(kept);
     }
   }
 

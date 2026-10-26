@@ -3,12 +3,14 @@
 // one place for the choices that describe the app itself: language, whether
 // the interface animates at all, and how the Quran reader looks.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // PATCH_S207_WHISPER_SETTINGS: Clipboard
 import 'package:google_fonts/google_fonts.dart';
 
 import '../app_info.dart';
 import '../i18n/app_strings.dart';
 import '../services/app_settings.dart';
 import '../services/tafsir_service.dart';
+import '../services/whisper_service.dart'; // PATCH_S207_WHISPER_SETTINGS
 import '../theme/ayat_theme.dart';
 import '../widgets/motion.dart';
 import '../widgets/user_guide_sheet.dart'; // PATCH_S128
@@ -239,6 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ]),
+          const SizedBox(height: 14),
+          _WhisperSection(s: s), // PATCH_S207_WHISPER_SETTINGS
           // PATCH_S128: touch-controls guide
           const SizedBox(height: 14),
           _Section(title: s.t('settings.guide'), children: [
@@ -373,4 +377,248 @@ class _Choice extends StatelessWidget {
           ),
         ),
       );
+}
+
+// PATCH_S207_WHISPER_SETTINGS: everything about Whisper in one place. The
+// "try another model size from Settings" error used to point here while
+// Settings had nothing of the kind.
+class _WhisperSection extends StatefulWidget {
+  final AppStrings s;
+  const _WhisperSection({required this.s});
+
+  @override
+  State<_WhisperSection> createState() => _WhisperSectionState();
+}
+
+class _WhisperSectionState extends State<_WhisperSection> {
+  final _settings = AppSettings.instance;
+  Map<WhisperModelSize, int?> _have = {};
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final m = <WhisperModelSize, int?>{};
+    for (final t in WhisperModelSize.values) {
+      m[t] = await WhisperService.downloadedBytes(t);
+    }
+    if (mounted) setState(() => _have = m);
+  }
+
+  WhisperModelSize get _tier {
+    final i = _settings.whisperTierIndex;
+    if (i != null && i >= 0 && i < WhisperModelSize.values.length) {
+      return WhisperModelSize.values[i];
+    }
+    return WhisperService.currentSize;
+  }
+
+  String _mb(int bytes) {
+    final mb = bytes / (1024 * 1024);
+    return mb >= 1024
+        ? '${(mb / 1024).toStringAsFixed(1)} GB'
+        : '${mb.toStringAsFixed(0)} MB';
+  }
+
+  void _pickTier(WhisperModelSize t) {
+    _settings.setWhisperTierIndex(t.index);
+    WhisperService.setModelSize(t);
+    setState(() {});
+  }
+
+  Future<void> _redownload() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await WhisperService.deleteModel(_tier);
+    await _refresh();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(widget.s.t('whisper.deleted'))),
+    );
+  }
+
+  void _reset() {
+    _settings.setWhisperThreads(0);
+    _settings.setWhisperFastShort(false);
+    _settings.setWhisperVad(true);
+    WhisperService.resetDiagnostics();
+    setState(() {});
+  }
+
+  Widget _tierRow(WhisperModelSize t, AppStrings s) {
+    final sel = _tier == t;
+    final bytes = _have[t];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: PressableScale(
+        onTap: () => _pickTier(t),
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: AppMotion.d(AppMotion.fast),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: sel
+                ? AyatColors.gold.withValues(alpha: 0.16)
+                : AyatColors.surface2,
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: sel ? AyatColors.gold : AyatColors.hairline,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                sel ? Icons.radio_button_checked : Icons.radio_button_off,
+                size: 18,
+                color: sel ? AyatColors.goldBright : AyatColors.parchmentDim,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.t('whisper.tier.${t.name}'),
+                      style: GoogleFonts.tajawal(
+                        color: sel
+                            ? AyatColors.goldBright
+                            : AyatColors.parchment,
+                        fontSize: 13,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      bytes != null
+                          ? '${s.t('whisper.downloaded')} ✓ · ${_mb(bytes)}'
+                          : s.t('whisper.notDownloaded'),
+                      style: GoogleFonts.tajawal(
+                          color: AyatColors.parchmentDim, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _switchTile(
+      String title, String hint, bool value, ValueChanged<bool> onChanged) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      value: value,
+      activeThumbColor: AyatColors.gold,
+      title: Text(title,
+          style: GoogleFonts.tajawal(
+              color: AyatColors.parchment, fontSize: 13.5)),
+      subtitle: Text(hint,
+          style: GoogleFonts.tajawal(
+              color: AyatColors.parchmentDim, fontSize: 11.5, height: 1.5)),
+      onChanged: onChanged,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    final err = WhisperService.lastError;
+    return _Section(title: s.t('whisper.title'), children: [
+      _Label(s.t('whisper.model')),
+      const SizedBox(height: 8),
+      for (final t in WhisperModelSize.values) _tierRow(t, s),
+      const Divider(height: 26, color: AyatColors.hairline),
+      _Label(s.t('whisper.threads')),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final n in const [0, 2, 3, 4, 6, 8])
+            _Choice(
+              label: n == 0
+                  ? '${s.t('whisper.threadsAuto')} (${WhisperService.autoThreads})'
+                  : '$n',
+              selected: _settings.whisperThreads == n,
+              onTap: () => setState(() => _settings.setWhisperThreads(n)),
+            ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      _Hint('${s.t('whisper.threadsHint')} ${WhisperService.cpuCores}'),
+      const Divider(height: 26, color: AyatColors.hairline),
+      _switchTile(
+        s.t('whisper.fast'),
+        s.t('whisper.fastHint'),
+        _settings.whisperFastShort,
+        (v) => setState(() => _settings.setWhisperFastShort(v)),
+      ),
+      _switchTile(
+        s.t('whisper.vad'),
+        s.t('whisper.vadHint'),
+        _settings.whisperVad,
+        (v) => setState(() => _settings.setWhisperVad(v)),
+      ),
+      if (err != null && err.trim().isNotEmpty) ...[
+        const Divider(height: 26, color: AyatColors.hairline),
+        Row(
+          children: [
+            _Label(s.t('whisper.lastError')),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: err)),
+              icon: const Icon(Icons.copy, size: 16),
+              label: Text(s.t('whisper.copy'),
+                  style: GoogleFonts.tajawal(fontSize: 12)),
+              style: TextButton.styleFrom(
+                  foregroundColor: AyatColors.goldBright),
+            ),
+          ],
+        ),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AyatColors.surface2,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AyatColors.hairline),
+          ),
+          child: SelectableText(
+            err,
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                height: 1.45,
+                color: AyatColors.parchmentDim),
+          ),
+        ),
+      ],
+      const Divider(height: 26, color: AyatColors.hairline),
+      OutlinedButton.icon(
+        onPressed: _busy ? null : _redownload,
+        icon: const Icon(Icons.refresh, size: 18),
+        label: Text(s.t('whisper.redownload')),
+      ),
+      const SizedBox(height: 6),
+      _Hint(s.t('whisper.redownloadHint')),
+      const SizedBox(height: 6),
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          onPressed: _reset,
+          icon: const Icon(Icons.restart_alt, size: 17),
+          label: Text(s.t('whisper.reset'),
+              style: GoogleFonts.tajawal(fontSize: 12)),
+          style: TextButton.styleFrom(foregroundColor: AyatColors.goldBright),
+        ),
+      ),
+    ]);
+  }
 }

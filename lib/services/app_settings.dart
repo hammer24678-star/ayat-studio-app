@@ -81,6 +81,24 @@ class AppSettings extends ChangeNotifier {
   bool _classicTabs = false;
   bool get classicTabs => _classicTabs;
 
+  // ---- PATCH_S207_WHISPER_SETTINGS ----
+  /// Model tier chosen on the Settings screen (index into WhisperModelSize);
+  /// null until the user has chosen one anywhere.
+  int? _whisperTier;
+  int? get whisperTierIndex => _whisperTier;
+
+  /// CPU threads for Whisper; 0 = pick automatically.
+  int _whisperThreads = 0;
+  int get whisperThreads => _whisperThreads;
+
+  /// ~35-40% faster scans of short windows, slightly less accurate.
+  bool _whisperFastShort = false;
+  bool get whisperFastShort => _whisperFastShort;
+
+  /// Silero VAD (skips silence) for long windows.
+  bool _whisperVad = true;
+  bool get whisperVad => _whisperVad;
+
   bool _loaded = false;
   bool get loaded => _loaded;
 
@@ -116,6 +134,13 @@ class AppSettings extends ChangeNotifier {
     _readerTranslation =
         p.getBool('${_prefix}readerTranslation') ?? _readerTranslation;
     _classicTabs = p.getBool('${_prefix}classicTabs') ?? _classicTabs;
+    // PATCH_S207_WHISPER_SETTINGS
+    _whisperTier = p.getInt('${_prefix}whisperTier');
+    _whisperThreads =
+        (p.getInt('${_prefix}whisperThreads') ?? _whisperThreads).clamp(0, 8);
+    _whisperFastShort =
+        p.getBool('${_prefix}whisperFastShort') ?? _whisperFastShort;
+    _whisperVad = p.getBool('${_prefix}whisperVad') ?? _whisperVad;
     notifyListeners();
   }
 
@@ -191,5 +216,31 @@ class AppSettings extends ChangeNotifier {
     if (v == _classicTabs) return;
     _classicTabs = v;
     _write((p) => p.setBool('${_prefix}classicTabs', v));
+  }
+
+  // PATCH_S207_WHISPER_SETTINGS
+  void setWhisperTierIndex(int v) {
+    if (v == _whisperTier) return;
+    _whisperTier = v;
+    _write((p) => p.setInt('${_prefix}whisperTier', v));
+  }
+
+  void setWhisperThreads(int v) {
+    final c = v.clamp(0, 8);
+    if (c == _whisperThreads) return;
+    _whisperThreads = c;
+    _write((p) => p.setInt('${_prefix}whisperThreads', c));
+  }
+
+  void setWhisperFastShort(bool v) {
+    if (v == _whisperFastShort) return;
+    _whisperFastShort = v;
+    _write((p) => p.setBool('${_prefix}whisperFastShort', v));
+  }
+
+  void setWhisperVad(bool v) {
+    if (v == _whisperVad) return;
+    _whisperVad = v;
+    _write((p) => p.setBool('${_prefix}whisperVad', v));
   }
 }

@@ -16,6 +16,8 @@ import 'dart:typed_data'; // PATCH_S201
 import 'package:http/http.dart' as http;
 import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
 
+import 'app_settings.dart'; // PATCH_S207_WHISPER_SETTINGS
+
 // PATCH_S43_MODEL_SIZE_PICKER: selectable accuracy/speed tiers. `small` stays the default
 // (matches S41's baseline), `tiny`/`base` trade accuracy for a much faster
 // scan on older devices or quick previews, `medium` is a further accuracy
@@ -87,7 +89,14 @@ class WhisperService {
   // when sysfs can't be read (some Android builds block it) fall back to a
   // core-count heuristic. Computed once.
   static int? _threadsMemo;
-  static int get _threads => _threadsMemo ??= _pickThreads();
+  // PATCH_S207_WHISPER_SETTINGS: Settings can pin the thread count (0 = auto).
+  static int get _threads {
+    final pinned = AppSettings.instance.whisperThreads;
+    return pinned > 0 ? pinned : autoThreads;
+  }
+
+  static int get autoThreads => _threadsMemo ??= _pickThreads();
+  static int get cpuCores => Platform.numberOfProcessors;
 
   static int _pickThreads() {
     final total = Platform.numberOfProcessors;
@@ -346,6 +355,92 @@ class WhisperService {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // PATCH_S207_WHISPER_VAD_NULL
+  // whisper_ggml_plus 1.5.x puts `"vad_model_path": null` in the request
+  // whenever VAD is off (short windows, word-split scans, or when its bundled
+  // VAD model can't be prepared). Its native side then does
+  // json.value("vad_model_path", "") - and nlohmann::json THROWS on a null
+  // there: "[json.exception.type_error.302] type must be string, but is null".
+  // Every call is therefore sent with an EMPTY path (never null), and if the
+  // package still reports that error the call is repeated once with VAD off.
+  // ---------------------------------------------------------------------
+  static Future<dynamic> _transcribeNative({
+    required String audioPath,
+    String lang = 'ar',
+    bool withTimestamps = true,
+    bool splitOnWord = false,
+    bool convert = false,
+    int? threads,
+    bool speedUp = false,
+    WhisperVadMode vadMode = WhisperVadMode.auto,
+  }) async {
+    Future<dynamic> go(WhisperVadMode v) => _controller.transcribe(
+          model: _model,
+          audioPath: audioPath,
+          lang: lang,
+          withTimestamps: withTimestamps,
+          splitOnWord: splitOnWord,
+          convert: convert,
+          threads: threads ?? _threads,
+          speedUp: speedUp,
+          vadMode: v,
+          vadModelPath: '',
+        );
+    try {
+      return await go(vadMode);
+    } catch (e) {
+      if (vadMode != WhisperVadMode.disabled && '$e'.contains('type_error')) {
+        return await go(WhisperVadMode.disabled);
+      }
+      rethrow;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // PATCH_S207_WHISPER_SETTINGS: what the Settings screen needs.
+  // ---------------------------------------------------------------------
+
+  /// Size in bytes of the downloaded, usable model file for [size]; null when
+  /// it is missing or too small to be the real thing.
+  static Future<int?> downloadedBytes(WhisperModelSize size) async {
+    try {
+      final spec = _modelSpecs[size]!;
+      final f = File(await _controller.getPath(spec.model));
+      if (!await f.exists()) return null;
+      final n = await f.length();
+      return n >= spec.minExpectedBytes ? n : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deletes the downloaded file of [size] (and any half-finished download)
+  /// so the next run fetches it again.
+  static Future<void> deleteModel(WhisperModelSize size) async {
+    if (size == _size) await release();
+    try {
+      final spec = _modelSpecs[size]!;
+      final path = await _controller.getPath(spec.model);
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+      final part = File('$path.part');
+      if (await part.exists()) await part.delete();
+    } catch (_) {
+      // best effort
+    }
+    if (size == _size) _modelReady = false;
+    _badTiers.remove(size);
+    _provenTiers.remove(size);
+  }
+
+  /// Forgets which tiers failed this session and the last error text.
+  static void resetDiagnostics() {
+    _badTiers.clear();
+    _provenTiers.clear();
+    lastError = null;
+  }
+
   static Future<T> _guarded<T>(
     Future<T> Function() run, {
     void Function(String status)? onStatus,
@@ -434,7 +529,7 @@ class WhisperService {
   //    audio than the main scan. These windows are already RMS-gated and known
   //    to hold speech, so all three paths now behave the same.
   // ---------------------------------------------------------------------
-  static bool fastShortWindows = false;
+  static bool get fastShortWindows => AppSettings.instance.whisperFastShort; // PATCH_S207_WHISPER_SETTINGS
   static const double _shortWindowMaxSec = 12.0;
 
   /// Duration of a 16 kHz mono 16-bit WAV from its size (44-byte header).
@@ -451,7 +546,9 @@ class WhisperService {
     final short = _wavSeconds(wavPath) <= _shortWindowMaxSec;
     return (
       speedUp: short && fastShortWindows,
-      vad: short ? WhisperVadMode.disabled : WhisperVadMode.auto,
+      vad: (short || !AppSettings.instance.whisperVad)
+          ? WhisperVadMode.disabled
+          : WhisperVadMode.auto, // PATCH_S207_WHISPER_SETTINGS
     );
   }
 
@@ -606,8 +703,7 @@ class WhisperService {
     try {
       // PATCH_S200_WHISPER_FALLBACK: guarded - see _guarded().
       final result = await _guarded(
-        () => _controller.transcribe(
-          model: _model,
+        () => _transcribeNative(
           audioPath: path,
           lang: 'ar',
           threads: _threads, // PATCH_S123_WHISPER_THREADS
@@ -643,8 +739,7 @@ class WhisperService {
     // throwing untouched so TimelineBuilder's S61 retry still happens.
     final fast = _fastParams(wavPath); // PATCH_S201
     final result = await _guarded(
-      () => _controller.transcribe(
-        model: _model,
+      () => _transcribeNative(
         audioPath: wavPath,
         lang: 'ar',
         withTimestamps: true,

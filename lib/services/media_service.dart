@@ -6,6 +6,68 @@ import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart'; // PATCH_S96_HONEST_SC
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
 class MediaService {
+  // PATCH_S207_KEEP_PICKED
+  // file_picker returns a copy inside the app's CACHE folder
+  // (cache/file_picker/<stamp>/<name>). Android may empty a cache folder at
+  // any moment, which is exactly the "تعذّر الوصول إلى الملف المحدد" error
+  // seen after picking a clip and tapping Whisper a minute later. Everything
+  // the user picks is copied into app storage right away, and the long
+  // renders (merge / append / sequence) are written there too.
+  static Future<Directory> keptDir() async {
+    final base = await getApplicationSupportDirectory();
+    final dir = Directory('${base.path}/picked_media');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// Copies [src] into app storage and returns the new path. Files that are
+  /// already in app storage, or that don't sit in a cache folder, are
+  /// returned unchanged. Throws a readable Exception when [src] is gone.
+  static Future<String> keepPicked(String src) async {
+    final f = File(src);
+    if (!await f.exists()) {
+      throw Exception('تعذّر الوصول إلى الملف المحدد — اخترْه من جديد.');
+    }
+    final dir = await keptDir();
+    if (src.startsWith(dir.path)) return src;
+    final fragile = src.contains('/file_picker/') || src.contains('/cache/');
+    if (!fragile) return src;
+    var name = src.split('/').last.replaceAll(RegExp('["\$`\\\\\\r\\n]'), '_');
+    if (name.trim().isEmpty) name = 'file';
+    final folder = Directory(
+        '${dir.path}/${DateTime.now().millisecondsSinceEpoch}');
+    await folder.create(recursive: true);
+    final dst = '${folder.path}/$name';
+    await f.copy(dst);
+    if (src.contains('/file_picker/')) f.delete().ignore();
+    return dst;
+  }
+
+  /// Deletes kept copies older than [days] days that nothing in [protect]
+  /// points at. Best effort; never throws.
+  static Future<void> pruneKept(Set<String> protect, {int days = 21}) async {
+    try {
+      final dir = await keptDir();
+      final cutoff = DateTime.now().subtract(Duration(days: days));
+      await for (final e in dir.list(recursive: true, followLinks: false)) {
+        if (e is! File) continue;
+        if (protect.contains(e.path)) continue;
+        final st = await e.stat();
+        if (st.modified.isBefore(cutoff)) {
+          try {
+            await e.delete();
+          } catch (_) {}
+        }
+      }
+      await for (final e in dir.list(followLinks: false)) {
+        if (e is! Directory) continue;
+        try {
+          if (await e.list().isEmpty) await e.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
   // PATCH_S96_HONEST_SCAN_DURATION: the container's own declared duration
   // (read via ffprobe), used only as a cross-check -- see
   // TimelineBuilder.build(). Never trusted alone: a container can overstate
@@ -122,7 +184,7 @@ class MediaService {
     if (!File(secondPath).existsSync()) {
       throw Exception('تعذّر الوصول إلى الفيديو الثاني — قد يكون مسارًا غير مباشر (SAF) أو تم حذفه.\n$secondPath');
     }
-    final dir = await getTemporaryDirectory();
+    final dir = await keptDir(); // PATCH_S207_KEEP_PICKED
     final outPath =
         '${dir.path}/merged_${DateTime.now().millisecondsSinceEpoch}.mp4';
     final filter = '[0:v]scale=$width:$height:force_original_aspect_ratio=decrease,'
@@ -195,7 +257,7 @@ class MediaService {
         ? true
         : await _hasStream(addPath, 'video', fallback: true);
 
-    final dir = await getTemporaryDirectory();
+    final dir = await keptDir(); // PATCH_S207_KEEP_PICKED
     final outPath =
         '${dir.path}/appended_${DateTime.now().millisecondsSinceEpoch}.mp4';
     final inputs = StringBuffer('-y ');
@@ -375,7 +437,7 @@ class MediaService {
         throw Exception('تعذّر الوصول إلى أحد المقاطع — قد يكون حُذف أو نُقل.\n${c.path}');
       }
     }
-    final dir = await getTemporaryDirectory();
+    final dir = await keptDir(); // PATCH_S207_KEEP_PICKED
     final outPath =
         '${dir.path}/sequence_${DateTime.now().millisecondsSinceEpoch}.mp4';
     final cmd = buildSequenceCommand(
