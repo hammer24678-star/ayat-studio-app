@@ -120,6 +120,9 @@ class WhisperService {
     if (total >= 6) return 4; // typical 1+3+4 / 2+4 / 4+4 layouts
     return math.max(2, total - 1);
   }
+  // PATCH_S208_TIER_EPOCH: bumped on every real tier change so an in-flight
+  // download/verify for the OLD tier can never mark the NEW one as ready.
+  static int _sizeEpoch = 0;
   static WhisperModelSize get currentSize => _size; // PATCH_S43_MODEL_SIZE_PICKER
   static String labelFor(WhisperModelSize size) => _modelSpecs[size]!.labelAr; // PATCH_S43_MODEL_SIZE_PICKER
 
@@ -130,6 +133,7 @@ class WhisperService {
   static void setModelSize(WhisperModelSize size) {
     if (size == _size) return;
     _size = size;
+    _sizeEpoch++; // PATCH_S208_TIER_EPOCH
     _modelReady = false;
   }
 
@@ -286,15 +290,24 @@ class WhisperService {
   // PATCH_S163: two flows asking at once (auto-sync + detect) share ONE
   // download instead of both writing the same .part file.
   static Future<void>? _readyInFlight;
-  static Future<void> ensureReady({void Function(String status)? onStatus}) {
-    if (_modelReady) return Future<void>.value();
-    return _readyInFlight ??= _ensureReadyImpl(onStatus: onStatus)
-        .whenComplete(() => _readyInFlight = null);
+  // PATCH_S208_TIER_EPOCH: a job that finished for a tier the user has since
+  // left leaves _modelReady false, so go round again for the CURRENT tier.
+  static Future<void> ensureReady(
+      {void Function(String status)? onStatus}) async {
+    for (var round = 0; round < 5; round++) {
+      if (_modelReady) return;
+      await (_readyInFlight ??= _ensureReadyImpl(onStatus: onStatus)
+          .whenComplete(() => _readyInFlight = null));
+    }
+    if (!_modelReady) {
+      throw Exception('تغيّر نموذج التعرّف أثناء التحضير — أعد المحاولة');
+    }
   }
 
   static Future<void> _ensureReadyImpl(
       {void Function(String status)? onStatus}) async {
     if (_modelReady) return;
+    final epoch = _sizeEpoch; // PATCH_S208_TIER_EPOCH
     // PATCH_S200_WHISPER_FALLBACK: a tier that already failed to run this
     // session is not tried again - go straight to the safe one.
     if (_badTiers.contains(_size) && _size != WhisperModelSize.small) {
@@ -310,6 +323,9 @@ class WhisperService {
       _size = WhisperModelSize.small;
       await _downloadAndVerify(_size, onStatus: onStatus);
     }
+    // PATCH_S208_TIER_EPOCH: the tier was switched while this ran (the
+    // internal fallback to `small` does not count) - not ready for the NEW one.
+    if (epoch != _sizeEpoch) return;
     _modelReady = true;
     onStatus?.call('النموذج جاهز');
   }
@@ -375,22 +391,40 @@ class WhisperService {
     bool speedUp = false,
     WhisperVadMode vadMode = WhisperVadMode.auto,
   }) async {
-    Future<dynamic> go(WhisperVadMode v) => _controller.transcribe(
-          model: _model,
-          audioPath: audioPath,
-          lang: lang,
-          withTimestamps: withTimestamps,
-          splitOnWord: splitOnWord,
-          convert: convert,
-          threads: threads ?? _threads,
-          speedUp: speedUp,
-          vadMode: v,
-          vadModelPath: '',
-        );
+    // PATCH_S208_VAD_PATH: '' (never null) only when VAD is OFF - that is the
+    // S207 null fix. With VAD ON the package must prepare/use its own bundled
+    // model, so the argument is left out and an empty path cannot override it.
+    Future<dynamic> go(WhisperVadMode v) => v == WhisperVadMode.disabled
+        ? _controller.transcribe(
+            model: _model,
+            audioPath: audioPath,
+            lang: lang,
+            withTimestamps: withTimestamps,
+            splitOnWord: splitOnWord,
+            convert: convert,
+            threads: threads ?? _threads,
+            speedUp: speedUp,
+            vadMode: v,
+            vadModelPath: '',
+          )
+        : _controller.transcribe(
+            model: _model,
+            audioPath: audioPath,
+            lang: lang,
+            withTimestamps: withTimestamps,
+            splitOnWord: splitOnWord,
+            convert: convert,
+            threads: threads ?? _threads,
+            speedUp: speedUp,
+            vadMode: v,
+          );
     try {
       return await go(vadMode);
     } catch (e) {
-      if (vadMode != WhisperVadMode.disabled && '$e'.contains('type_error')) {
+      // Any failure with VAD on (type_error, VAD model missing/unloadable)
+      // is retried once without it, so _guarded() never blames the tier for
+      // a VAD problem. If that also fails, ITS error is the real cause.
+      if (vadMode != WhisperVadMode.disabled) {
         return await go(WhisperVadMode.disabled);
       }
       rethrow;
@@ -754,12 +788,16 @@ class WhisperService {
     );
     final text = result?.transcription.text.trim() ?? '';
     final rawSegments = result?.transcription.segments ?? const [];
+    // PATCH_S208_CLAMP_GUARD: clamp(0, x) throws when x < 0 or NaN
+    final maxT = (audioDurationSec.isFinite && audioDurationSec > 0)
+        ? audioDurationSec
+        : double.maxFinite;
     final segments = <TranscriptSegment>[
       for (final s in rawSegments)
         if (s.text.trim().isNotEmpty)
           TranscriptSegment(
-            (s.fromTs.inMilliseconds / 1000.0).clamp(0.0, audioDurationSec),
-            (s.toTs.inMilliseconds / 1000.0).clamp(0.0, audioDurationSec),
+            (s.fromTs.inMilliseconds / 1000.0).clamp(0.0, maxT),
+            (s.toTs.inMilliseconds / 1000.0).clamp(0.0, maxT),
             s.text.trim(),
           ),
     ];
