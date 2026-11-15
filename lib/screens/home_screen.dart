@@ -24,6 +24,7 @@ import '../services/media_service.dart';
 import '../services/settings_service.dart'; // PATCH_S37_PERSISTENT_SETTINGS
 import '../services/stage_effects.dart'; // PATCH_S34_STAGE_EFFECTS
 import '../services/overlay_renderer.dart';
+import '../services/play_clock.dart'; // PATCH_S38_SMOOTH_EDITING
 import '../services/speech_service.dart';
 import '../services/timeline_builder.dart';
 import '../services/whisper_service.dart';
@@ -32,6 +33,7 @@ import '../widgets/ayat_info_dialog.dart';
 import '../widgets/color_picker_dialog.dart';
 import '../widgets/gold_switch.dart';
 import '../widgets/stage_preview.dart';
+import '../widgets/transport_bar.dart'; // PATCH_S38_SMOOTH_EDITING
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,6 +50,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final ValueNotifier<StageOverlayText?> _liveOverlay = ValueNotifier(null);
   Timer? _syncTimer;
+  // PATCH_S38_SMOOTH_EDITING: interpolated playback position (the plugin's
+  // own position only advances every ~500 ms) + a one-entry karaoke-chunk
+  // cache so the 25 Hz sync tick doesn't re-split the ayah every time.
+  PlayClock? _clock;
+  TimelineSegment? _cacheSeg;
+  double _cacheStart = -1, _cacheEnd = -1;
+  List<KaraokeChunk> _cacheChunks = const [];
 
   bool _busy = false;
   String _busyStatus = '';
@@ -92,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() {});
     });
     _syncTimer = Timer.periodic(
-        const Duration(milliseconds: 100), (_) => _tickAutoSync());
+        const Duration(milliseconds: 40), (_) => _tickAutoSync());
     // PATCH_S37_PERSISTENT_SETTINGS: reopen the studio the way it was left,
     // then start auto-saving style changes (debounced).
     SettingsService.restore(state).then((_) {
@@ -118,6 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
     state.removeListener(_schedulePersist); // PATCH_S37_PERSISTENT_SETTINGS
     _persistDebounce?.cancel();
     _syncTimer?.cancel();
+    _clock?.dispose();
     _video?.dispose();
     _reciterPreview?.dispose();
     _liveOverlay.dispose();
@@ -190,10 +200,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final res = await FilePicker.platform.pickFiles(type: FileType.any);
     final path = res?.files.single.path;
     if (path == null) return;
+    _clock?.dispose();
+    _clock = null;
     await _video?.dispose();
     _liveOverlay.value = null;
     final controller = VideoPlayerController.file(File(path));
     _video = controller;
+    _clock = PlayClock(controller);
     state.setVideo(path);
     try {
       await controller.initialize();
@@ -377,7 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
         !controller.value.isInitialized) {
       return;
     }
-    final t = controller.value.position.inMilliseconds / 1000.0;
+    final t = _clock?.seconds ?? controller.value.position.inMilliseconds / 1000.0;
     TimelineSegment? seg;
     for (final s in state.timeline) {
       if (t >= s.start && t < s.end) {
@@ -386,7 +399,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     if (seg == null) return; // keep the last ayah on screen between segments
-    final cue = karaokeCueAt(buildKaraokeChunks(seg), t);
+    if (!identical(seg, _cacheSeg) ||
+        seg.start != _cacheStart ||
+        seg.end != _cacheEnd) {
+      _cacheSeg = seg;
+      _cacheStart = seg.start;
+      _cacheEnd = seg.end;
+      _cacheChunks = buildKaraokeChunks(seg);
+    }
+    final cue = karaokeCueAt(_cacheChunks, t);
     // PATCH_S27_FADE_TEXT_ANIMATIONS: stable per-part key so StagePreview only fades when
     // the ayah part actually changes, not on every newly lit word.
     final segmentKey =
@@ -632,10 +653,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 14),
                 _ratioToggle(),
                 const SizedBox(height: 10),
-                StagePreview(
-                  state: state,
-                  videoController: _video,
-                  liveOverride: _liveOverlay,
+                RepaintBoundary(
+                  child: StagePreview(
+                    state: state,
+                    videoController: _video,
+                    liveOverride: _liveOverlay,
+                  ),
                 ),
                 // PATCH_S34_PLAYER_CONTROLS_TRIM
                 if (_video != null && _video!.value.isInitialized) ...[
@@ -874,6 +897,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // PATCH_S34_PLAYER_CONTROLS_TRIM ------------------------------------------
 
+  /// m:ss.t — the timeline editor works in tenths of a second.
+  static String _fmtPrecise(double s) {
+    final tenths = (s * 10).round();
+    final m = tenths ~/ 600;
+    final sec = (tenths % 600) / 10;
+    return '$m:${sec.toStringAsFixed(1).padLeft(4, '0')}';
+  }
+
   static String _fmtSec(double s) {
     final total = s.round();
     final m = total ~/ 60;
@@ -885,63 +916,14 @@ class _HomeScreenState extends State<HomeScreen> {
   /// also pauses/resumes (see StagePreview).
   Widget _transportBar() {
     final c = _video!;
+    final clock = _clock ??= PlayClock(c);
     return _card(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      child: ValueListenableBuilder<VideoPlayerValue>(
-        valueListenable: c,
-        builder: (context, v, _) {
-          final durMs = max(1, v.duration.inMilliseconds);
-          final posMs = v.position.inMilliseconds.clamp(0, durMs);
-          return Row(
-            children: [
-              // PATCH_S36_TIMELINE_EDITOR: jump between detected ayat
-              if (state.timelineActive)
-                IconButton(
-                  onPressed: () => _seekToAdjacentAyah(-1),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 34, minHeight: 40),
-                  icon: const Icon(Icons.skip_previous_outlined,
-                      color: AyatColors.parchmentDim, size: 20),
-                  tooltip: 'الآية السابقة',
-                ),
-              IconButton(
-                onPressed: () => v.isPlaying ? c.pause() : c.play(),
-                icon: Icon(
-                  v.isPlaying
-                      ? Icons.pause_circle_outline
-                      : Icons.play_circle_outline,
-                  color: AyatColors.goldBright,
-                ),
-                tooltip: 'تشغيل/إيقاف',
-              ),
-              if (state.timelineActive)
-                IconButton(
-                  onPressed: () => _seekToAdjacentAyah(1),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 34, minHeight: 40),
-                  icon: const Icon(Icons.skip_next_outlined,
-                      color: AyatColors.parchmentDim, size: 20),
-                  tooltip: 'الآية التالية',
-                ),
-              Text(_fmtSec(posMs / 1000),
-                  style: const TextStyle(
-                      fontSize: 11, color: AyatColors.parchmentDim)),
-              Expanded(
-                child: Slider(
-                  value: posMs.toDouble(),
-                  max: durMs.toDouble(),
-                  onChanged: (x) =>
-                      c.seekTo(Duration(milliseconds: x.round())),
-                ),
-              ),
-              Text(_fmtSec(durMs / 1000),
-                  style: const TextStyle(
-                      fontSize: 11, color: AyatColors.parchmentDim)),
-            ],
-          );
-        },
+      child: TransportBar(
+        controller: c,
+        clock: clock,
+        onPrevAyah: state.timelineActive ? () => _seekToAdjacentAyah(-1) : null,
+        onNextAyah: state.timelineActive ? () => _seekToAdjacentAyah(1) : null,
       ),
     );
   }
@@ -1005,7 +987,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text('سورة ${seg.ayah.surah} — آية ${seg.ayah.num}',
                       style: Theme.of(context).textTheme.bodyLarge),
                   Text(
-                    '${_fmtSec(seg.start)} — ${_fmtSec(seg.end)} · ثقة ${(seg.confidence * 100).round()}٪',
+                    '${_fmtPrecise(seg.start)} — ${_fmtPrecise(seg.end)} · ثقة ${(seg.confidence * 100).round()}٪',
                     style: const TextStyle(
                         fontSize: 10.5, color: AyatColors.parchmentDim),
                   ),
@@ -1042,30 +1024,70 @@ class _HomeScreenState extends State<HomeScreen> {
             return const SizedBox.shrink();
           }
           final seg = state.timeline[i];
+          // PATCH_S38_SMOOTH_EDITING: finer steps, "set to now", and the
+          // preview jumps to the edited edge so you see/hear the result.
+          void previewEdge({required bool isStart}) {
+            final c = _video;
+            if (c == null || !c.value.isInitialized || i >= state.timeline.length) {
+              return;
+            }
+            final sg = state.timeline[i];
+            final target = isStart ? sg.start + 0.03 : max(sg.start, sg.end - 1.2);
+            c.seekTo(Duration(milliseconds: (target * 1000).round()));
+          }
+
           Widget nudgeRow(String label, double value,
-              void Function(double delta) onNudge) {
+              void Function(double delta) onNudge,
+              {required bool isStart}) {
             Widget btn(String text, double d) => OutlinedButton(
                   onPressed: () {
                     onNudge(d);
+                    previewEdge(isStart: isStart);
                     setDialogState(() {});
                   },
                   style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(52, 34),
+                    minimumSize: const Size(44, 34),
                     padding: EdgeInsets.zero,
                     side: const BorderSide(color: AyatColors.hairline),
                   ),
-                  child: Text(text, style: const TextStyle(fontSize: 12)),
+                  child: Text(text, style: const TextStyle(fontSize: 11)),
                 );
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                      child: Text('$label: ${_fmtSec(value)}',
-                          style: Theme.of(context).textTheme.bodyLarge)),
-                  btn('-٠٫٥ث', -0.5),
-                  const SizedBox(width: 6),
-                  btn('+٠٫٥ث', 0.5),
+                  Text('$label: ${_fmtPrecise(value)}',
+                      style: Theme.of(context).textTheme.bodyLarge),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      btn('-٠٫٥', -0.5),
+                      btn('-٠٫١', -0.1),
+                      btn('+٠٫١', 0.1),
+                      btn('+٠٫٥', 0.5),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          final now = _clock?.seconds;
+                          if (now == null) return;
+                          final delta = now - value;
+                          if (delta.abs() < 0.001) return;
+                          onNudge(delta);
+                          setDialogState(() {});
+                        },
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(44, 34),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          side: const BorderSide(color: AyatColors.gold),
+                        ),
+                        icon: const Icon(Icons.my_location, size: 14),
+                        label: const Text('الآن',
+                            style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             );
@@ -1082,12 +1104,14 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 nudgeRow('البداية', seg.start,
-                    (d) => state.nudgeTimelineSegment(i, startDelta: d)),
+                    (d) => state.nudgeTimelineSegment(i, startDelta: d),
+                    isStart: true),
                 nudgeRow('النهاية', seg.end,
-                    (d) => state.nudgeTimelineSegment(i, endDelta: d)),
+                    (d) => state.nudgeTimelineSegment(i, endDelta: d),
+                    isStart: false),
                 const SizedBox(height: 4),
                 Text(
-                  'التعديل يظهر فورًا في المعاينة وفي إضاءة الكلمات، ويلتزم به التصدير.',
+                  'اضغط «الآن» لوضع الحد عند موضع التشغيل الحالي. التعديل يظهر فورًا في المعاينة وفي إضاءة الكلمات، ويلتزم به التصدير.',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
