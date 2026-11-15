@@ -9,15 +9,18 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/studio_state.dart';
+import '../services/play_clock.dart'; // PATCH_S38_SMOOTH_EDITING
 import '../theme/ayat_theme.dart';
 
 class TimelineRibbon extends StatelessWidget {
   final StudioState state;
   final VideoPlayerController controller;
+  final PlayClock? clock; // PATCH_S38_SMOOTH_EDITING: glide between 500 ms position samples
   const TimelineRibbon({
     super.key,
     required this.state,
     required this.controller,
+    this.clock,
   });
 
   void _seekToDx(BuildContext context, double dx) {
@@ -39,22 +42,30 @@ class TimelineRibbon extends StatelessWidget {
           return const SizedBox.shrink();
         }
         final posSec = v.position.inMilliseconds / 1000.0;
+        Widget paint(double playhead) => SizedBox(
+              height: 22,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _RibbonPainter(
+                  timeline: state.timeline,
+                  durationSec: durSec,
+                  playheadSec: playhead,
+                ),
+              ),
+            );
+        final clk = clock;
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => _seekToDx(context, d.localPosition.dx),
           onHorizontalDragUpdate: (d) =>
               _seekToDx(context, d.localPosition.dx),
-          child: SizedBox(
-            height: 22,
-            width: double.infinity,
-            child: CustomPaint(
-              painter: _RibbonPainter(
-                timeline: state.timeline,
-                durationSec: durSec,
-                playheadSec: posSec,
-              ),
-            ),
-          ),
+          child: clk == null
+              ? paint(posSec)
+              : ClockBuilder(
+                  controller: controller,
+                  clock: clk,
+                  builder: (_, sec) => paint(sec),
+                ),
         );
       },
     );

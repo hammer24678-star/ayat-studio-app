@@ -184,6 +184,11 @@ class WhisperService {
         return;
       } catch (e) {
         last = e;
+        // PATCH_S38_SMALL_DETAILS: a 404 means the asset is not published
+        // (e.g. the Quran-tuned tier before prepare-quran-model.yml has run);
+        // retrying can't help, so fall back immediately instead of waiting
+        // through two back-offs and "retry 2/3" messages.
+        if ('$e'.contains('HTTP 404')) break;
         if (attempt < 2) {
           onStatus?.call('انقطع التنزيل — إعادة المحاولة (${attempt + 2}/3)…');
           await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));

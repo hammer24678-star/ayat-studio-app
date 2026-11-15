@@ -18,6 +18,7 @@ import 'package:video_player/video_player.dart';
 import '../data/quran_repository.dart';
 import '../data/studio_presets.dart';
 import '../models/studio_state.dart';
+import '../services/play_clock.dart'; // PATCH_S38_SMOOTH_EDITING
 import '../services/ayah_matcher.dart';
 import '../widgets/quran_text_sheet.dart'; // PATCH_S189_QURAN_TYPE
 import '../widgets/nudge_sheet.dart'; // PATCH_S190_COMFORT
@@ -100,6 +101,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   final ValueNotifier<StageOverlayText?> _liveOverlay = ValueNotifier(null);
   Timer? _syncTimer;
+  // PATCH_S38_SMOOTH_EDITING: interpolated playback position (video_player
+  // only refreshes position every ~500 ms) + scrub state for the seek bar.
+  PlayClock? _clock;
+  bool _scrubbing = false;
+  bool _scrubWasPlaying = false;
+  final ValueNotifier<double> _scrubN = ValueNotifier<double>(0); // drag position, ms
+  int _scrubLastSeek = 0;
 
   bool _busy = false;
   String _busyStatus = '';
@@ -268,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) setState(() {});
     });
     _syncTimer = Timer.periodic(
-        const Duration(milliseconds: 100), (_) => _tickAutoSync());
+        const Duration(milliseconds: 50), (_) => _tickAutoSync());
     // PATCH_S39_PERSISTENT_FONTS: re-register previously imported fonts
     // FIRST, so a persisted fontKey pointing at one of them validates —
     // PATCH_S37_PERSISTENT_SETTINGS then reopens the studio the way it was
@@ -363,6 +371,8 @@ class _HomeScreenState extends State<HomeScreen>
     // State (and a disposed VideoPlayerController) after leaving the studio.
     _syncTimer?.cancel();
     if (_settingsRestored) SettingsService.persist(state);
+    _clock?.dispose(); // PATCH_S38_SMOOTH_EDITING
+    _scrubN.dispose();
     _video?.dispose();
     _reciterPreview?.dispose();
     _liveOverlay.dispose();
@@ -520,6 +530,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (pickedPath == null) return;
     final path = await _keepPicked(pickedPath); // PATCH_S207_KEEP_PICKED
     if (path == null || !mounted) return;
+    _clock?.dispose();
+    _clock = null;
     await _video?.dispose();
     _liveOverlay.value = null;
     // PATCH_S83_SYNC_QOL: playback aids belong to the previous clip
@@ -528,6 +540,7 @@ class _HomeScreenState extends State<HomeScreen>
     _loopSeg = null;
     final controller = VideoPlayerController.file(File(path));
     _video = controller;
+    _clock = PlayClock(controller); // PATCH_S38_SMOOTH_EDITING
     state.setVideo(path);
     try {
       await controller.initialize();
@@ -559,6 +572,8 @@ class _HomeScreenState extends State<HomeScreen>
     if (merged == null || !mounted) return;
     // A new source invalidates any timeline detected against the old one --
     // setVideo already clears it, which is exactly what's wanted here.
+    _clock?.dispose();
+    _clock = null;
     await _video?.dispose();
     _liveOverlay.value = null;
     _playbackSpeed = 1.0;
@@ -566,6 +581,7 @@ class _HomeScreenState extends State<HomeScreen>
     _loopSeg = null;
     final controller = VideoPlayerController.file(File(merged));
     _video = controller;
+    _clock = PlayClock(controller); // PATCH_S38_SMOOTH_EDITING
     state.setVideo(merged);
     try {
       await controller.initialize();
@@ -604,10 +620,13 @@ class _HomeScreenState extends State<HomeScreen>
       return MediaService.mergeVideos(firstPath, secondPath);
     });
     if (merged == null || !mounted) return;
+    _clock?.dispose();
+    _clock = null;
     await _video?.dispose();
     _liveOverlay.value = null;
     final controller = VideoPlayerController.file(File(merged));
     _video = controller;
+    _clock = PlayClock(controller); // PATCH_S38_SMOOTH_EDITING
     state.setVideo(merged);
     try {
       await controller.initialize();
@@ -916,7 +935,7 @@ class _HomeScreenState extends State<HomeScreen>
       _gateTypedText(controller); // PATCH_S183_TEXT_BAR
       return;
     }
-    final t = controller.value.position.inMilliseconds / 1000.0;
+    final t = _clock?.seconds ?? controller.value.position.inMilliseconds / 1000.0;
     // PATCH_S83_SYNC_QOL: loop-one-ayah — once the playhead crosses the end
     // of the ayah it was inside, snap back to that ayah's start. The narrow
     // trigger window means a deliberate manual seek far past the end simply
@@ -3090,10 +3109,13 @@ class _HomeScreenState extends State<HomeScreen>
       );
     });
     if (merged == null || !mounted) return;
+    _clock?.dispose();
+    _clock = null;
     await _video?.dispose();
     _liveOverlay.value = null;
     final controller = VideoPlayerController.file(File(merged));
     _video = controller;
+    _clock = PlayClock(controller); // PATCH_S38_SMOOTH_EDITING
     state.setVideo(merged);
     try {
       await controller.initialize();
@@ -5065,14 +5087,14 @@ class _HomeScreenState extends State<HomeScreen>
         valueListenable: c,
         builder: (context, v, _) {
           final durMs = max(1, v.duration.inMilliseconds);
-          final posMs = v.position.inMilliseconds.clamp(0, durMs);
+          final clock = _clock ??= PlayClock(c);
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (state.timelineActive)
                 Padding(
                   padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
-                  child: TimelineRibbon(state: state, controller: c),
+                  child: TimelineRibbon(state: state, controller: c, clock: _clock),
                   // PATCH_S128: AyahBlocksEditor can replace the ribbon:
                   // AyahBlocksEditor(segs: _segVMs(), durationSec: _clipDur(),
                   //     onChanged: () => state.pushHistory()),
@@ -5168,15 +5190,60 @@ class _HomeScreenState extends State<HomeScreen>
                           size: 20),
                       tooltip: 'تكرار الآية الحالية',
                     ),
-                  Text(_fmtSec(posMs / 1000),
-                      style: const TextStyle(
-                          fontSize: 11, color: AyatColors.parchmentDim)),
+                  // PATCH_S38_SMOOTH_EDITING: the thumb glides (frame-rate clock),
+                  // dragging pauses playback and follows the finger without
+                  // fighting the player, seeks are coalesced (newest wins),
+                  // and playback resumes from the release point.
                   Expanded(
-                    child: Slider(
-                      value: posMs.toDouble(),
-                      max: durMs.toDouble(),
-                      onChanged: (x) =>
-                          c.seekTo(Duration(milliseconds: x.round())),
+                    child: ClockBuilder(
+                      controller: c,
+                      clock: clock,
+                      builder: (context, sec) {
+                        return ValueListenableBuilder<double>(
+                          valueListenable: _scrubN,
+                          builder: (context, scrubMs, _) {
+                        final cur = _scrubbing
+                            ? scrubMs
+                            : (sec * 1000).clamp(0.0, durMs.toDouble());
+                        return Row(children: [
+                          Text(_fmtSec(cur / 1000),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AyatColors.parchmentDim)),
+                          Expanded(
+                            child: Slider(
+                              value: cur.toDouble(),
+                              max: durMs.toDouble(),
+                              onChangeStart: (x) {
+                                _scrubWasPlaying = c.value.isPlaying;
+                                if (_scrubWasPlaying) c.pause();
+                                _scrubbing = true;
+                                _scrubN.value = x;
+                              },
+                              onChanged: (x) {
+                                _scrubN.value = x;
+                                final now = DateTime.now().millisecondsSinceEpoch;
+                                if (now - _scrubLastSeek >= 60) {
+                                  _scrubLastSeek = now;
+                                  _seekCoalesced(x.round());
+                                }
+                              },
+                              onChangeEnd: (x) async {
+                                _seekCoalesced(x.round());
+                                // let the final seek land before the thumb
+                                // goes back to following the player
+                                await Future<void>.delayed(
+                                    const Duration(milliseconds: 120));
+                                if (!mounted) return;
+                                setState(() => _scrubbing = false);
+                                if (_scrubWasPlaying) c.play();
+                              },
+                            ),
+                          ),
+                        ]);
+                          },
+                        );
+                      },
                     ),
                   ),
                   Text(_fmtSec(durMs / 1000),
